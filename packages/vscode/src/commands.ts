@@ -1,0 +1,2793 @@
+import * as vscode from "vscode";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import {
+  exportAccounts,
+  importAccounts,
+  ExportData,
+  ProviderProfile,
+  QuotaInfo,
+  readAuthFile,
+  getModeDisplayName,
+  switchMode,
+} from "@codex-switchbridge/core";
+import { AccountDetailItem, AccountGroupItem, AccountTreeProvider, AccountTreeItem, AccountTreeNode } from "./accountTree";
+import { getRemainingQuotaPercent, isFiveHourQuotaExhausted, rankAutoSwitchCandidates } from "./autoSwitch";
+import { ProviderDetailItem, ProviderTreeItem, ProviderTreeProvider } from "./providerTree";
+import { StatusBarManager } from "./statusBar";
+import { buildCompletedProviderProfile } from "./providerProfile";
+import { RefreshCoordinator } from "./refreshCoordinator";
+import { logError, logInfo, logWarn, showLogs, startPerformanceLog } from "./log";
+import { providerSwitchOptions, shareHistoryAcrossProviders } from "./sharedHistory";
+import {
+  repairSharedHistory,
+  runHistoryInventoryProcess,
+  runHistoryMigrationProcess,
+  selectHistoryMigrationSources,
+} from "./historyReconciliation";
+import {
+  ensureSavedAuthPassphrase,
+  forgetSavedAuthPassphrase,
+  promptAndStoreSavedAuthPassphrase,
+  unlockSavedAuthStorage,
+} from "./storagePassword";
+import {
+  buildProviderProfileForSource,
+  createSavedEntriesSnapshot,
+  getSavedAccountEntry,
+  getSavedCurrentSelection,
+  getSavedProviderEntry,
+  HealedCloudMarker,
+  listSavedAccounts,
+  listSavedProviders,
+  deleteSavedProviderEntry,
+  moveSavedAccountEntry,
+  moveSavedProviderEntry,
+  refreshSavedAccountEntry,
+  renameSavedAccountEntry,
+  removeSavedAccountEntry,
+  restoreCloudAccountPayloadFromProtectedBackup,
+  restoreSavedCurrentSelectionMarker,
+  saveAuthAsAccount,
+  saveCurrentAuthAsAccount,
+  saveProviderProfileToSource,
+  SavedAccountInfo,
+  querySavedAccountQuota,
+  SavedProviderInfo,
+  StorageSource,
+  switchToSavedProviderEntry,
+  useSavedAccountEntry,
+} from "./savedEntries";
+const LOG_PREFIX = "[codex-switchbridge:vscode:commands]";
+const AUTO_SWITCH_ENABLED_CONTEXT_KEY = "codexSwitchBridge.autoSwitchEnabled";
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function logCommandInfo(command: string, event: string, details: Record<string, unknown> = {}): void {
+  logInfo(LOG_PREFIX, `${command}-${event}`, details);
+}
+
+function logCommandWarn(command: string, event: string, details: Record<string, unknown> = {}): void {
+  logWarn(LOG_PREFIX, `${command}-${event}`, details);
+}
+
+function logCommandError(command: string, event: string, details: Record<string, unknown> = {}): void {
+  logError(LOG_PREFIX, `${command}-${event}`, details);
+}
+
+function getUseDeviceAuthForLogin(): boolean {
+  return vscode.workspace
+    .getConfiguration("codex-switchbridge")
+    .get<boolean>("useDeviceAuthForLogin", false);
+}
+
+function isAutoSwitchOnZeroQuotaEnabled(): boolean {
+  return vscode.workspace
+    .getConfiguration("codex-switchbridge")
+    .get<boolean>("autoSwitchOnZeroQuota", false);
+}
+
+function getAutoSwitchCooldownMs(): number {
+  const cooldownSeconds = vscode.workspace
+    .getConfiguration("codex-switchbridge")
+    .get<number>("autoSwitchCooldownSeconds", 90);
+  if (!Number.isFinite(cooldownSeconds)) {
+    return 90_000;
+  }
+  return Math.max(15, cooldownSeconds) * 1000;
+}
+
+function getAutoSwitchCooldownSeconds(): number {
+  return Math.round(getAutoSwitchCooldownMs() / 1000);
+}
+
+async function syncAutoSwitchEnabledContext(): Promise<void> {
+  await vscode.commands.executeCommand(
+    "setContext",
+    AUTO_SWITCH_ENABLED_CONTEXT_KEY,
+    isAutoSwitchOnZeroQuotaEnabled(),
+  );
+}
+
+function getCodexLoginCommand(useDeviceAuth = getUseDeviceAuthForLogin()): string {
+  return useDeviceAuth ? "codex login --device-auth" : "codex login";
+}
+
+function refreshViews(refreshCoordinator: RefreshCoordinator, reason: "manual" | "provider-switch" | "account-switch" | "config-change" = "manual") {
+  const perf = startPerformanceLog(LOG_PREFIX, "command-support:refreshViews");
+  refreshCoordinator.refreshViews(reason);
+  perf.finish();
+}
+
+async function showSyncConflictWarning(message: string) {
+  const action = await vscode.window.showWarningMessage(message, "Refresh List", "Open Settings JSON");
+  if (action === "Refresh List") {
+    await vscode.commands.executeCommand("codex-switchbridge.refreshList");
+    return;
+  }
+  if (action === "Open Settings JSON") {
+    await vscode.commands.executeCommand("workbench.action.openSettingsJson");
+  }
+}
+
+function refreshAll(
+  refreshCoordinator: RefreshCoordinator,
+  targetIds?: Iterable<string>,
+  options: { reason?: "manual" | "provider-switch" | "account-switch"; fullRefresh?: boolean } = {},
+) {
+  const normalizedTargetIds = targetIds ? [...targetIds] : undefined;
+  const perf = startPerformanceLog(LOG_PREFIX, "command-support:refreshAll", {
+    targetCount: normalizedTargetIds?.length ?? null,
+    reason: options.reason ?? "manual",
+  });
+  refreshCoordinator.refreshViews(options.reason ?? "manual");
+  perf.mark("refresh-views");
+  refreshCoordinator.scheduleQuotaRefresh({
+    targetIds: normalizedTargetIds,
+    reason: options.reason ?? "manual",
+    fullRefresh: options.fullRefresh ?? (!normalizedTargetIds || normalizedTargetIds.length === 0),
+  });
+  perf.finish();
+}
+
+async function refreshTokenAndQuota(
+  accountTree: AccountTreeProvider,
+  statusBar: StatusBarManager,
+  accountIds?: Iterable<string>,
+) {
+  const normalizedAccountIds = accountIds ? [...accountIds] : undefined;
+  const perf = startPerformanceLog(LOG_PREFIX, "command-support:refreshTokenAndQuota", {
+    accountCount: normalizedAccountIds?.length ?? null,
+  });
+  const snapshot = createSavedEntriesSnapshot();
+  accountTree.refresh(snapshot);
+  perf.mark("account-tree-refresh");
+  const queryContext = {
+    snapshot,
+    sharedQueries: new Map(),
+  };
+  await Promise.all([
+    accountTree.refreshQuota(normalizedAccountIds, {
+      snapshot,
+      queryContext,
+      reason: "manual",
+      refreshId: "command-refreshTokenAndQuota",
+    }),
+    statusBar.refreshNow({
+      snapshot,
+      queryContext,
+      reason: "manual",
+      refreshId: "command-refreshTokenAndQuota",
+    }),
+  ]);
+  perf.finish();
+}
+
+async function runTimedCommand<T>(
+  operation: string,
+  action: (perf: ReturnType<typeof startPerformanceLog>) => Promise<T>,
+  details: Record<string, unknown> = {},
+): Promise<T> {
+  const perf = startPerformanceLog(LOG_PREFIX, `command:${operation}`, details);
+  try {
+    const result = await action(perf);
+    perf.finish();
+    return result;
+  } catch (error) {
+    perf.fail(error);
+    throw error;
+  }
+}
+
+function getReloadBehavior(): "never" | "statusBar" | "always" {
+  return vscode.workspace
+    .getConfiguration("codex-switchbridge")
+    .get<"never" | "statusBar" | "always">("reloadWindowAfterSwitch", "statusBar");
+}
+
+async function reloadWindow() {
+  await vscode.commands.executeCommand("workbench.action.reloadWindow");
+}
+
+function getHistoryRepairPythonExecutable(): string {
+  const configured = process.env.CODEX_SWITCHBRIDGE_PYTHON?.trim();
+  if (configured) {
+    return configured;
+  }
+  return process.platform === "win32" ? "python" : "python3";
+}
+
+async function maybeReloadWindowAfterSwitch(
+  statusBarManager: StatusBarManager,
+  label: string,
+  kind: "account" | "mode",
+) {
+  const behavior = getReloadBehavior();
+  const noun = kind === "account" ? "account" : "mode";
+  const displayLabel = kind === "mode" ? getModeDisplayName(label) : label;
+  if (behavior === "never") {
+    return;
+  }
+
+  if (behavior === "always") {
+    await reloadWindow();
+    return;
+  }
+
+  statusBarManager.markReloadRecommended(
+    `Switched to ${noun} "${displayLabel}". Reload so Codex picks up the new configuration.`,
+  );
+}
+
+interface AutoSwitchRequest {
+  exhaustedAccountId: string;
+  exhaustedAccountName?: string;
+  refreshId?: string;
+}
+
+interface AutoSwitchState {
+  exhaustedAccountId: string;
+  attemptedAt: number;
+}
+
+async function performAutomaticAccountSwitch(
+  account: SavedAccountInfo,
+  refreshCoordinator: RefreshCoordinator,
+  statusBarManager: StatusBarManager,
+  options: {
+    exhaustedAccountName: string;
+    remainingPercent: number;
+    refreshId?: string;
+  },
+): Promise<boolean> {
+  const result = await useSavedAccountEntry(account);
+  if (!result.success) {
+    logCommandWarn("auto-switch", "switch-failed", {
+      account: account.name,
+      source: account.source,
+      conflict: result.conflict ?? false,
+      message: result.message,
+      refreshId: options.refreshId ?? null,
+    });
+    if (result.conflict) {
+      await showSyncConflictWarning(result.message);
+    } else {
+      void vscode.window.showWarningMessage(result.message);
+    }
+    return false;
+  }
+
+  logCommandInfo("auto-switch", "switched", {
+    fromAccount: options.exhaustedAccountName,
+    toAccount: account.name,
+    source: account.source,
+    remainingPercent: options.remainingPercent,
+    refreshId: options.refreshId ?? null,
+  });
+  void vscode.window.showInformationMessage(
+    `Automatically switched from "${options.exhaustedAccountName}" to "${account.name}" because the active 5h quota hit 0%. "${account.name}" has ${options.remainingPercent}% remaining.`
+  );
+  refreshViews(refreshCoordinator, "account-switch");
+  refreshCoordinator.scheduleQuotaRefresh({
+    targetIds: [account.id],
+    reason: "account-switch",
+  });
+  await maybeReloadWindowAfterSwitch(statusBarManager, account.name, "account");
+  return true;
+}
+
+async function configureAutoSwitchSetting(): Promise<void> {
+  const enabled = isAutoSwitchOnZeroQuotaEnabled();
+  const cooldownSeconds = getAutoSwitchCooldownSeconds();
+  const picked = await vscode.window.showQuickPick(
+    [
+      {
+        label: enabled ? "$(circle-slash) Disable Auto-Switch" : "$(check) Enable Auto-Switch",
+        description: enabled
+          ? "Stop automatic switching when the current 5h quota reaches 0%"
+          : "Automatically switch when the current 5h quota reaches 0%",
+        action: enabled ? "disable" : "enable",
+      },
+      {
+        label: "$(clock) Set Auto-Switch Cooldown",
+        description: `Current cooldown: ${cooldownSeconds}s`,
+        action: "cooldown",
+      },
+      {
+        label: "$(json) Open Settings JSON",
+        description: "Edit the raw extension settings directly",
+        action: "open-settings-json",
+      },
+    ],
+    {
+      placeHolder: `Auto-switch is currently ${enabled ? "enabled" : "disabled"}`,
+    },
+  );
+
+  if (!picked) {
+    return;
+  }
+
+  if (picked.action === "enable" || picked.action === "disable") {
+    await setAutoSwitchEnabled(picked.action === "enable");
+    return;
+  }
+
+  if (picked.action === "cooldown") {
+    const value = await vscode.window.showInputBox({
+      prompt: "Enter the auto-switch cooldown in seconds",
+      value: String(cooldownSeconds),
+      validateInput: (input) => {
+        const parsed = Number(input.trim());
+        if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+          return "Enter a whole number of seconds.";
+        }
+        if (parsed < 15) {
+          return "Cooldown must be at least 15 seconds.";
+        }
+        return null;
+      },
+    });
+    if (!value) {
+      return;
+    }
+
+    const nextCooldown = Number(value.trim());
+    await vscode.workspace.getConfiguration("codex-switchbridge").update(
+      "autoSwitchCooldownSeconds",
+      nextCooldown,
+      vscode.ConfigurationTarget.Global,
+    );
+    void vscode.window.showInformationMessage(
+      `Auto-switch cooldown set to ${nextCooldown} seconds.`
+    );
+    return;
+  }
+
+  await vscode.commands.executeCommand("workbench.action.openSettingsJson");
+}
+
+async function setAutoSwitchEnabled(enabled: boolean): Promise<void> {
+  await vscode.workspace.getConfiguration("codex-switchbridge").update(
+    "autoSwitchOnZeroQuota",
+    enabled,
+    vscode.ConfigurationTarget.Global,
+  );
+  await syncAutoSwitchEnabledContext();
+  void vscode.window.showInformationMessage(
+    `Auto-switch on zero quota ${enabled ? "enabled" : "disabled"}.`
+  );
+}
+
+function showAccountSavedAfterAdd(accountName: string, email?: string) {
+  const savedMessage = email
+    ? `✓ Account "${accountName}" was saved (${email}).`
+    : `✓ Account "${accountName}" was saved.`;
+  void vscode.window.showInformationMessage(
+    `${savedMessage} It is not active yet. Use Switch Account to activate it.`
+  );
+}
+
+async function runCodexLogin(options?: { useDeviceAuth?: boolean }): Promise<boolean> {
+  const useDeviceAuth = options?.useDeviceAuth ?? getUseDeviceAuthForLogin();
+  const loginCommand = getCodexLoginCommand(useDeviceAuth);
+  logCommandInfo("login", "terminal-started", {
+    useDeviceAuth,
+    command: loginCommand,
+  });
+  const terminal = vscode.window.createTerminal("Codex Login");
+  terminal.show();
+  terminal.sendText(loginCommand);
+
+  const message = useDeviceAuth
+    ? `Complete \`${loginCommand}\` in the terminal, then click Done. If Codex says "Enable device code authorization for Codex in ChatGPT Security Settings, then run \\"codex login --device-auth\\" again.", enable it in ChatGPT Security Settings first.`
+    : `Complete \`${loginCommand}\` in the terminal, then click Done.`;
+
+  const action = await vscode.window.showInformationMessage(message, "Done", "Cancel");
+  logCommandInfo("login", action === "Done" ? "confirmed" : "cancelled", {
+    useDeviceAuth,
+  });
+
+  return action === "Done";
+}
+
+async function runTransientCodexLogin(options?: { useDeviceAuth?: boolean }) {
+  const useDeviceAuth = options?.useDeviceAuth ?? getUseDeviceAuthForLogin();
+  const loginCommand = getCodexLoginCommand(useDeviceAuth);
+  const tempCodexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-switchbridge-login-"));
+  logCommandInfo("login", "terminal-started", {
+    useDeviceAuth,
+    command: loginCommand,
+    transient: true,
+  });
+
+  try {
+    const terminal = vscode.window.createTerminal({
+      name: "Codex Login",
+      env: {
+        CODEX_HOME: tempCodexHome,
+      },
+    });
+    terminal.show();
+    terminal.sendText(loginCommand);
+
+    const message = useDeviceAuth
+      ? `Complete \`${loginCommand}\` in the terminal, then click Done. If Codex says "Enable device code authorization for Codex in ChatGPT Security Settings, then run \\"codex login --device-auth\\" again.", enable it in ChatGPT Security Settings first.`
+      : `Complete \`${loginCommand}\` in the terminal, then click Done.`;
+
+    const action = await vscode.window.showInformationMessage(message, "Done", "Cancel");
+    logCommandInfo("login", action === "Done" ? "confirmed" : "cancelled", {
+      useDeviceAuth,
+      transient: true,
+    });
+
+    if (action !== "Done") {
+      return { completed: false, auth: null };
+    }
+
+    return {
+      completed: true,
+      auth: readAuthFile(path.join(tempCodexHome, "auth.json")),
+    };
+  } finally {
+    fs.rmSync(tempCodexHome, { recursive: true, force: true });
+  }
+}
+
+function getSourceLabel(source: StorageSource): string {
+  return source === "cloud" ? "cloud" : "local";
+}
+
+function formatHealedMarkerMessage(healedMarker: HealedCloudMarker): string {
+  const entryType = healedMarker.kind === "provider" ? "provider" : "account";
+  return `Detected newer synced cloud ${entryType} metadata for "${healedMarker.name}". `
+    + `Refreshed the local selection marker from version ${healedMarker.previousEntryVersion ?? "unknown"} `
+    + `to ${healedMarker.currentEntryVersion ?? "unknown"} and continued switching.`;
+}
+
+function formatAccountChoice(account: SavedAccountInfo): string {
+  const parts = [account.meta?.email ?? account.publicEmail ?? "unknown"];
+  if (account.meta?.plan) {
+    parts.push(account.meta.plan);
+  }
+  return `${parts.join(" · ")} · ${getSourceLabel(account.source)}`;
+}
+
+function formatProviderChoice(provider: SavedProviderInfo): string {
+  const parts = [getSourceLabel(provider.source)];
+  if (provider.locked) {
+    parts.push("locked");
+  } else if (provider.invalid) {
+    parts.push("invalid");
+  }
+  return parts.join(" · ");
+}
+
+interface RefreshTokenSelection {
+  all: boolean;
+  accounts: SavedAccountInfo[];
+}
+
+interface RefreshTokenQuickPickItem extends vscode.QuickPickItem {
+  selection: RefreshTokenSelection;
+}
+
+interface RefreshTokenOperationOutcome {
+  account: SavedAccountInfo;
+  status: "success" | "conflict" | "unsupported" | "reloginRequired" | "failed" | "unavailable";
+  message: string;
+}
+
+function resolveAccountFromItem(item?: AccountTreeItem): SavedAccountInfo | undefined {
+  const account = item?.account;
+  if (!account) {
+    return undefined;
+  }
+  if (account.source === "local" || account.source === "cloud") {
+    return account;
+  }
+  return getSavedAccountEntry(account.name, "local") ?? getSavedAccountEntry(account.name, "cloud") ?? undefined;
+}
+
+function getRefreshTargetAccountName(item?: unknown): string | undefined {
+  if (item instanceof AccountDetailItem) {
+    return item.parent?.account.name;
+  }
+  return resolveAccountFromItem(item as AccountTreeItem | undefined)?.name;
+}
+
+async function unlockStorageIfNeeded(
+  context: vscode.ExtensionContext,
+  refreshCoordinator: RefreshCoordinator,
+): Promise<boolean> {
+  const result = await unlockSavedAuthStorage(context);
+  if (result === "cancelled") {
+    return false;
+  }
+  refreshAll(refreshCoordinator);
+  return true;
+}
+
+async function ensureAccountAvailable(
+  context: vscode.ExtensionContext,
+  refreshCoordinator: RefreshCoordinator,
+  account: SavedAccountInfo,
+  options: {
+    silentUnavailable?: boolean;
+  } = {},
+): Promise<SavedAccountInfo | undefined> {
+  if (account.storageState === "ready") {
+    return account;
+  }
+
+  if (account.storageState === "locked") {
+    const unlocked = await unlockStorageIfNeeded(context, refreshCoordinator);
+    if (!unlocked) {
+      return undefined;
+    }
+
+    const refreshed = getSavedAccountEntry(account.name, account.source);
+    if (refreshed?.storageState === "ready") {
+      return refreshed;
+    }
+
+    account = refreshed ?? account;
+  }
+
+  if (!options.silentUnavailable) {
+    vscode.window.showErrorMessage(account.storageMessage ?? `Saved account "${account.name}" is unavailable.`);
+  }
+  return undefined;
+}
+
+async function ensureProviderAvailable(
+  context: vscode.ExtensionContext,
+  refreshCoordinator: RefreshCoordinator,
+  provider: SavedProviderInfo,
+): Promise<SavedProviderInfo | undefined> {
+  if (!provider.locked) {
+    return provider;
+  }
+
+  const unlocked = await unlockStorageIfNeeded(context, refreshCoordinator);
+  if (!unlocked) {
+    return undefined;
+  }
+
+  const refreshed = getSavedProviderEntry(provider.name, provider.source);
+  if (refreshed && !refreshed.locked) {
+    return refreshed;
+  }
+
+  vscode.window.showErrorMessage(
+    (refreshed ?? provider).storageMessage ?? `Provider "${provider.name}" is unavailable.`
+  );
+  return undefined;
+}
+
+async function pickSavedAccount(item: AccountTreeItem | undefined, placeHolder: string): Promise<SavedAccountInfo | undefined> {
+  const existing = resolveAccountFromItem(item);
+  if (existing) {
+    return existing;
+  }
+
+  const accounts = listSavedAccounts();
+  if (accounts.length === 0) {
+    vscode.window.showWarningMessage("No saved accounts");
+    return undefined;
+  }
+
+  const picked = await vscode.window.showQuickPick(
+    accounts.map((account) => ({
+      label: account.isCurrent ? `$(pass-filled) ${account.name}` : account.name,
+      description: formatAccountChoice(account),
+      account,
+    })),
+    { placeHolder },
+  );
+
+  return picked?.account;
+}
+
+async function pickSavedAccountsForRefreshToken(
+  item: AccountTreeItem | undefined,
+  placeHolder: string,
+): Promise<RefreshTokenSelection | undefined> {
+  const existing = resolveAccountFromItem(item);
+  if (existing) {
+    return {
+      all: false,
+      accounts: [existing],
+    };
+  }
+
+  const accounts = listSavedAccounts();
+  if (accounts.length === 0) {
+    vscode.window.showWarningMessage("No saved accounts");
+    return undefined;
+  }
+
+  const items: RefreshTokenQuickPickItem[] = [
+    {
+      label: "All",
+      description: "Refresh token and quota for all accounts",
+      selection: {
+        all: true,
+        accounts,
+      },
+    },
+    ...accounts.map((account) => ({
+      label: account.isCurrent ? `$(pass-filled) ${account.name}` : account.name,
+      description: formatAccountChoice(account),
+      selection: {
+        all: false,
+        accounts: [account],
+      },
+    })),
+  ];
+
+  const picked = await vscode.window.showQuickPick(items, { placeHolder });
+  return picked?.selection;
+}
+
+async function pickSavedProvider(item: ProviderTreeItem | undefined, placeHolder: string): Promise<SavedProviderInfo | undefined> {
+  if (item) {
+    return item.provider;
+  }
+
+  const providers = listSavedProviders();
+  if (providers.length === 0) {
+    vscode.window.showWarningMessage("No saved providers");
+    return undefined;
+  }
+
+  const picked = await vscode.window.showQuickPick(
+    providers.map((provider) => ({
+      label: provider.isCurrent ? `$(plug) ${getModeDisplayName(provider.name)}` : getModeDisplayName(provider.name),
+      description: formatProviderChoice(provider),
+      provider,
+    })),
+    { placeHolder },
+  );
+
+  return picked?.provider;
+}
+
+function exitProviderModeForLogin(): { previousSelection: ReturnType<typeof getSavedCurrentSelection>; switched: boolean } | null {
+  const previousSelection = getSavedCurrentSelection();
+  if (previousSelection.kind !== "provider") {
+    return { previousSelection, switched: false };
+  }
+
+  const switched = switchMode("account");
+  if (!switched.success) {
+    logCommandWarn("login", "exit-provider-mode-failed", {
+      provider: previousSelection.name,
+      source: previousSelection.source,
+      message: switched.message,
+    });
+    void vscode.window.showErrorMessage(switched.message);
+    return null;
+  }
+
+  logCommandInfo("login", "exited-provider-mode", {
+    provider: previousSelection.name,
+    source: previousSelection.source,
+  });
+  void vscode.window.showInformationMessage(
+    `Exited provider mode "${getModeDisplayName(previousSelection.name)}" before login so Codex can create an account auth.json.`
+  );
+  return { previousSelection, switched: true };
+}
+
+async function restoreProviderModeAfterFailedLogin(previousSelection: ReturnType<typeof getSavedCurrentSelection>, switched: boolean) {
+  if (!switched || previousSelection.kind !== "provider") {
+    return;
+  }
+
+  const restored =
+    previousSelection.source === "local"
+      ? switchMode(
+          previousSelection.name,
+          providerSwitchOptions("account", `provider:local:${previousSelection.name}`),
+        )
+      : await switchToSavedProviderEntry(
+          getSavedProviderEntry(previousSelection.name, "cloud") ?? {
+            id: `cloud:${previousSelection.name}`,
+            name: previousSelection.name,
+            source: "cloud",
+            isCurrent: false,
+            invalid: true,
+            locked: false,
+            pending: false,
+            encrypted: false,
+            auth: {},
+            config: {},
+            profile: null,
+            syncVersion: null,
+            syncUpdatedAt: null,
+            lastWriterAction: null,
+          },
+        );
+  if (!restored.success) {
+    void vscode.window.showWarningMessage(
+      `Restoring mode "${getModeDisplayName(previousSelection.name)}" failed: ${restored.message}`
+    );
+  }
+}
+
+async function promptLoginMethod(
+  message: string,
+  defaultActionLabel: string
+): Promise<"default" | "device-auth" | "cancel"> {
+  const action = await vscode.window.showWarningMessage(
+    message,
+    defaultActionLabel,
+    "Use Device Auth",
+    "Cancel"
+  );
+
+  if (action === defaultActionLabel) {
+    return "default";
+  }
+  if (action === "Use Device Auth") {
+    return "device-auth";
+  }
+  return "cancel";
+}
+
+async function pickModeAction(): Promise<
+  | { action: "switch"; provider: SavedProviderInfo | null }
+  | { action: "create"; source: StorageSource }
+  | undefined
+> {
+  const currentSelection = getSavedCurrentSelection();
+  const providers = listSavedProviders();
+  const items = [
+    {
+      label: currentSelection.kind === "account" ? "$(check) Account Mode" : "Account Mode",
+      description: "Use saved account auth",
+      action: "switch" as const,
+      provider: null,
+    },
+    ...providers.map((provider) => ({
+      label:
+        currentSelection.kind === "provider"
+          && currentSelection.name === provider.name
+          && currentSelection.source === provider.source
+          ? `$(check) ${getModeDisplayName(provider.name)}`
+          : getModeDisplayName(provider.name),
+      description: formatProviderChoice(provider),
+      action: "switch" as const,
+      provider,
+    })),
+    {
+      label: "$(add) New Provider (Local)",
+      description: "Create a local provider profile",
+      action: "create" as const,
+      source: "local" as const,
+    },
+    {
+      label: "$(add) New Provider (Cloud)",
+      description: "Create a synced provider profile",
+      action: "create" as const,
+      source: "cloud" as const,
+    },
+  ];
+
+  const picked = await vscode.window.showQuickPick(items, {
+    placeHolder: "Select a mode to switch to",
+  });
+  if (!picked) {
+    return undefined;
+  }
+  if (picked.action === "create") {
+    return { action: "create", source: picked.source };
+  }
+  return { action: "switch", provider: picked.provider };
+}
+
+async function switchSavedProviderForCommand(
+  context: vscode.ExtensionContext,
+  refreshCoordinator: RefreshCoordinator,
+  statusBarManager: StatusBarManager,
+  provider: SavedProviderInfo,
+  logScope: string,
+): Promise<boolean> {
+  if (provider.locked) {
+    const availableProvider = await ensureProviderAvailable(context, refreshCoordinator, provider);
+    if (!availableProvider) {
+      return false;
+    }
+    provider = availableProvider;
+  }
+
+  if (provider.locked) {
+    return false;
+  }
+
+  if (provider.invalid || !provider.profile) {
+    const created = await ensureProviderProfileWithExpectedVersion(
+      provider.name,
+      provider.source,
+      provider.syncVersion,
+      provider.syncUpdatedAt,
+    );
+    if (!created) {
+      return false;
+    }
+  }
+
+  const savedProvider = getSavedProviderEntry(provider.name, provider.source);
+  if (!savedProvider) {
+    logCommandError(logScope, "provider-unavailable", {
+      provider: provider.name,
+      source: provider.source,
+    });
+    vscode.window.showErrorMessage(`Provider "${provider.name}" is unavailable.`);
+    return false;
+  }
+
+  const result = await switchToSavedProviderEntry(savedProvider);
+  if (!result.success) {
+    logCommandWarn(logScope, "provider-switch-failed", {
+      provider: savedProvider.name,
+      source: savedProvider.source,
+      conflict: result.conflict ?? false,
+      message: result.message,
+    });
+    if (result.conflict) {
+      await showSyncConflictWarning(result.message);
+    } else {
+      vscode.window.showErrorMessage(result.message);
+    }
+    return false;
+  }
+
+  logCommandInfo(logScope, "provider-switched", {
+    provider: savedProvider.name,
+    source: savedProvider.source,
+  });
+  if (result.healedMarker) {
+    vscode.window.showInformationMessage(formatHealedMarkerMessage(result.healedMarker));
+  }
+  vscode.window.showInformationMessage(`✓ ${result.message}`);
+  refreshAll(refreshCoordinator, undefined, {
+    reason: "provider-switch",
+    fullRefresh: false,
+  });
+  await maybeReloadWindowAfterSwitch(statusBarManager, savedProvider.name, "mode");
+  return true;
+}
+
+async function restoreSelectionAfterLogin(
+  previousSelection: ReturnType<typeof getSavedCurrentSelection>,
+  targetAccount: SavedAccountInfo,
+) {
+  if (
+    previousSelection.kind === "account"
+    && previousSelection.name === targetAccount.name
+    && previousSelection.source === targetAccount.source
+  ) {
+    return { restored: false, restoredLabel: undefined as string | undefined };
+  }
+
+  if (previousSelection.kind === "account") {
+    const previousAccount = getSavedAccountEntry(previousSelection.name, previousSelection.source);
+    if (!previousAccount) {
+      return { restored: false, restoredLabel: undefined as string | undefined };
+    }
+    const restored = await useSavedAccountEntry(previousAccount);
+    if (!restored.success) {
+      vscode.window.showWarningMessage(
+        `Saved account "${targetAccount.name}" was updated, but restoring account "${previousSelection.name}" failed: ${restored.message}`,
+      );
+      return { restored: false, restoredLabel: undefined as string | undefined };
+    }
+    return { restored: true, restoredLabel: `${previousSelection.name} (${getSourceLabel(previousSelection.source)})` };
+  }
+
+  if (previousSelection.kind === "provider") {
+    const previousProvider = getSavedProviderEntry(previousSelection.name, previousSelection.source);
+    if (!previousProvider) {
+      return { restored: false, restoredLabel: undefined as string | undefined };
+    }
+    const restored = await switchToSavedProviderEntry(previousProvider);
+    if (!restored.success) {
+      vscode.window.showWarningMessage(
+        `Saved account "${targetAccount.name}" was updated, but restoring mode "${getModeDisplayName(previousSelection.name)}" failed: ${restored.message}`,
+      );
+      return { restored: false, restoredLabel: undefined as string | undefined };
+    }
+    return {
+      restored: true,
+      restoredLabel: getModeDisplayName(previousSelection.name),
+    };
+  }
+
+  return { restored: false, restoredLabel: undefined as string | undefined };
+}
+
+function refreshFailureSupportsRelogin(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("refresh_token_reused")
+    || normalized.includes("refresh_token_invalidated")
+    || normalized.includes("has been invalidated")
+    || normalized.includes("sign in again")
+  );
+}
+
+async function promptForAccountRename(account: SavedAccountInfo): Promise<string | undefined> {
+  return vscode.window.showInputBox({
+    prompt: `Rename account "${account.name}"`,
+    placeHolder: "Enter a new account name",
+    value: account.name,
+    validateInput: (value) => {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return "Name is required";
+      }
+      if (trimmed === account.name) {
+        return "Enter a different name";
+      }
+      if (listSavedAccounts().some((candidate) => candidate.source === account.source && candidate.name === trimmed)) {
+        return `Account "${trimmed}" already exists`;
+      }
+      return null;
+    },
+  });
+}
+
+async function askRequiredValue(options: {
+  prompt: string;
+  placeHolder: string;
+  value?: string;
+  password?: boolean;
+}): Promise<string | undefined> {
+  return vscode.window.showInputBox({
+    ignoreFocusOut: true,
+    prompt: options.prompt,
+    placeHolder: options.placeHolder,
+    value: options.value,
+    password: options.password,
+    validateInput: (value) => (value.trim() ? null : "Value is required"),
+  });
+}
+
+async function ensureProviderProfile(name: string, source: StorageSource): Promise<ProviderProfile | null> {
+  return ensureProviderProfileWithExpectedVersion(name, source);
+}
+
+async function promptForProviderName(): Promise<string | undefined> {
+  const name = await vscode.window.showInputBox({
+    ignoreFocusOut: true,
+    prompt: "Enter a name for the new provider",
+    placeHolder: "e.g. my-proxy, local-api",
+    validateInput: (v) => {
+      const trimmed = v.trim();
+      if (!trimmed) return "Name is required";
+      if (trimmed === "account") return '"account" is reserved';
+      if (!/^[a-zA-Z0-9_\-]+$/.test(trimmed)) return "Only letters, numbers, hyphens and underscores are allowed";
+      return null;
+    },
+  });
+  return name?.trim() || undefined;
+}
+
+async function ensureProviderProfileWithExpectedVersion(
+  name: string,
+  source: StorageSource,
+  expectedEntryVersion?: number | null,
+  expectedUpdatedAt?: string | null,
+): Promise<ProviderProfile | null> {
+  const existing = getSavedProviderEntry(name, source);
+  const defaults = await buildProviderProfileForSource(name, source);
+  const draft = {
+    auth: defaults.auth as Record<string, unknown>,
+    config: defaults.config as unknown as Record<string, unknown>,
+    exists: Boolean(existing),
+    invalid: false,
+  };
+
+  const apiKey = await askRequiredValue({
+    prompt: `Configure provider "${name}": OPENAI_API_KEY`,
+    placeHolder: "sk-...",
+    value: typeof defaults.auth.OPENAI_API_KEY === "string" ? defaults.auth.OPENAI_API_KEY : undefined,
+    password: true,
+  });
+  if (!apiKey) {
+    return null;
+  }
+
+  const baseUrl = await askRequiredValue({
+    prompt: `Configure provider "${name}": base_url`,
+    placeHolder: "https://api.example.com/v1",
+    value: defaults.config.base_url || undefined,
+  });
+  if (!baseUrl) {
+    return null;
+  }
+
+  const wireApi = await askRequiredValue({
+    prompt: `Configure provider "${name}": wire_api`,
+    placeHolder: defaults.config.wire_api,
+    value: defaults.config.wire_api,
+  });
+  if (!wireApi) {
+    return null;
+  }
+
+  const profile = buildCompletedProviderProfile(name, defaults, draft, {
+    apiKey,
+    baseUrl,
+    wireApi,
+  });
+
+  const saveResult = await saveProviderProfileToSource(profile, source, {
+    expectedEntryVersion: source === "cloud" && expectedEntryVersion === undefined
+      ? null
+      : expectedEntryVersion,
+    expectedUpdatedAt: source === "cloud" && expectedEntryVersion === undefined
+      ? null
+      : expectedUpdatedAt,
+  });
+  if (!saveResult.success) {
+    if (saveResult.conflict) {
+      await showSyncConflictWarning(saveResult.message);
+    } else {
+      vscode.window.showErrorMessage(saveResult.message);
+    }
+    return null;
+  }
+  vscode.window.showInformationMessage(
+    `${draft.exists ? "Updated" : "Created"} provider profile for "${name}" in ${getSourceLabel(source)} storage.`,
+  );
+  return profile;
+}
+
+export function registerCommands(
+  context: vscode.ExtensionContext,
+  accountTree: AccountTreeProvider,
+  providerTree: ProviderTreeProvider,
+  statusBar: StatusBarManager,
+  accountTreeView: vscode.TreeView<AccountTreeNode>,
+  refreshCoordinator: RefreshCoordinator,
+) {
+  let autoSwitchInFlight: Promise<void> | null = null;
+  let lastAutoSwitchState: AutoSwitchState | null = null;
+  void syncAutoSwitchEnabledContext();
+
+  const autoSwitchConfigListener = vscode.workspace.onDidChangeConfiguration((e) => {
+    if (
+      e.affectsConfiguration("codex-switchbridge.autoSwitchOnZeroQuota")
+      || e.affectsConfiguration("codex-switchbridge.autoSwitchCooldownSeconds")
+    ) {
+      void syncAutoSwitchEnabledContext();
+    }
+  });
+
+  context.subscriptions.push(
+    autoSwitchConfigListener,
+    vscode.commands.registerCommand("codex-switchbridge.maybeAutoSwitchExhaustedAccount", async (request?: AutoSwitchRequest) => {
+      if (!isAutoSwitchOnZeroQuotaEnabled() || !request?.exhaustedAccountId) {
+        return;
+      }
+
+      if (autoSwitchInFlight) {
+        logCommandInfo("auto-switch", "skip-inflight", {
+          exhaustedAccountId: request.exhaustedAccountId,
+          refreshId: request.refreshId ?? null,
+        });
+        return;
+      }
+
+      const now = Date.now();
+      if (
+        lastAutoSwitchState
+        && lastAutoSwitchState.exhaustedAccountId === request.exhaustedAccountId
+        && now - lastAutoSwitchState.attemptedAt < getAutoSwitchCooldownMs()
+      ) {
+        logCommandInfo("auto-switch", "skip-cooldown", {
+          exhaustedAccountId: request.exhaustedAccountId,
+          refreshId: request.refreshId ?? null,
+        });
+        return;
+      }
+
+      const run = (async () => {
+        lastAutoSwitchState = {
+          exhaustedAccountId: request.exhaustedAccountId,
+          attemptedAt: now,
+        };
+
+        const snapshot = createSavedEntriesSnapshot();
+        const selection = getSavedCurrentSelection(snapshot);
+        if (selection.kind !== "account") {
+          lastAutoSwitchState = null;
+          return;
+        }
+
+        const currentAccount = snapshot.bySourceAndName.get(`${selection.source}:${selection.name}`);
+        if (!currentAccount || currentAccount.id !== request.exhaustedAccountId || currentAccount.storageState !== "ready") {
+          lastAutoSwitchState = null;
+          return;
+        }
+
+        const currentResult = await querySavedAccountQuota(
+          currentAccount,
+          {
+            snapshot,
+            sharedQueries: new Map(),
+          },
+          {
+            reason: "auto-switch",
+            forceFetch: true,
+            allowCachedFallback: false,
+          },
+        );
+        if (currentResult.kind !== "ok" || currentResult.info.unavailableReason || !isFiveHourQuotaExhausted(currentResult.info)) {
+          lastAutoSwitchState = null;
+          return;
+        }
+
+        const candidates = snapshot.accounts.filter((account) => (
+          account.id !== currentAccount.id
+          && account.storageState === "ready"
+        ));
+
+        const rankedCandidates = rankAutoSwitchCandidates(
+          (await Promise.all(candidates.map(async (candidate) => {
+            try {
+              const result = await querySavedAccountQuota(
+                candidate,
+                {
+                  snapshot,
+                  sharedQueries: new Map(),
+                },
+                {
+                  reason: "auto-switch",
+                  forceFetch: true,
+                  allowCachedFallback: false,
+                },
+              );
+              if (result.kind !== "ok" || result.info.unavailableReason) {
+                return null;
+              }
+              return {
+                candidate,
+                info: result.info,
+              };
+            } catch (error) {
+              logCommandWarn("auto-switch", "candidate-query-failed", {
+                account: candidate.name,
+                source: candidate.source,
+                error: toErrorMessage(error),
+                refreshId: request.refreshId ?? null,
+              });
+              return null;
+            }
+          }))).filter((entry): entry is { candidate: SavedAccountInfo; info: QuotaInfo } => entry != null),
+        );
+
+        if (rankedCandidates.length === 0) {
+          logCommandWarn("auto-switch", "no-eligible-candidate", {
+            exhaustedAccount: currentAccount.name,
+            refreshId: request.refreshId ?? null,
+          });
+          void vscode.window.showWarningMessage(
+            `"${currentAccount.name}" hit 0% remaining in the 5h window, and no other saved account currently has 5h quota left.`
+          );
+          return;
+        }
+
+        const latestSnapshot = createSavedEntriesSnapshot();
+        const latestSelection = getSavedCurrentSelection(latestSnapshot);
+        const latestCurrentAccount = latestSelection.kind === "account"
+          ? latestSnapshot.bySourceAndName.get(`${latestSelection.source}:${latestSelection.name}`)
+          : null;
+        if (!latestCurrentAccount || latestCurrentAccount.id !== currentAccount.id) {
+          lastAutoSwitchState = null;
+          return;
+        }
+
+        const bestCandidate = rankedCandidates[0];
+        const switched = await performAutomaticAccountSwitch(bestCandidate.candidate, refreshCoordinator, statusBar, {
+          exhaustedAccountName: request.exhaustedAccountName ?? currentAccount.name,
+          remainingPercent: getRemainingQuotaPercent(bestCandidate.window),
+          refreshId: request.refreshId,
+        });
+        if (switched) {
+          lastAutoSwitchState = null;
+        }
+      })().finally(() => {
+        autoSwitchInFlight = null;
+      });
+
+      autoSwitchInFlight = run;
+      await run;
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.enableAutoSwitch", async () => {
+      await setAutoSwitchEnabled(true);
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.disableAutoSwitch", async () => {
+      await setAutoSwitchEnabled(false);
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.addAccount", async () => {
+      await runTimedCommand("addAccount", async (perf) => {
+        const name = await vscode.window.showInputBox({
+          prompt: "Enter an account name",
+          placeHolder: "For example: work, personal",
+          validateInput: (v) => (v.trim() ? null : "Name is required"),
+        });
+        if (!name) return;
+
+        const trimmedName = name.trim();
+        const target: StorageSource = vscode.workspace
+          .getConfiguration("codex-switchbridge")
+          .get<StorageSource>("defaultSaveTarget", "local");
+        perf.mark("collect-account-name", {
+          account: trimmedName,
+          target,
+        });
+        logCommandInfo("add-account", "started", {
+          account: trimmedName,
+          target,
+        });
+        if (target === "cloud" && !(await ensureSavedAuthPassphrase(context))) {
+          logCommandWarn("add-account", "missing-storage-password", {
+            account: trimmedName,
+          });
+          vscode.window.showWarningMessage("Cloud storage requires a local storage password.");
+          return;
+        }
+
+        const existing = getSavedAccountEntry(trimmedName, target);
+        perf.mark("lookup-existing-account", {
+          exists: Boolean(existing),
+        });
+        if (existing) {
+          if (existing.storageState !== "ready") {
+            logCommandWarn("add-account", "existing-account-unavailable", {
+              account: trimmedName,
+              target,
+              storageState: existing.storageState,
+              message: existing.storageMessage,
+            });
+            vscode.window.showErrorMessage(existing.storageMessage ?? `Saved account "${trimmedName}" is unavailable.`);
+            return;
+          }
+
+          const refreshResult = await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: `Refreshing token for "${trimmedName}"...` },
+            async () => refreshSavedAccountEntry(existing),
+          );
+          perf.mark("refresh-existing-account", {
+            success: refreshResult.success,
+          });
+          if (refreshResult.success) {
+            logCommandInfo("add-account", "existing-account-refreshed", {
+              account: trimmedName,
+              target,
+            });
+            await refreshTokenAndQuota(accountTree, statusBar, existing.id);
+            vscode.window.showInformationMessage(`Account "${trimmedName}" already exists in ${getSourceLabel(target)} storage. Token refreshed.`);
+            refreshAll(refreshCoordinator);
+            return;
+          }
+
+          logCommandWarn("add-account", "existing-account-refresh-failed", {
+            account: trimmedName,
+            target,
+            message: refreshResult.message,
+          });
+          const overwriteMethod = await promptLoginMethod(
+            `Account "${trimmedName}" already exists in ${getSourceLabel(target)} storage and token refresh failed. Start login and overwrite it?`,
+            "Login and overwrite",
+          );
+          if (overwriteMethod === "cancel") {
+            logCommandInfo("add-account", "overwrite-cancelled", {
+              account: trimmedName,
+              target,
+            });
+            return;
+          }
+
+          const previousSelection = getSavedCurrentSelection();
+          const loginResult = await runTransientCodexLogin({ useDeviceAuth: overwriteMethod === "device-auth" });
+          if (!loginResult.completed) {
+            logCommandInfo("add-account", "login-cancelled", {
+              account: trimmedName,
+              target,
+              overwrite: true,
+            });
+            await restoreSavedCurrentSelectionMarker(previousSelection);
+            return;
+          }
+          if (!loginResult.auth) {
+            await restoreSavedCurrentSelectionMarker(previousSelection);
+            vscode.window.showErrorMessage("auth.json was not found after login. Failed to add account.");
+            return;
+          }
+
+          const result = await saveAuthAsAccount(loginResult.auth, trimmedName, target, {
+            expectedEntryVersion: existing.syncVersion,
+            expectedUpdatedAt: existing.syncUpdatedAt,
+            selectAfterSave: false,
+          });
+          if (result.success) {
+            logCommandInfo("add-account", "saved", {
+              account: trimmedName,
+              target,
+              overwrite: true,
+              email: result.meta?.email ?? null,
+            });
+            await restoreSavedCurrentSelectionMarker(previousSelection);
+            refreshAll(refreshCoordinator);
+            showAccountSavedAfterAdd(trimmedName, result.meta?.email);
+          } else {
+            await restoreSavedCurrentSelectionMarker(previousSelection);
+            logCommandWarn("add-account", "save-failed", {
+              account: trimmedName,
+              target,
+              overwrite: true,
+              conflict: result.conflict ?? false,
+              message: result.message,
+            });
+            if (result.conflict) {
+              await showSyncConflictWarning(result.message);
+            } else {
+              vscode.window.showErrorMessage(result.message);
+            }
+          }
+          return;
+        }
+
+        const loginMethod = await promptLoginMethod(
+          `Add account "${trimmedName}" to ${getSourceLabel(target)} storage. Use device auth for this login?`,
+          "Login",
+        );
+        if (loginMethod === "cancel") {
+          logCommandInfo("add-account", "cancelled-before-login", {
+            account: trimmedName,
+            target,
+          });
+          return;
+        }
+
+        const previousSelection = getSavedCurrentSelection();
+        const loginResult = await runTransientCodexLogin({ useDeviceAuth: loginMethod === "device-auth" });
+        if (!loginResult.completed) {
+          logCommandInfo("add-account", "login-cancelled", {
+            account: trimmedName,
+            target,
+            overwrite: false,
+          });
+          await restoreSavedCurrentSelectionMarker(previousSelection);
+          return;
+        }
+        if (!loginResult.auth) {
+          await restoreSavedCurrentSelectionMarker(previousSelection);
+          vscode.window.showErrorMessage("auth.json was not found after login. Failed to add account.");
+          return;
+        }
+
+        const result = await saveAuthAsAccount(loginResult.auth, trimmedName, target, {
+          expectedEntryVersion: target === "cloud" ? null : undefined,
+          expectedUpdatedAt: target === "cloud" ? null : undefined,
+          selectAfterSave: false,
+        });
+        if (result.success) {
+          logCommandInfo("add-account", "saved", {
+            account: trimmedName,
+            target,
+            overwrite: false,
+            email: result.meta?.email ?? null,
+          });
+          await restoreSavedCurrentSelectionMarker(previousSelection);
+          refreshAll(refreshCoordinator);
+          showAccountSavedAfterAdd(trimmedName, result.meta?.email);
+        } else {
+          await restoreSavedCurrentSelectionMarker(previousSelection);
+          logCommandWarn("add-account", "save-failed", {
+            account: trimmedName,
+            target,
+            overwrite: false,
+            conflict: result.conflict ?? false,
+            message: result.message,
+          });
+          if (result.conflict) {
+            await showSyncConflictWarning(result.message);
+          } else {
+            vscode.window.showErrorMessage(result.message);
+          }
+        }
+      });
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.addProvider", async () => {
+      await runTimedCommand("addProvider", async (perf) => {
+        const target: StorageSource = vscode.workspace
+          .getConfiguration("codex-switchbridge")
+          .get<StorageSource>("defaultSaveTarget", "local");
+        const targetName = await promptForProviderName();
+        if (!targetName) {
+          logCommandInfo("add-provider", "cancelled", { target });
+          return;
+        }
+
+        perf.mark("collect-provider-name", {
+          provider: targetName,
+          target,
+        });
+        logCommandInfo("add-provider", "started", {
+          provider: targetName,
+          target,
+        });
+
+        if (target === "cloud" && !(await ensureSavedAuthPassphrase(context))) {
+          logCommandWarn("add-provider", "missing-storage-password", {
+            provider: targetName,
+          });
+          vscode.window.showWarningMessage("Cloud storage requires a local storage password.");
+          return;
+        }
+
+        const existing = getSavedProviderEntry(targetName, target);
+        perf.mark("lookup-existing-provider", {
+          exists: Boolean(existing),
+        });
+        if (existing) {
+          logCommandWarn("add-provider", "already-exists", {
+            provider: targetName,
+            target,
+          });
+          vscode.window.showErrorMessage(
+            `Provider "${targetName}" already exists in ${getSourceLabel(target)} storage.`
+          );
+          return;
+        }
+
+        const created = await ensureProviderProfileWithExpectedVersion(targetName, target);
+        perf.mark("save-provider-profile", {
+          success: Boolean(created),
+        });
+        if (!created) {
+          logCommandInfo("add-provider", "cancelled-or-failed", {
+            provider: targetName,
+            target,
+          });
+          return;
+        }
+
+        logCommandInfo("add-provider", "succeeded", {
+          provider: targetName,
+          target,
+        });
+        refreshViews(refreshCoordinator);
+      });
+    }),
+
+    vscode.commands.registerCommand(
+      "codex-switchbridge.reloginAccount",
+      async (item?: AccountTreeItem) => {
+        await runTimedCommand("reloginAccount", async (perf) => {
+          let account = await pickSavedAccount(item, "Select an account to re-login");
+          if (!account) return;
+          account = await ensureAccountAvailable(context, refreshCoordinator, account);
+          if (!account) {
+            return;
+          }
+          perf.mark("resolve-account", {
+            account: account.name,
+            source: account.source,
+          });
+          logCommandInfo("relogin-account", "started", {
+            account: account.name,
+            source: account.source,
+          });
+
+          const loginMethod = await promptLoginMethod(
+            `Re-login account "${account.name}" and overwrite its saved auth in ${getSourceLabel(account.source)} storage?`,
+            "Re-login",
+          );
+          if (loginMethod === "cancel") {
+            logCommandInfo("relogin-account", "cancelled-before-login", {
+              account: account.name,
+              source: account.source,
+            });
+            return;
+          }
+
+          const loginState = exitProviderModeForLogin();
+          if (!loginState) return;
+
+          const previousSelection = loginState.previousSelection;
+          const completed = await runCodexLogin({ useDeviceAuth: loginMethod === "device-auth" });
+          if (!completed) {
+            logCommandInfo("relogin-account", "login-cancelled", {
+              account: account.name,
+              source: account.source,
+            });
+            await restoreProviderModeAfterFailedLogin(previousSelection, loginState.switched);
+            return;
+          }
+
+          const result = await saveCurrentAuthAsAccount(account.name, account.source, {
+            expectedEntryVersion: account.syncVersion,
+            expectedUpdatedAt: account.syncUpdatedAt,
+          });
+          perf.mark("save-current-auth-as-account", {
+            success: result.success,
+            conflict: result.conflict ?? false,
+          });
+          const updatedAccount = getSavedAccountEntry(account.name, account.source) ?? account;
+          const shouldRestore =
+            previousSelection.kind !== "unknown" &&
+            !(
+              previousSelection.kind === "account"
+              && previousSelection.name === account.name
+              && previousSelection.source === account.source
+            );
+          const restoreResult = shouldRestore
+            ? await restoreSelectionAfterLogin(previousSelection, updatedAccount)
+            : { restored: false, restoredLabel: undefined as string | undefined };
+
+          if (result.success) {
+            logCommandInfo("relogin-account", "saved", {
+              account: account.name,
+              source: account.source,
+              email: result.meta?.email ?? null,
+              restoredSelection: restoreResult.restoredLabel ?? null,
+            });
+            refreshAll(refreshCoordinator);
+            if (restoreResult.restored) {
+              const savedMessage = result.meta?.email
+                ? `✓ Account "${account.name}" was updated (${result.meta.email}). Active selection stayed on "${restoreResult.restoredLabel}".`
+                : `✓ Account "${account.name}" was updated. Active selection stayed on "${restoreResult.restoredLabel}".`;
+              vscode.window.showInformationMessage(savedMessage);
+            } else {
+              const savedMessage = result.meta?.email
+                ? `✓ Account "${account.name}" was updated (${result.meta.email}).`
+                : `✓ Account "${account.name}" was updated.`;
+              vscode.window.showInformationMessage(savedMessage);
+            }
+          } else {
+            logCommandWarn("relogin-account", "save-failed", {
+              account: account.name,
+              source: account.source,
+              conflict: result.conflict ?? false,
+              message: result.message,
+            });
+            if (restoreResult.restored) {
+              refreshAll(refreshCoordinator);
+            }
+            if (result.conflict) {
+              await showSyncConflictWarning(result.message);
+            } else {
+              vscode.window.showErrorMessage(result.message);
+            }
+          }
+        });
+      }
+    ),
+
+    vscode.commands.registerCommand(
+      "codex-switchbridge.renameAccount",
+      async (item?: AccountTreeItem) => {
+        await runTimedCommand("renameAccount", async (perf) => {
+          const account = await pickSavedAccount(item, "Select an account to rename");
+          if (!account) return;
+          perf.mark("pick-saved-account", {
+            account: account.name,
+            source: account.source,
+          });
+
+          const newName = await promptForAccountRename(account);
+          if (!newName) return;
+          perf.mark("prompt-for-rename", {
+            account: account.name,
+          });
+
+          const result = await renameSavedAccountEntry(account, newName);
+          perf.mark("rename-saved-account-entry", {
+            success: result.success,
+            conflict: result.conflict ?? false,
+          });
+          if (result.success) {
+            vscode.window.showInformationMessage(`✓ ${result.message}`);
+            refreshAll(refreshCoordinator);
+          } else if (result.conflict) {
+            await showSyncConflictWarning(result.message);
+          } else {
+            vscode.window.showErrorMessage(result.message);
+          }
+        });
+      }
+    ),
+
+    vscode.commands.registerCommand(
+      "codex-switchbridge.removeAccount",
+      async (item?: AccountTreeItem) => {
+        await runTimedCommand("removeAccount", async (perf) => {
+          const account = await pickSavedAccount(item, "Select an account to remove");
+          if (!account) return;
+          perf.mark("pick-saved-account", {
+            account: account.name,
+            source: account.source,
+          });
+
+          const confirm = await vscode.window.showWarningMessage(
+            `Remove account "${account.name}" from ${getSourceLabel(account.source)} storage?`,
+            "Remove",
+            "Cancel",
+          );
+          if (confirm !== "Remove") return;
+          perf.mark("confirm-remove");
+
+          const result = await removeSavedAccountEntry(account);
+          perf.mark("remove-saved-account-entry", {
+            success: result.success,
+            conflict: result.conflict ?? false,
+          });
+          if (result.success) {
+            vscode.window.showInformationMessage(`✓ ${result.message}`);
+            refreshAll(refreshCoordinator);
+          } else if (result.conflict) {
+            await showSyncConflictWarning(result.message);
+          } else {
+            vscode.window.showErrorMessage(result.message);
+          }
+        });
+      }
+    ),
+
+    vscode.commands.registerCommand(
+      "codex-switchbridge.useAccount",
+      async (item?: AccountTreeItem) => {
+        await runTimedCommand("useAccount", async (perf) => {
+          let account = await pickSavedAccount(item, "Select an account to switch to");
+          if (!account) return;
+          perf.mark("pick-saved-account", {
+            account: account.name,
+            source: account.source,
+          });
+          account = await ensureAccountAvailable(context, refreshCoordinator, account);
+          if (!account) {
+            return;
+          }
+          perf.mark("ensure-account-available", {
+            account: account.name,
+            source: account.source,
+          });
+          logCommandInfo("use-account", "started", {
+            account: account.name,
+            source: account.source,
+          });
+
+          const result = await useSavedAccountEntry(account);
+          perf.mark("use-saved-account-entry", {
+            success: result.success,
+            conflict: result.conflict ?? false,
+          });
+          if (result.success) {
+            logCommandInfo("use-account", "switched", {
+              account: account.name,
+              source: account.source,
+              email: result.meta?.email ?? null,
+            });
+            if (result.healedMarker) {
+              vscode.window.showInformationMessage(formatHealedMarkerMessage(result.healedMarker));
+            }
+            vscode.window.showInformationMessage(
+              `✓ ${result.message} (${result.meta?.email ?? "unknown"})`
+            );
+            refreshViews(refreshCoordinator, "account-switch");
+            perf.mark("refresh-views");
+            refreshCoordinator.scheduleQuotaRefresh({
+              targetIds: [account.id],
+              reason: "account-switch",
+            });
+            perf.mark("schedule-quota-refresh");
+            await maybeReloadWindowAfterSwitch(statusBar, account.name, "account");
+          } else {
+            logCommandWarn("use-account", "switch-failed", {
+              account: account.name,
+              source: account.source,
+              conflict: result.conflict ?? false,
+              message: result.message,
+            });
+            if (result.conflict) {
+              await showSyncConflictWarning(result.message);
+            } else {
+              vscode.window.showErrorMessage(result.message);
+            }
+          }
+        });
+      }
+    ),
+
+    vscode.commands.registerCommand(
+      "codex-switchbridge.switchProvider",
+      async (item?: ProviderTreeItem) => {
+        await runTimedCommand("switchProvider", async (perf) => {
+          const provider = await pickSavedProvider(item, "Select a provider to switch to");
+          if (!provider) return;
+          perf.mark("pick-saved-provider", {
+            provider: provider.name,
+            source: provider.source,
+          });
+          await switchSavedProviderForCommand(context, refreshCoordinator, statusBar, provider, "switch-provider");
+        });
+      }
+    ),
+
+    vscode.commands.registerCommand("codex-switchbridge.switchMode", async () => {
+      const picked = await pickModeAction();
+      if (!picked) {
+        logCommandInfo("switch-mode", "cancelled");
+        return;
+      }
+
+      if (picked.action === "create") {
+        logCommandInfo("switch-mode", "create-started", {
+          source: picked.source,
+        });
+        if (picked.source === "cloud" && !(await ensureSavedAuthPassphrase(context))) {
+          logCommandWarn("switch-mode", "missing-storage-password", {
+            source: picked.source,
+          });
+          vscode.window.showWarningMessage("Cloud storage requires a local storage password.");
+          return;
+        }
+        const newName = await promptForProviderName();
+        if (!newName) {
+          return;
+        }
+        const targetName = newName;
+        const created = await ensureProviderProfileWithExpectedVersion(targetName, picked.source);
+        if (!created) {
+          return;
+        }
+        const provider = getSavedProviderEntry(targetName, picked.source);
+        if (!provider) {
+          logCommandError("switch-mode", "provider-missing-after-save", {
+            provider: targetName,
+            source: picked.source,
+          });
+          vscode.window.showErrorMessage(`Provider "${targetName}" was not found after saving.`);
+          return;
+        }
+        const result = await switchToSavedProviderEntry(provider);
+        if (!result.success) {
+          logCommandWarn("switch-mode", "create-switch-failed", {
+            provider: targetName,
+            source: picked.source,
+            conflict: result.conflict ?? false,
+            message: result.message,
+          });
+          if (result.conflict) {
+            await showSyncConflictWarning(result.message);
+          } else {
+            vscode.window.showErrorMessage(result.message);
+          }
+          return;
+        }
+        logCommandInfo("switch-mode", "create-switched", {
+          provider: targetName,
+          source: picked.source,
+        });
+        if (result.healedMarker) {
+          vscode.window.showInformationMessage(formatHealedMarkerMessage(result.healedMarker));
+        }
+        vscode.window.showInformationMessage(`✓ ${result.message}`);
+        refreshAll(refreshCoordinator, undefined, {
+          reason: "provider-switch",
+          fullRefresh: false,
+        });
+        await maybeReloadWindowAfterSwitch(statusBar, targetName, "mode");
+        return;
+      }
+
+      if (!picked.provider) {
+        const result = switchMode("account");
+        if (!result.success) {
+          logCommandWarn("switch-mode", "account-mode-failed", {
+            message: result.message,
+          });
+          vscode.window.showErrorMessage(result.message);
+          return;
+        }
+        logCommandInfo("switch-mode", "account-mode-switched");
+        vscode.window.showInformationMessage(`✓ ${result.message}`);
+        refreshAll(refreshCoordinator, undefined, {
+          reason: "account-switch",
+          fullRefresh: false,
+        });
+        await maybeReloadWindowAfterSwitch(statusBar, "account", "mode");
+        return;
+      }
+
+      await switchSavedProviderForCommand(context, refreshCoordinator, statusBar, picked.provider, "switch-mode");
+    }),
+
+    vscode.commands.registerCommand(
+      "codex-switchbridge.refreshToken",
+      async (item?: AccountTreeItem) => {
+        await runTimedCommand("refreshToken", async (perf) => {
+          const selection = await pickSavedAccountsForRefreshToken(
+            item,
+            item ? "Select an account to refresh" : "Select an account or All to refresh",
+          );
+          if (!selection) return;
+          perf.mark("pick-saved-account", {
+            all: selection.all,
+            accountCount: selection.accounts.length,
+            accounts: selection.accounts.map((account) => `${account.source}:${account.name}`),
+          });
+          logCommandInfo("refresh-token", "started", {
+            all: selection.all,
+            accountCount: selection.accounts.length,
+            accounts: selection.accounts.map((account) => `${account.source}:${account.name}`),
+          });
+
+          const refreshAccountToken = async (candidate: SavedAccountInfo): Promise<RefreshTokenOperationOutcome> => {
+            const available = await ensureAccountAvailable(context, refreshCoordinator, candidate, {
+              silentUnavailable: selection.all,
+            });
+            if (!available) {
+              return {
+                account: candidate,
+                status: "unavailable",
+                message: candidate.storageMessage ?? `Saved account "${candidate.name}" is unavailable.`,
+              };
+            }
+
+            try {
+              const result = await refreshSavedAccountEntry(available);
+              if (result.success) {
+                return {
+                  account: available,
+                  status: "success",
+                  message: result.message,
+                };
+              }
+              if (result.conflict) {
+                return {
+                  account: available,
+                  status: "conflict",
+                  message: result.message,
+                };
+              }
+              if (result.unsupported) {
+                return {
+                  account: available,
+                  status: "unsupported",
+                  message: result.message,
+                };
+              }
+              if (refreshFailureSupportsRelogin(result.message)) {
+                return {
+                  account: available,
+                  status: "reloginRequired",
+                  message: result.message,
+                };
+              }
+              return {
+                account: available,
+                status: "failed",
+                message: result.message,
+              };
+            } catch (error) {
+              logWarn(LOG_PREFIX, "refresh-token-command-failed", {
+                account: candidate.id,
+                error: toErrorMessage(error),
+              });
+              return {
+                account: available,
+                status: "failed",
+                message: `Token refresh failed for "${available.name}": ${toErrorMessage(error)}`,
+              };
+            }
+          };
+
+          await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: selection.all ? "Refreshing all tokens and quotas..." : "Refreshing token and quota...",
+            },
+            async () => {
+              if (!selection.all) {
+                const outcome = await refreshAccountToken(selection.accounts[0]);
+                perf.mark("refresh-saved-account-entry", {
+                  success: outcome.status === "success",
+                  conflict: outcome.status === "conflict",
+                });
+                if (outcome.status === "unavailable") {
+                  return;
+                }
+                if (outcome.status === "success") {
+                  try {
+                    await refreshTokenAndQuota(accountTree, statusBar, [outcome.account.id]);
+                    perf.mark("refresh-token-and-quota");
+                  } catch (error) {
+                    logWarn(LOG_PREFIX, "refresh-token-quota-followup-failed", {
+                      account: outcome.account.id,
+                      error: toErrorMessage(error),
+                    });
+                    vscode.window.showWarningMessage(
+                      `Token refreshed for "${outcome.account.name}", but quota refresh failed: ${toErrorMessage(error)}`,
+                    );
+                    perf.mark("refresh-token-and-quota-failed");
+                    return;
+                  }
+                  logCommandInfo("refresh-token", "succeeded", {
+                    account: outcome.account.name,
+                    source: outcome.account.source,
+                  });
+                  vscode.window.showInformationMessage(`✓ ${outcome.message} and quota was refreshed`);
+                  return;
+                }
+                if (outcome.status === "conflict") {
+                  logCommandWarn("refresh-token", "conflict", {
+                    account: outcome.account.name,
+                    source: outcome.account.source,
+                    message: outcome.message,
+                  });
+                  await showSyncConflictWarning(outcome.message);
+                  return;
+                }
+                if (outcome.status === "unsupported") {
+                  logCommandWarn("refresh-token", "unsupported", {
+                    account: outcome.account.name,
+                    source: outcome.account.source,
+                    message: outcome.message,
+                  });
+                  vscode.window.showWarningMessage(outcome.message);
+                  return;
+                }
+                if (outcome.status === "reloginRequired") {
+                  accountTree.markReloginRequired([outcome.account.id]);
+                  logCommandWarn("refresh-token", "relogin-required", {
+                    account: outcome.account.name,
+                    source: outcome.account.source,
+                    message: outcome.message,
+                  });
+                  const action = await vscode.window.showErrorMessage(outcome.message, "Re-login");
+                  if (action === "Re-login") {
+                    await vscode.commands.executeCommand("codex-switchbridge.reloginAccount", item);
+                  }
+                  return;
+                }
+
+                logCommandWarn("refresh-token", "failed", {
+                  account: outcome.account.name,
+                  source: outcome.account.source,
+                  message: outcome.message,
+                });
+                vscode.window.showErrorMessage(outcome.message);
+                return;
+              }
+
+              const successfulAccountIds: string[] = [];
+              const conflictAccounts: string[] = [];
+              const unsupportedAccounts: string[] = [];
+              const reloginAccounts: string[] = [];
+              const reloginAccountIds: string[] = [];
+              const failedAccounts: string[] = [];
+              const unavailableAccounts: string[] = [];
+
+              for (const candidate of selection.accounts) {
+                const outcome = await refreshAccountToken(candidate);
+                switch (outcome.status) {
+                  case "success":
+                    successfulAccountIds.push(outcome.account.id);
+                    break;
+                  case "conflict":
+                    conflictAccounts.push(outcome.account.name);
+                    break;
+                  case "unsupported":
+                    unsupportedAccounts.push(outcome.account.name);
+                    break;
+                  case "reloginRequired":
+                    reloginAccounts.push(outcome.account.name);
+                    reloginAccountIds.push(outcome.account.id);
+                    break;
+                  case "failed":
+                    failedAccounts.push(outcome.account.name);
+                    break;
+                  case "unavailable":
+                    unavailableAccounts.push(outcome.account.name);
+                    break;
+                  default:
+                    break;
+                }
+              }
+
+              perf.mark("refresh-saved-account-entry", {
+                accountCount: selection.accounts.length,
+                successCount: successfulAccountIds.length,
+                conflictCount: conflictAccounts.length,
+                unsupportedCount: unsupportedAccounts.length,
+                reloginCount: reloginAccounts.length,
+                failedCount: failedAccounts.length,
+                unavailableCount: unavailableAccounts.length,
+              });
+              if (reloginAccountIds.length > 0) {
+                accountTree.markReloginRequired(reloginAccountIds);
+              }
+
+              let quotaRefreshError: string | null = null;
+              if (successfulAccountIds.length > 0) {
+                try {
+                  await refreshTokenAndQuota(accountTree, statusBar, successfulAccountIds);
+                  perf.mark("refresh-token-and-quota");
+                } catch (error) {
+                  quotaRefreshError = toErrorMessage(error);
+                  logWarn(LOG_PREFIX, "refresh-token-quota-followup-failed", {
+                    accountCount: successfulAccountIds.length,
+                    error: quotaRefreshError,
+                  });
+                  perf.mark("refresh-token-and-quota-failed");
+                }
+              }
+
+              logCommandInfo("refresh-token", "batch-finished", {
+                accountCount: selection.accounts.length,
+                successCount: successfulAccountIds.length,
+                conflictCount: conflictAccounts.length,
+                unsupportedCount: unsupportedAccounts.length,
+                reloginCount: reloginAccounts.length,
+                failedCount: failedAccounts.length,
+                unavailableCount: unavailableAccounts.length,
+                quotaRefreshError,
+              });
+
+              const summary: string[] = [];
+              if (successfulAccountIds.length > 0) {
+                summary.push(
+                  quotaRefreshError == null
+                    ? `Refreshed token and quota for ${successfulAccountIds.length} account${successfulAccountIds.length === 1 ? "" : "s"}`
+                    : `Refreshed token for ${successfulAccountIds.length} account${successfulAccountIds.length === 1 ? "" : "s"}`
+                );
+              }
+              if (quotaRefreshError) {
+                summary.push(`Quota refresh failed: ${quotaRefreshError}`);
+              }
+              if (reloginAccounts.length > 0) {
+                summary.push(`Re-login required: ${reloginAccounts.join(", ")}`);
+              }
+              if (conflictAccounts.length > 0) {
+                summary.push(`Sync conflict: ${conflictAccounts.join(", ")}`);
+              }
+              if (unsupportedAccounts.length > 0) {
+                summary.push(`Unsupported: ${unsupportedAccounts.join(", ")}`);
+              }
+              if (unavailableAccounts.length > 0) {
+                summary.push(`Unavailable: ${unavailableAccounts.join(", ")}`);
+              }
+              if (failedAccounts.length > 0) {
+                summary.push(`Failed: ${failedAccounts.join(", ")}`);
+              }
+
+              const message = summary.join(". ") || "Token refresh did not run.";
+              if (
+                successfulAccountIds.length === selection.accounts.length
+                && quotaRefreshError == null
+              ) {
+                vscode.window.showInformationMessage(`✓ ${message}`);
+              } else if (successfulAccountIds.length > 0) {
+                vscode.window.showWarningMessage(message);
+              } else {
+                vscode.window.showErrorMessage(message);
+              }
+            }
+          );
+        });
+      }
+    ),
+
+    vscode.commands.registerCommand("codex-switchbridge.refresh", async (item?: unknown) => {
+      await runTimedCommand("refresh", async (perf) => {
+        const refreshTargetAccountName = getRefreshTargetAccountName(item);
+        const picked = await vscode.window.showQuickPick(
+          [
+            {
+              label: "Refresh List",
+              description: "Reload saved accounts and refresh quota",
+              command: "codex-switchbridge.refreshList",
+            },
+            {
+              label: "Refresh Token",
+              description: refreshTargetAccountName
+                ? `Refresh "${refreshTargetAccountName}" token and quota`
+                : "Select an account or All to refresh token and quota",
+              command: "codex-switchbridge.refreshToken",
+            },
+            {
+              label: "Refresh Quota",
+              description: refreshTargetAccountName
+                ? `Refresh "${refreshTargetAccountName}" quota`
+                : "Refresh quota for all accounts",
+              command: "codex-switchbridge.refreshQuota",
+            },
+            {
+              label: "Auto-Switch Settings",
+              description: isAutoSwitchOnZeroQuotaEnabled()
+                ? `Auto-switch enabled · cooldown ${getAutoSwitchCooldownSeconds()}s`
+                : "Enable or configure automatic switch on 0% 5h quota",
+              command: "codex-switchbridge.configureAutoSwitch",
+            },
+          ],
+          { placeHolder: "Choose what to refresh" },
+        );
+
+        if (!picked) {
+          logCommandInfo("refresh", "cancelled");
+          return;
+        }
+
+        perf.mark("pick-refresh-action", {
+          command: picked.command,
+        });
+        logCommandInfo("refresh", "dispatched", {
+          command: picked.command,
+        });
+        await vscode.commands.executeCommand(picked.command, item);
+      });
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.moveAccountToCloud", async (item?: AccountTreeItem) => {
+      await runTimedCommand("moveAccountToCloud", async (perf) => {
+        let account = await pickSavedAccount(item, "Select a local account to move to cloud storage");
+        if (!account) return;
+        perf.mark("pick-saved-account", {
+          account: account.name,
+          source: account.source,
+        });
+        account = await ensureAccountAvailable(context, refreshCoordinator, account);
+        if (!account) {
+          return;
+        }
+        perf.mark("ensure-account-available");
+        logCommandInfo("move-account-to-cloud", "started", {
+          account: account.name,
+          source: account.source,
+        });
+        if (!(await ensureSavedAuthPassphrase(context))) {
+          logCommandWarn("move-account-to-cloud", "missing-storage-password", {
+            account: account.name,
+          });
+          vscode.window.showWarningMessage("Cloud storage requires a local storage password.");
+          return;
+        }
+        perf.mark("ensure-saved-auth-passphrase");
+        const result = await moveSavedAccountEntry(account, "cloud");
+        perf.mark("move-saved-account-entry", {
+          success: result.success,
+          conflict: result.conflict ?? false,
+        });
+        if (!result.success) {
+          logCommandWarn("move-account-to-cloud", "failed", {
+            account: account.name,
+            message: result.message,
+            conflict: result.conflict ?? false,
+          });
+          if (result.conflict) {
+            await showSyncConflictWarning(result.message);
+          } else {
+            vscode.window.showErrorMessage(result.message);
+          }
+          return;
+        }
+        logCommandInfo("move-account-to-cloud", "succeeded", {
+          account: account.name,
+        });
+        vscode.window.showInformationMessage(`✓ ${result.message}`);
+        refreshAll(refreshCoordinator, [`cloud:${account.name}`]);
+      });
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.restoreCloudAccountPayload", async (item?: AccountTreeItem) => {
+      await runTimedCommand("restoreCloudAccountPayload", async (perf) => {
+        const account = await pickSavedAccount(item, "Select a cloud account to restore from protected backup");
+        if (!account) return;
+        perf.mark("pick-saved-account", {
+          account: account.name,
+          source: account.source,
+          recoveryAvailable: account.recoveryAvailable ?? false,
+        });
+        logCommandInfo("restore-cloud-account-payload", "started", {
+          account: account.name,
+          source: account.source,
+          recoveryAvailable: account.recoveryAvailable ?? false,
+        });
+        if (account.source !== "cloud") {
+          const message = `Account "${account.name}" is not stored in cloud.`;
+          logCommandWarn("restore-cloud-account-payload", "failed", {
+            account: account.name,
+            message,
+          });
+          vscode.window.showErrorMessage(message);
+          return;
+        }
+        if (!account.recoveryAvailable) {
+          const message = `Cloud account "${account.name}" has no protected local backup to restore.`;
+          logCommandWarn("restore-cloud-account-payload", "failed", {
+            account: account.name,
+            message,
+          });
+          vscode.window.showErrorMessage(message);
+          return;
+        }
+        if (!(await ensureSavedAuthPassphrase(context))) {
+          logCommandWarn("restore-cloud-account-payload", "missing-storage-password", {
+            account: account.name,
+          });
+          vscode.window.showWarningMessage("Cloud storage requires a local storage password.");
+          return;
+        }
+        perf.mark("ensure-saved-auth-passphrase");
+        const result = await restoreCloudAccountPayloadFromProtectedBackup(account);
+        perf.mark("restore-cloud-account-payload", {
+          success: result.success,
+        });
+        if (!result.success) {
+          logCommandWarn("restore-cloud-account-payload", "failed", {
+            account: account.name,
+            message: result.message,
+          });
+          vscode.window.showErrorMessage(result.message);
+          return;
+        }
+        logCommandInfo("restore-cloud-account-payload", "succeeded", {
+          account: account.name,
+        });
+        vscode.window.showInformationMessage(`✓ ${result.message}`);
+        refreshAll(refreshCoordinator, [`cloud:${account.name}`]);
+      });
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.moveAccountToLocal", async (item?: AccountTreeItem) => {
+      await runTimedCommand("moveAccountToLocal", async (perf) => {
+        let account = await pickSavedAccount(item, "Select a cloud account to move to local storage");
+        if (!account) return;
+        perf.mark("pick-saved-account", {
+          account: account.name,
+          source: account.source,
+        });
+        account = await ensureAccountAvailable(context, refreshCoordinator, account);
+        if (!account) {
+          return;
+        }
+        perf.mark("ensure-account-available");
+        logCommandInfo("move-account-to-local", "started", {
+          account: account.name,
+          source: account.source,
+        });
+        const result = await moveSavedAccountEntry(account, "local");
+        perf.mark("move-saved-account-entry", {
+          success: result.success,
+          conflict: result.conflict ?? false,
+        });
+        if (!result.success) {
+          logCommandWarn("move-account-to-local", "failed", {
+            account: account.name,
+            message: result.message,
+            conflict: result.conflict ?? false,
+          });
+          if (result.conflict) {
+            await showSyncConflictWarning(result.message);
+          } else {
+            vscode.window.showErrorMessage(result.message);
+          }
+          return;
+        }
+        logCommandInfo("move-account-to-local", "succeeded", {
+          account: account.name,
+        });
+        vscode.window.showInformationMessage(`✓ ${result.message}`);
+        refreshAll(refreshCoordinator, [`local:${account.name}`]);
+      });
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.moveProviderToCloud", async (item?: ProviderTreeItem) => {
+      let provider = await pickSavedProvider(item, "Select a local provider to move to cloud storage");
+      if (!provider) return;
+      provider = await ensureProviderAvailable(context, refreshCoordinator, provider);
+      if (!provider) {
+        return;
+      }
+      logCommandInfo("move-provider-to-cloud", "started", {
+        provider: provider.name,
+        source: provider.source,
+      });
+      if (!(await ensureSavedAuthPassphrase(context))) {
+        logCommandWarn("move-provider-to-cloud", "missing-storage-password", {
+          provider: provider.name,
+        });
+        vscode.window.showWarningMessage("Cloud storage requires a local storage password.");
+        return;
+      }
+      const result = await moveSavedProviderEntry(provider, "cloud");
+      if (!result.success) {
+        logCommandWarn("move-provider-to-cloud", "failed", {
+          provider: provider.name,
+          message: result.message,
+          conflict: result.conflict ?? false,
+        });
+        if (result.conflict) {
+          await showSyncConflictWarning(result.message);
+        } else {
+          vscode.window.showErrorMessage(result.message);
+        }
+        return;
+      }
+      logCommandInfo("move-provider-to-cloud", "succeeded", {
+        provider: provider.name,
+      });
+      vscode.window.showInformationMessage(`✓ ${result.message}`);
+      refreshViews(refreshCoordinator);
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.moveProviderToLocal", async (item?: ProviderTreeItem) => {
+      let provider = await pickSavedProvider(item, "Select a cloud provider to move to local storage");
+      if (!provider) return;
+      provider = await ensureProviderAvailable(context, refreshCoordinator, provider);
+      if (!provider) {
+        return;
+      }
+      logCommandInfo("move-provider-to-local", "started", {
+        provider: provider.name,
+        source: provider.source,
+      });
+      const result = await moveSavedProviderEntry(provider, "local");
+      if (!result.success) {
+        logCommandWarn("move-provider-to-local", "failed", {
+          provider: provider.name,
+          message: result.message,
+          conflict: result.conflict ?? false,
+        });
+        if (result.conflict) {
+          await showSyncConflictWarning(result.message);
+        } else {
+          vscode.window.showErrorMessage(result.message);
+        }
+        return;
+      }
+      logCommandInfo("move-provider-to-local", "succeeded", {
+        provider: provider.name,
+      });
+      vscode.window.showInformationMessage(`✓ ${result.message}`);
+      refreshViews(refreshCoordinator);
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.removeProvider", async (item?: ProviderTreeItem) => {
+      await runTimedCommand("removeProvider", async (perf) => {
+        const provider = await pickSavedProvider(item, "Select a provider to remove");
+        if (!provider) return;
+        perf.mark("pick-saved-provider", {
+          provider: provider.name,
+          source: provider.source,
+        });
+
+        const confirm = await vscode.window.showWarningMessage(
+          `Remove provider "${provider.name}" from ${getSourceLabel(provider.source)} storage?`,
+          "Remove",
+          "Cancel",
+        );
+        if (confirm !== "Remove") return;
+        perf.mark("confirm-remove");
+
+        const result = await deleteSavedProviderEntry(provider);
+        perf.mark("delete-saved-provider-entry", {
+          success: result.success,
+          conflict: result.conflict ?? false,
+        });
+        if (result.success) {
+          vscode.window.showInformationMessage(`✓ ${result.message}`);
+          refreshViews(refreshCoordinator);
+        } else if (result.conflict) {
+          await showSyncConflictWarning(result.message);
+        } else {
+          vscode.window.showErrorMessage(result.message);
+        }
+      });
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.refreshQuota", async (item?: AccountTreeItem | AccountGroupItem) => {
+      await runTimedCommand("refreshQuota", async (perf) => {
+        const targetIds = item instanceof AccountGroupItem
+          ? item.children.map((child) => child.account.id)
+          : item?.account?.id
+            ? [item.account.id]
+            : undefined;
+        const snapshot = createSavedEntriesSnapshot();
+        const queryContext = {
+          snapshot,
+          sharedQueries: new Map(),
+        };
+        const currentSelection = getSavedCurrentSelection(snapshot);
+        const currentSelectionId = currentSelection.kind === "account"
+          ? snapshot.bySourceAndName.get(`${currentSelection.source}:${currentSelection.name}`)?.id ?? null
+          : null;
+        const shouldRefreshStatusBarQuota = !targetIds || targetIds.length === 0
+          || (currentSelectionId != null && targetIds.includes(currentSelectionId));
+        logCommandInfo("refresh-quota", "started");
+        await Promise.all([
+          accountTree.refreshQuota(targetIds, {
+            snapshot,
+            queryContext,
+            reason: "manual",
+            refreshId: "command-refreshQuota",
+          }).then(() => {
+            perf.mark("account-tree-refreshQuota");
+          }).catch((error) => {
+            logWarn(LOG_PREFIX, "refresh-quota-command-accountTree-failed", {
+              error: toErrorMessage(error),
+            });
+            throw error;
+          }),
+          statusBar.refreshNow({
+            snapshot,
+            queryContext,
+            skipQuota: !shouldRefreshStatusBarQuota,
+            reason: "manual",
+            refreshId: "command-refreshQuota",
+          }).then(() => {
+            perf.mark("status-bar-refreshNow");
+          }).catch((error) => {
+            logWarn(LOG_PREFIX, "refresh-quota-command-statusBar-failed", {
+              error: toErrorMessage(error),
+            });
+            throw error;
+          }),
+        ]);
+      });
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.showLogs", () => {
+      logCommandInfo("show-logs", "opened");
+      showLogs();
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.exportAccounts", async () => {
+      const uri = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.file("codex-accounts.json"),
+        filters: { JSON: ["json"] },
+      });
+      if (!uri) return;
+
+      let data;
+      try {
+        data = exportAccounts();
+      } catch (error) {
+        logCommandError("export-accounts", "failed", {
+          path: uri.fsPath,
+          error: toErrorMessage(error),
+        });
+        vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+        return;
+      }
+      if (data.accounts.length === 0) {
+        logCommandWarn("export-accounts", "no-accounts", {
+          path: uri.fsPath,
+        });
+        vscode.window.showWarningMessage("No accounts to export");
+        return;
+      }
+
+      fs.writeFileSync(uri.fsPath, JSON.stringify(data, null, 2), "utf-8");
+      logCommandInfo("export-accounts", "succeeded", {
+        path: uri.fsPath,
+        count: data.accounts.length,
+      });
+      vscode.window.showInformationMessage(
+        `✓ Exported ${data.accounts.length} account(s) to ${uri.fsPath}`
+      );
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.importAccounts", async () => {
+      await runTimedCommand("importAccounts", async (perf) => {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          filters: { JSON: ["json"] },
+          openLabel: "Import",
+        });
+        if (!uris || uris.length === 0) return;
+        perf.mark("show-open-dialog");
+
+        let data: ExportData;
+        try {
+          data = JSON.parse(
+            fs.readFileSync(uris[0].fsPath, "utf-8")
+          ) as ExportData;
+        } catch {
+          logCommandWarn("import-accounts", "invalid-json", {
+            path: uris[0].fsPath,
+          });
+          vscode.window.showErrorMessage("Invalid file format: unable to parse JSON");
+          return;
+        }
+        perf.mark("read-import-file");
+
+        if (data.version !== 1 || !Array.isArray(data.accounts)) {
+          logCommandWarn("import-accounts", "unsupported-format", {
+            path: uris[0].fsPath,
+            version: data.version,
+          });
+          vscode.window.showErrorMessage("Unsupported export file format");
+          return;
+        }
+
+        const overwrite = await vscode.window.showQuickPick(
+          [
+            { label: "Skip existing accounts", value: false },
+            { label: "Overwrite existing accounts", value: true },
+          ],
+          { placeHolder: "How should duplicate account names be handled?" }
+        );
+        if (!overwrite) return;
+        perf.mark("pick-overwrite-mode");
+
+        const result = importAccounts(data, overwrite.value);
+        perf.mark("import-accounts-core", {
+          imported: result.imported.length,
+          skipped: result.skipped.length,
+          failed: result.errors.length,
+        });
+
+        const msgs: string[] = [];
+        if (result.imported.length > 0) {
+          msgs.push(`imported ${result.imported.length}`);
+        }
+        if (result.skipped.length > 0) {
+          msgs.push(`skipped ${result.skipped.length}`);
+        }
+        if (result.errors.length > 0) {
+          msgs.push(`failed ${result.errors.length}`);
+        }
+
+        vscode.window.showInformationMessage(`Import finished: ${msgs.join(", ")}`);
+        logCommandInfo("import-accounts", "finished", {
+          path: uris[0].fsPath,
+          overwrite: overwrite.value,
+          imported: result.imported.length,
+          skipped: result.skipped.length,
+          failed: result.errors.length,
+        });
+        refreshAll(refreshCoordinator);
+      });
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.refreshList", async (item?: AccountTreeItem) => {
+      await runTimedCommand("refreshList", async () => {
+        logCommandInfo("refresh-list", "started");
+        refreshAll(refreshCoordinator, item?.account?.id ? [item.account.id] : undefined, {
+          reason: "manual",
+          fullRefresh: !item?.account?.id,
+        });
+      });
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.configureAutoSwitch", async () => {
+      await configureAutoSwitchSetting();
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.expandAllAccounts", async () => {
+      for (const item of accountTree.getRootItems()) {
+        await accountTreeView.reveal(item, { expand: true, focus: false, select: false });
+      }
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.reloadWindow", async () => {
+      await reloadWindow();
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.repairSharedHistory", async () => {
+      await runTimedCommand("repairSharedHistory", async (perf) => {
+        if (!shareHistoryAcrossProviders()) {
+          await vscode.window.showWarningMessage(
+            "Enable Share History Across Providers before repairing provider-tagged Codex history.",
+          );
+          return;
+        }
+
+        const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+        const scriptPath = path.join(context.extensionPath, "dist", "scripts", "migrate-history-provider.py");
+        const pythonExecutable = getHistoryRepairPythonExecutable();
+        let sourceProviders: string[];
+        try {
+          const inventory = await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: "Codex SwitchBridge: inspecting local history",
+              cancellable: false,
+            },
+            () => runHistoryInventoryProcess(pythonExecutable, scriptPath, codexHome),
+          );
+          sourceProviders = selectHistoryMigrationSources(inventory.source_providers);
+          perf.mark("history-repair-inventory", { sources: sourceProviders });
+        } catch (error) {
+          await vscode.window.showErrorMessage(
+            `Could not inspect local Codex history: ${toErrorMessage(error)}`,
+          );
+          return;
+        }
+
+        if (sourceProviders.length === 0) {
+          await vscode.window.showInformationMessage("Local Codex history is already unified.");
+          return;
+        }
+
+        const confirmation = await vscode.window.showWarningMessage(
+          "Stop any active Codex response before continuing. History repair safely aborts if a rollout file changes while it is being checked.",
+          { modal: true },
+          "Repair History",
+        );
+        if (confirmation !== "Repair History") {
+          return;
+        }
+
+        const summary = await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: "Codex SwitchBridge: repairing local history",
+            cancellable: false,
+          },
+          () => repairSharedHistory({
+            enabled: true,
+            sourceProviders,
+            runMigration: (sourceProvider, targetProvider) => runHistoryMigrationProcess(
+              pythonExecutable,
+              scriptPath,
+              codexHome,
+              sourceProvider,
+              targetProvider,
+            ),
+            markReloadRecommended: (result) => {
+              statusBar.markReloadRecommended(
+                `History repair updated ${result.rollout_updates} rollout record(s) and ${result.thread_updates} thread record(s).`,
+              );
+            },
+            showErrorMessage: (message) => vscode.window.showErrorMessage(message),
+          }),
+        );
+
+        if (!summary) {
+          return;
+        }
+        perf.mark("history-repair-finished", {
+          sources: summary.sources,
+          rolloutUpdates: summary.rollout_updates,
+          threadUpdates: summary.thread_updates,
+          backupCount: summary.backup_dirs.length,
+          completedSources: summary.completed_sources,
+          failedSource: summary.failed_source,
+        });
+        if (
+          summary.failed_source === null
+          && summary.rollout_updates === 0
+          && summary.thread_updates === 0
+        ) {
+          await vscode.window.showInformationMessage("Local Codex history is already unified.");
+        }
+      });
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.unlockStorage", async () => {
+      await runTimedCommand("unlockStorage", async (perf) => {
+        const result = await unlockSavedAuthStorage(context);
+        perf.mark("unlock-saved-auth-storage", {
+          result,
+        });
+        if (result === "cancelled") {
+          logCommandInfo("unlock-storage", "cancelled");
+          return;
+        }
+        refreshAll(refreshCoordinator);
+        logCommandInfo("unlock-storage", "succeeded", {
+          alreadyUnlocked: result === "already-unlocked",
+        });
+        vscode.window.showInformationMessage(
+          result === "already-unlocked"
+            ? "Saved auth storage is already unlocked on this machine."
+            : "Saved auth storage is unlocked on this machine."
+        );
+      });
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.setStoragePassword", async () => {
+      const result = await promptAndStoreSavedAuthPassphrase(context, "set");
+      if (!result.stored) {
+        logCommandInfo("set-storage-password", "cancelled");
+        return;
+      }
+      logCommandInfo("set-storage-password", "succeeded");
+      vscode.window.showInformationMessage("Stored the local storage password on this machine.");
+      refreshAll(refreshCoordinator);
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.changeStoragePassword", async () => {
+      const result = await promptAndStoreSavedAuthPassphrase(context, "change");
+      if (!result.stored) {
+        logCommandInfo("change-storage-password", "cancelled");
+        return;
+      }
+      logCommandInfo("change-storage-password", "succeeded", {
+        rewritten: result.rewritten,
+      });
+      const suffix =
+        result.rewritten > 0
+          ? ` Re-encrypted ${result.rewritten} saved file${result.rewritten === 1 ? "" : "s"}.`
+          : "";
+      vscode.window.showInformationMessage(`Updated the local storage password on this machine.${suffix}`);
+      refreshAll(refreshCoordinator);
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.forgetStoragePassword", async () => {
+      await forgetSavedAuthPassphrase(context);
+      logCommandInfo("forget-storage-password", "succeeded");
+      vscode.window.showInformationMessage("Forgot the local storage password on this machine.");
+      refreshAll(refreshCoordinator);
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.copyProviderField", async (item?: ProviderDetailItem) => {
+      const value = item?.rawValue;
+      if (!value) {
+        logCommandWarn("copy-provider-field", "missing-value");
+        vscode.window.showWarningMessage("No provider value available to copy.");
+        return;
+      }
+
+      const label = typeof item?.label === "string" ? item.label : "provider value";
+      await vscode.env.clipboard.writeText(value);
+      logCommandInfo("copy-provider-field", "succeeded", {
+        label,
+      });
+      vscode.window.showInformationMessage(`Copied ${label} to clipboard.`);
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.copyAccountField", async (item?: AccountDetailItem) => {
+      const value = item?.rawValue;
+      if (!value) {
+        logCommandWarn("copy-account-field", "missing-value");
+        vscode.window.showWarningMessage("No account value available to copy.");
+        return;
+      }
+
+      const label = typeof item?.label === "string" ? item.label : "account value";
+      await vscode.env.clipboard.writeText(value);
+      logCommandInfo("copy-account-field", "succeeded", {
+        label,
+      });
+      vscode.window.showInformationMessage(`Copied ${label} to clipboard.`);
+    })
+  );
+}

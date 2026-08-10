@@ -1,0 +1,547 @@
+{
+  "name": "codex-switchbridge",
+  "displayName": "Codex SwitchBridge",
+  "description": "Codex SwitchBridge - VS Code extension",
+  "version": "0.1.0",
+  "publisher": "baoshichao001-dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/baoshichao001-dev/codex-switchbridge",
+    "directory": "packages/vscode"
+  },
+  "homepage": "https://github.com/baoshichao001-dev/codex-switchbridge",
+  "bugs": {
+    "url": "https://github.com/baoshichao001-dev/codex-switchbridge/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "codex",
+    "account",
+    "accounts",
+    "auth",
+    "quota",
+    "chatgpt",
+    "openai"
+  ],
+  "markdown": "github",
+  "icon": "resources/icon.png",
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codex-switchbridge",
+          "title": "Codex SwitchBridge",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "codex-switchbridge": [
+        {
+          "id": "codexSwitchBridgeAccounts",
+          "name": "Accounts",
+          "icon": "resources/icon.svg",
+          "showCollapseAll": true
+        },
+        {
+          "id": "codexSwitchBridgeProviders",
+          "name": "Providers",
+          "icon": "resources/icon.svg",
+          "showCollapseAll": true
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "codexSwitchBridgeAccounts",
+        "contents": "No accounts to display yet.\n[Import accounts](command:codex-switchbridge.importAccounts)\n[Add account](command:codex-switchbridge.addAccount)"
+      },
+      {
+        "view": "codexSwitchBridgeProviders",
+        "contents": "No provider profiles to display yet.\n[Add provider](command:codex-switchbridge.addProvider)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "codex-switchbridge.importAccounts",
+        "title": "Import Accounts",
+        "category": "Codex SwitchBridge",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "codex-switchbridge.addAccount",
+        "title": "Add Account",
+        "category": "Codex SwitchBridge",
+        "icon": "$(add)"
+      },
+      {
+        "command": "codex-switchbridge.addProvider",
+        "title": "Add Provider",
+        "category": "Codex SwitchBridge",
+        "icon": "$(add)"
+      },
+      {
+        "command": "codex-switchbridge.reloginAccount",
+        "title": "Re-login Account",
+        "category": "Codex SwitchBridge",
+        "icon": "$(sign-in)"
+      },
+      {
+        "command": "codex-switchbridge.renameAccount",
+        "title": "Rename Account",
+        "category": "Codex SwitchBridge",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "codex-switchbridge.removeAccount",
+        "title": "Remove Account",
+        "category": "Codex SwitchBridge",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "codex-switchbridge.useAccount",
+        "title": "Switch Account",
+        "category": "Codex SwitchBridge",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "codex-switchbridge.switchMode",
+        "title": "Switch Mode",
+        "category": "Codex SwitchBridge",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "codex-switchbridge.switchProvider",
+        "title": "Switch Provider",
+        "category": "Codex SwitchBridge",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "codex-switchbridge.refreshToken",
+        "title": "Refresh Token",
+        "category": "Codex SwitchBridge",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "codex-switchbridge.refreshQuota",
+        "title": "Refresh Quota",
+        "category": "Codex SwitchBridge",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "codex-switchbridge.exportAccounts",
+        "title": "Export Accounts",
+        "category": "Codex SwitchBridge",
+        "icon": "$(export)"
+      },
+      {
+        "command": "codex-switchbridge.refreshList",
+        "title": "Refresh List",
+        "category": "Codex SwitchBridge",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "codex-switchbridge.refresh",
+        "title": "Refresh",
+        "category": "Codex SwitchBridge",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "codex-switchbridge.enableAutoSwitch",
+        "title": "Enable Auto-Switch",
+        "category": "Codex SwitchBridge",
+        "icon": "$(check)"
+      },
+      {
+        "command": "codex-switchbridge.disableAutoSwitch",
+        "title": "Disable Auto-Switch",
+        "category": "Codex SwitchBridge",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "codex-switchbridge.configureAutoSwitch",
+        "title": "Auto-Switch Settings",
+        "category": "Codex SwitchBridge",
+        "icon": "$(sync-ignored)"
+      },
+      {
+        "command": "codex-switchbridge.reloadWindow",
+        "title": "Reload Window",
+        "category": "Codex SwitchBridge",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "codex-switchbridge.repairSharedHistory",
+        "title": "Repair Local Shared History",
+        "category": "Codex SwitchBridge",
+        "icon": "$(history)"
+      },
+      {
+        "command": "codex-switchbridge.showLogs",
+        "title": "Show Logs",
+        "category": "Codex SwitchBridge",
+        "icon": "$(output)"
+      },
+      {
+        "command": "codex-switchbridge.unlockStorage",
+        "title": "Unlock Storage",
+        "category": "Codex SwitchBridge",
+        "icon": "$(unlock)"
+      },
+      {
+        "command": "codex-switchbridge.setStoragePassword",
+        "title": "Set Storage Password",
+        "category": "Codex SwitchBridge",
+        "icon": "$(lock)"
+      },
+      {
+        "command": "codex-switchbridge.changeStoragePassword",
+        "title": "Change Storage Password",
+        "category": "Codex SwitchBridge",
+        "icon": "$(key)"
+      },
+      {
+        "command": "codex-switchbridge.forgetStoragePassword",
+        "title": "Forget Local Storage Password",
+        "category": "Codex SwitchBridge",
+        "icon": "$(unlock)"
+      },
+      {
+        "command": "codex-switchbridge.copyProviderField",
+        "title": "Copy Provider Value",
+        "category": "Codex SwitchBridge",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "codex-switchbridge.copyAccountField",
+        "title": "Copy Account Value",
+        "category": "Codex SwitchBridge",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "codex-switchbridge.moveAccountToCloud",
+        "title": "Move Account To Cloud",
+        "category": "Codex SwitchBridge",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "codex-switchbridge.restoreCloudAccountPayload",
+        "title": "Restore Cloud Payload From Protected Backup",
+        "category": "Codex SwitchBridge",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "codex-switchbridge.moveAccountToLocal",
+        "title": "Move Account To Local",
+        "category": "Codex SwitchBridge",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "codex-switchbridge.moveProviderToCloud",
+        "title": "Move Provider To Cloud",
+        "category": "Codex SwitchBridge",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "codex-switchbridge.moveProviderToLocal",
+        "title": "Move Provider To Local",
+        "category": "Codex SwitchBridge",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "codex-switchbridge.removeProvider",
+        "title": "Remove Provider",
+        "category": "Codex SwitchBridge",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "codex-switchbridge.expandAllAccounts",
+        "title": "Expand All Accounts",
+        "category": "Codex SwitchBridge",
+        "icon": "$(expand-all)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "codex-switchbridge.refresh",
+          "when": "view == codexSwitchBridgeAccounts",
+          "group": "navigation@1"
+        },
+        {
+          "command": "codex-switchbridge.expandAllAccounts",
+          "when": "view == codexSwitchBridgeAccounts",
+          "group": "navigation@2"
+        },
+        {
+          "command": "codex-switchbridge.addAccount",
+          "when": "view == codexSwitchBridgeAccounts",
+          "group": "navigation@3"
+        },
+        {
+          "command": "codex-switchbridge.importAccounts",
+          "when": "view == codexSwitchBridgeAccounts",
+          "group": "navigation@4"
+        },
+        {
+          "command": "codex-switchbridge.reloadWindow",
+          "when": "view == codexSwitchBridgeAccounts",
+          "group": "navigation@6"
+        },
+        {
+          "command": "codex-switchbridge.enableAutoSwitch",
+          "when": "view == codexSwitchBridgeAccounts && !codexSwitchBridge.autoSwitchEnabled",
+          "group": "navigation@8"
+        },
+        {
+          "command": "codex-switchbridge.disableAutoSwitch",
+          "when": "view == codexSwitchBridgeAccounts && codexSwitchBridge.autoSwitchEnabled",
+          "group": "navigation@8"
+        },
+        {
+          "command": "codex-switchbridge.reloadWindow",
+          "when": "view == codexSwitchBridgeProviders",
+          "group": "navigation@2"
+        },
+        {
+          "command": "codex-switchbridge.addProvider",
+          "when": "view == codexSwitchBridgeProviders",
+          "group": "navigation@3"
+        },
+        {
+          "command": "codex-switchbridge.refreshList",
+          "when": "view == codexSwitchBridgeProviders",
+          "group": "navigation@4"
+        },
+        {
+          "command": "codex-switchbridge.repairSharedHistory",
+          "when": "view == codexSwitchBridgeProviders",
+          "group": "navigation@5"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "codex-switchbridge.useAccount",
+          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)",
+          "group": "inline@1"
+        },
+        {
+          "command": "codex-switchbridge.refreshList",
+          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)",
+          "group": "refresh@1"
+        },
+        {
+          "command": "codex-switchbridge.refreshToken",
+          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)",
+          "group": "refresh@2"
+        },
+        {
+          "command": "codex-switchbridge.refreshQuota",
+          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)",
+          "group": "refresh@3"
+        },
+        {
+          "command": "codex-switchbridge.reloginAccount",
+          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)",
+          "group": "context@1"
+        },
+        {
+          "command": "codex-switchbridge.renameAccount",
+          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)",
+          "group": "context@2"
+        },
+        {
+          "command": "codex-switchbridge.removeAccount",
+          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud || viewItem == accountCloudRecoverable)",
+          "group": "context@3"
+        },
+        {
+          "command": "codex-switchbridge.moveAccountToCloud",
+          "when": "view == codexSwitchBridgeAccounts && viewItem == accountLocal",
+          "group": "context@4"
+        },
+        {
+          "command": "codex-switchbridge.restoreCloudAccountPayload",
+          "when": "view == codexSwitchBridgeAccounts && viewItem == accountCloudRecoverable",
+          "group": "context@1"
+        },
+        {
+          "command": "codex-switchbridge.moveAccountToLocal",
+          "when": "view == codexSwitchBridgeAccounts && viewItem == accountCloud",
+          "group": "context@4"
+        },
+        {
+          "command": "codex-switchbridge.unlockStorage",
+          "when": "view == codexSwitchBridgeAccounts && viewItem == accountCloudLocked",
+          "group": "context@1"
+        },
+        {
+          "command": "codex-switchbridge.copyAccountField",
+          "when": "view == codexSwitchBridgeAccounts && viewItem == accountCopyableField",
+          "group": "context@1"
+        },
+        {
+          "command": "codex-switchbridge.refreshQuota",
+          "when": "view == codexSwitchBridgeAccounts && viewItem == accountGroupLocal",
+          "group": "refresh@1"
+        },
+        {
+          "command": "codex-switchbridge.refreshQuota",
+          "when": "view == codexSwitchBridgeAccounts && viewItem == accountGroupCloud",
+          "group": "refresh@1"
+        },
+        {
+          "command": "codex-switchbridge.switchProvider",
+          "when": "view == codexSwitchBridgeProviders && (viewItem == providerLocal || viewItem == providerCloud)",
+          "group": "inline@1"
+        },
+        {
+          "command": "codex-switchbridge.moveProviderToCloud",
+          "when": "view == codexSwitchBridgeProviders && viewItem == providerLocal",
+          "group": "context@2"
+        },
+        {
+          "command": "codex-switchbridge.moveProviderToLocal",
+          "when": "view == codexSwitchBridgeProviders && viewItem == providerCloud",
+          "group": "context@2"
+        },
+        {
+          "command": "codex-switchbridge.removeProvider",
+          "when": "view == codexSwitchBridgeProviders && (viewItem == providerLocal || viewItem == providerCloud)",
+          "group": "context@3"
+        },
+        {
+          "command": "codex-switchbridge.copyProviderField",
+          "when": "view == codexSwitchBridgeProviders && viewItem == providerCopyableField",
+          "group": "inline@1"
+        },
+        {
+          "command": "codex-switchbridge.copyProviderField",
+          "when": "view == codexSwitchBridgeProviders && viewItem == providerCopyableField",
+          "group": "context@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Codex SwitchBridge",
+      "properties": {
+        "codex-switchbridge.quotaRefreshInterval": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "description": "Background maintenance interval, in seconds. Each interval checks one saved account for token refresh when enabled and refreshes one saved account quota in rotation."
+        },
+        "codex-switchbridge.tokenAutoUpdate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh saved account tokens during background timer maintenance when the token is expired or close to expiring."
+        },
+        "codex-switchbridge.autoSwitchOnZeroQuota": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically switch away from the currently selected saved account when its 5-hour quota reaches 0%, but only if another saved account has freshly confirmed 5-hour quota remaining."
+        },
+        "codex-switchbridge.autoSwitchCooldownSeconds": {
+          "type": "number",
+          "default": 90,
+          "minimum": 15,
+          "description": "Minimum time to wait before retrying automatic switching for the same exhausted account after no eligible replacement was found or a switch attempt failed."
+        },
+        "codex-switchbridge.shareHistoryAcrossProviders": {
+          "type": "boolean",
+          "default": true,
+          "description": "Route saved relay profiles through the built-in openai provider so new local Codex history remains visible across account and provider switches. Use Repair Local Shared History once for older provider-tagged threads."
+        },
+        "codex-switchbridge.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the current account quota in the status bar"
+        },
+        "codex-switchbridge.detailedPerformanceLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Debug-only. Emit performance logs for account list refresh and quota operations."
+        },
+        "codex-switchbridge.reloadWindowAfterSwitch": {
+          "type": "string",
+          "default": "statusBar",
+          "enum": [
+            "never",
+            "statusBar",
+            "always"
+          ],
+          "enumDescriptions": [
+            "Do not show a reload recommendation or reload the window after switching",
+            "Show a clickable Reload recommended item in the status bar without interrupting your work",
+            "Always reload the window after switching so the Codex extension can re-read auth"
+          ],
+          "description": "How VS Code window reload should be handled after switching accounts or providers"
+        },
+        "codex-switchbridge.authDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Directory used to save and load auth_{name}.json files. Leave empty to use the default Codex config directory."
+        },
+        "codex-switchbridge.useDeviceAuthForLogin": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use `codex login --device-auth` for add/re-login. Enable this only after turning on device code authorization for Codex in ChatGPT Security Settings."
+        },
+        "codex-switchbridge.defaultSaveTarget": {
+          "type": "string",
+          "default": "local",
+          "enum": [
+            "local",
+            "cloud"
+          ],
+          "enumDescriptions": [
+            "Save new accounts and providers to local files by default",
+            "Save new accounts and providers to synced extension storage by default"
+          ],
+          "description": "Default storage target used when saving accounts or provider profiles."
+        },
+        "codex-switchbridge.syncedStorage": {
+          "type": "object",
+          "default": {
+            "version": 1,
+            "accounts": {},
+            "accountNames": [],
+            "providers": {},
+            "providerNames": []
+          },
+          "markdownDeprecationMessage": "Legacy migration-only setting. Cloud data now lives in synced extension storage managed by the extension.",
+          "description": "Legacy migration-only backup of encrypted cloud accounts and providers. Managed internally by the extension."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "bundle": "node ./scripts/build.mjs",
+    "build": "npm run typecheck && npm run bundle",
+    "dev": "node ./scripts/build.mjs --watch",
+    "test": "npm run build && node --test test/**/*.test.js",
+    "package": "npm --prefix ../.. run build:core && npm run build && npx @vscode/vsce package --no-dependencies --allow-missing-repository",
+    "publish:openvsx": "npm run package && node ./scripts/publish-openvsx.mjs",
+    "publish:marketplace": "npx @vscode/vsce publish --no-dependencies",
+    "publish:preview": "npx @vscode/vsce publish --no-dependencies --pre-release"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT"
+}

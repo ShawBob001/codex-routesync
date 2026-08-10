@@ -1,0 +1,530 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const manifest = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8")
+);
+
+const commands = manifest.contributes.commands;
+
+test("extension identity is Codex SwitchBridge 0.1.0", () => {
+  assert.equal(manifest.name, "codex-switchbridge");
+  assert.equal(manifest.displayName, "Codex SwitchBridge");
+  assert.equal(manifest.publisher, "baoshichao001-dev");
+  assert.equal(manifest.version, "0.1.0");
+});
+
+test("production build includes the history migration helper", () => {
+  const helper = path.join(__dirname, "..", "dist", "scripts", "migrate-history-provider.py");
+  assert.equal(fs.existsSync(helper), true);
+  assert.match(fs.readFileSync(helper, "utf-8"), /--json/);
+});
+
+test("extension runs in the workspace extension host", () => {
+  assert.deepEqual(manifest.extensionKind, ["workspace"]);
+});
+
+test("extension commands use category for the shared prefix", () => {
+  const extensionCommands = commands.filter((command) =>
+    command.command.startsWith("codex-switchbridge.")
+  );
+
+  assert.ok(extensionCommands.length > 0);
+
+  for (const command of extensionCommands) {
+    assert.equal(command.category, "Codex SwitchBridge");
+    assert.match(command.title, /^(?!Codex SwitchBridge: ).+/);
+  }
+});
+
+test("account item context actions keep concise titles", () => {
+  const byId = new Map(commands.map((command) => [command.command, command]));
+
+  assert.equal(
+    byId.get("codex-switchbridge.reloginAccount")?.title,
+    "Re-login Account"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.renameAccount")?.title,
+    "Rename Account"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.removeAccount")?.title,
+    "Remove Account"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.refreshToken")?.title,
+    "Refresh Token"
+  );
+});
+
+test("device auth login setting is opt-in", () => {
+  const setting =
+    manifest.contributes.configuration.properties[
+      "codex-switchbridge.useDeviceAuthForLogin"
+    ];
+
+  assert.equal(setting?.type, "boolean");
+  assert.equal(setting?.default, false);
+  assert.match(setting?.description ?? "", /device code authorization/i);
+});
+
+test("storage password commands are contributed", () => {
+  const byId = new Map(commands.map((command) => [command.command, command]));
+
+  assert.equal(
+    byId.get("codex-switchbridge.unlockStorage")?.title,
+    "Unlock Storage"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.setStoragePassword")?.title,
+    "Set Storage Password"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.changeStoragePassword")?.title,
+    "Change Storage Password"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.forgetStoragePassword")?.title,
+    "Forget Local Storage Password"
+  );
+});
+
+test("storage target settings are contributed", () => {
+  const properties = manifest.contributes.configuration.properties;
+
+  assert.equal(
+    properties["codex-switchbridge.defaultSaveTarget"]?.default,
+    "local"
+  );
+  assert.deepEqual(
+    properties["codex-switchbridge.defaultSaveTarget"]?.enum,
+    ["local", "cloud"]
+  );
+  assert.equal(
+    properties["codex-switchbridge.syncedStorage"]?.type,
+    "object"
+  );
+  assert.match(
+    properties["codex-switchbridge.defaultSaveTarget"]?.enumDescriptions?.[1] ?? "",
+    /synced extension storage/i
+  );
+  assert.match(
+    properties["codex-switchbridge.syncedStorage"]?.markdownDeprecationMessage ?? "",
+    /legacy migration-only setting/i
+  );
+  assert.equal(
+    properties["codex-switchbridge.detailedPerformanceLogging"]?.type,
+    "boolean"
+  );
+  assert.equal(
+    properties["codex-switchbridge.detailedPerformanceLogging"]?.default,
+    false
+  );
+  assert.match(
+    properties["codex-switchbridge.detailedPerformanceLogging"]?.description ?? "",
+    /debug-only/i
+  );
+});
+
+test("quota refresh setting defaults to 30 seconds for rotating background refresh", () => {
+  const setting =
+    manifest.contributes.configuration.properties[
+      "codex-switchbridge.quotaRefreshInterval"
+    ];
+
+  assert.equal(setting?.type, "number");
+  assert.equal(setting?.default, 30);
+  assert.equal(setting?.minimum, 5);
+  assert.match(setting?.description ?? "", /background/i);
+  assert.match(setting?.description ?? "", /one saved account/i);
+  assert.match(setting?.description ?? "", /rotation/i);
+});
+
+test("token auto update setting defaults to enabled", () => {
+  const setting =
+    manifest.contributes.configuration.properties[
+      "codex-switchbridge.tokenAutoUpdate"
+    ];
+
+  assert.equal(setting?.type, "boolean");
+  assert.equal(setting?.default, true);
+  assert.match(setting?.description ?? "", /automatically refresh saved account tokens/i);
+  assert.match(setting?.description ?? "", /background timer/i);
+});
+
+test("auto-switch settings are contributed with conservative defaults", () => {
+  const properties = manifest.contributes.configuration.properties;
+  const enabledSetting = properties["codex-switchbridge.autoSwitchOnZeroQuota"];
+  const cooldownSetting = properties["codex-switchbridge.autoSwitchCooldownSeconds"];
+
+  assert.equal(enabledSetting?.type, "boolean");
+  assert.equal(enabledSetting?.default, false);
+  assert.match(enabledSetting?.description ?? "", /5-hour quota reaches 0%/i);
+
+  assert.equal(cooldownSetting?.type, "number");
+  assert.equal(cooldownSetting?.default, 90);
+  assert.equal(cooldownSetting?.minimum, 15);
+  assert.match(cooldownSetting?.description ?? "", /retrying automatic switching/i);
+});
+
+test("shared history is enabled by default for account and provider continuity", () => {
+  const setting =
+    manifest.contributes.configuration.properties[
+      "codex-switchbridge.shareHistoryAcrossProviders"
+    ];
+
+  assert.equal(setting?.type, "boolean");
+  assert.equal(setting?.default, true);
+  assert.match(setting?.description ?? "", /new local Codex history/i);
+  assert.match(setting?.description ?? "", /Repair Local Shared History/i);
+
+  const repairCommand = commands.find(
+    (command) => command.command === "codex-switchbridge.repairSharedHistory"
+  );
+  assert.equal(repairCommand?.title, "Repair Local Shared History");
+});
+
+test("reload behavior defaults to a non-blocking status-bar recommendation", () => {
+  const setting =
+    manifest.contributes.configuration.properties[
+      "codex-switchbridge.reloadWindowAfterSwitch"
+    ];
+
+  assert.equal(setting?.default, "statusBar");
+  assert.deepEqual(setting?.enum, ["never", "statusBar", "always"]);
+  assert.match(setting?.enumDescriptions?.[1] ?? "", /without interrupting/i);
+});
+
+test("storage migration commands are contributed", () => {
+  const byId = new Map(commands.map((command) => [command.command, command]));
+
+  assert.equal(
+    byId.get("codex-switchbridge.moveAccountToCloud")?.title,
+    "Move Account To Cloud"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.restoreCloudAccountPayload")?.title,
+    "Restore Cloud Payload From Protected Backup"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.moveAccountToLocal")?.title,
+    "Move Account To Local"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.moveProviderToCloud")?.title,
+    "Move Provider To Cloud"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.moveProviderToLocal")?.title,
+    "Move Provider To Local"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.removeProvider")?.title,
+    "Remove Provider"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.enableAutoSwitch")?.title,
+    "Enable Auto-Switch"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.disableAutoSwitch")?.title,
+    "Disable Auto-Switch"
+  );
+  assert.equal(
+    byId.get("codex-switchbridge.configureAutoSwitch")?.title,
+    "Auto-Switch Settings"
+  );
+});
+
+test("account inline actions do not include remove", () => {
+  const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
+  const inlineAccountActions = contextMenus.filter(
+    (item) =>
+      item.when ===
+        "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)" &&
+      typeof item.group === "string" &&
+      item.group.startsWith("inline@")
+  );
+
+  assert.deepEqual(
+    inlineAccountActions.map((item) => item.command).sort(),
+    ["codex-switchbridge.useAccount"]
+  );
+});
+
+test("refreshable account item context menu exposes refresh actions", () => {
+  const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
+  const refreshAccountActions = contextMenus.filter((item) =>
+    typeof item.when === "string"
+    && item.when.includes("view == codexSwitchBridgeAccounts")
+    && item.when.includes("accountLocal")
+    && item.when.includes("accountCloud")
+    && typeof item.group === "string"
+    && item.group.startsWith("refresh@")
+  );
+
+  assert.deepEqual(
+    refreshAccountActions.map((item) => item.command).sort(),
+    [
+      "codex-switchbridge.refreshList",
+      "codex-switchbridge.refreshQuota",
+      "codex-switchbridge.refreshToken",
+    ]
+  );
+});
+
+test("cloud account context menu exposes refresh token", () => {
+  const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
+  const refreshAccountActions = contextMenus.filter(
+    (item) =>
+      item.when ===
+        "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)" &&
+      typeof item.group === "string" &&
+      item.group.startsWith("refresh@")
+  );
+
+  assert.deepEqual(
+    refreshAccountActions.map((item) => item.command).sort(),
+    [
+      "codex-switchbridge.refreshList",
+      "codex-switchbridge.refreshQuota",
+      "codex-switchbridge.refreshToken",
+    ]
+  );
+});
+
+test("cloud account context menu exposes move account to local", () => {
+  const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
+  const moveAccountToLocal = contextMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.moveAccountToLocal"
+      && item.when === "view == codexSwitchBridgeAccounts && viewItem == accountCloud"
+  );
+
+  assert.equal(moveAccountToLocal?.group, "context@4");
+});
+
+test("recoverable cloud account context menu exposes explicit restore", () => {
+  const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
+  const restore = contextMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.restoreCloudAccountPayload"
+      && item.when === "view == codexSwitchBridgeAccounts && viewItem == accountCloudRecoverable"
+  );
+  const remove = contextMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.removeAccount"
+      && item.when ===
+        "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud || viewItem == accountCloudRecoverable)"
+  );
+
+  assert.equal(restore?.group, "context@1");
+  assert.equal(remove?.group, "context@3");
+});
+
+test("account group context menu exposes refresh quota for local and cloud groups", () => {
+  const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
+  const localGroupRefresh = contextMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.refreshQuota"
+      && item.when ===
+        "view == codexSwitchBridgeAccounts && viewItem == accountGroupLocal"
+  );
+  const cloudGroupRefresh = contextMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.refreshQuota"
+      && item.when ===
+        "view == codexSwitchBridgeAccounts && viewItem == accountGroupCloud"
+  );
+
+  assert.equal(localGroupRefresh?.group, "refresh@1");
+  assert.equal(cloudGroupRefresh?.group, "refresh@1");
+});
+
+test("provider context menu exposes remove for local and cloud providers", () => {
+  const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
+  const removeProvider = contextMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.removeProvider" &&
+      item.when ===
+        "view == codexSwitchBridgeProviders && (viewItem == providerLocal || viewItem == providerCloud)"
+  );
+
+  assert.equal(removeProvider?.group, "context@3");
+});
+
+test("provider context menu exposes switch provider inline action", () => {
+  const byId = new Map(commands.map((command) => [command.command, command]));
+  const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
+  const switchProvider = contextMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.switchProvider" &&
+      item.when ===
+        "view == codexSwitchBridgeProviders && (viewItem == providerLocal || viewItem == providerCloud)"
+  );
+
+  assert.equal(
+    byId.get("codex-switchbridge.switchProvider")?.title,
+    "Switch Provider"
+  );
+  assert.equal(switchProvider?.group, "inline@1");
+});
+
+test("providers view title menu exposes add provider", () => {
+  const byId = new Map(commands.map((command) => [command.command, command]));
+  const titleMenus = manifest.contributes.menus["view/title"] ?? [];
+  const addProvider = titleMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.addProvider" &&
+      item.when === "view == codexSwitchBridgeProviders"
+  );
+  const providerWelcome = manifest.contributes.viewsWelcome.find(
+    (item) => item.view === "codexSwitchBridgeProviders"
+  );
+
+  assert.equal(
+    byId.get("codex-switchbridge.addProvider")?.title,
+    "Add Provider"
+  );
+  assert.equal(addProvider?.group, "navigation@3");
+  assert.equal(
+    providerWelcome?.contents.includes("command:codex-switchbridge.addProvider"),
+    true
+  );
+});
+
+test("accounts view title menu exposes a single refresh entrypoint", () => {
+  const titleMenus = manifest.contributes.menus["view/title"] ?? [];
+  const accountViewCommands = titleMenus
+    .filter((item) => item.when === "view == codexSwitchBridgeAccounts")
+    .map((item) => item.command);
+
+  const manualRefreshCommands = [
+    "codex-switchbridge.refresh",
+    "codex-switchbridge.refreshList",
+    "codex-switchbridge.refreshQuota",
+    "codex-switchbridge.refreshToken",
+  ];
+  const present = manualRefreshCommands.filter((command) =>
+    accountViewCommands.includes(command)
+  );
+
+  assert.deepEqual(present, ["codex-switchbridge.refresh"]);
+});
+
+test("accounts view title menu is ordered by semantic groups", () => {
+  const titleMenus = manifest.contributes.menus["view/title"] ?? [];
+  const accountTitleItems = titleMenus
+    .filter((item) => item.when?.startsWith("view == codexSwitchBridgeAccounts"))
+    .sort((left, right) => {
+      const leftOrder = Number(left.group?.match(/@(\d+)$/)?.[1] ?? 0);
+      const rightOrder = Number(right.group?.match(/@(\d+)$/)?.[1] ?? 0);
+
+      return leftOrder - rightOrder;
+    });
+
+  assert.deepEqual(
+    accountTitleItems.map((item) => item.command),
+    [
+      "codex-switchbridge.refresh",
+      "codex-switchbridge.expandAllAccounts",
+      "codex-switchbridge.addAccount",
+      "codex-switchbridge.importAccounts",
+      "codex-switchbridge.reloadWindow",
+      "codex-switchbridge.enableAutoSwitch",
+      "codex-switchbridge.disableAutoSwitch",
+    ]
+  );
+  assert.deepEqual(
+    accountTitleItems.map((item) => item.group),
+    [
+      "navigation@1",
+      "navigation@2",
+      "navigation@3",
+      "navigation@4",
+      "navigation@6",
+      "navigation@8",
+      "navigation@8",
+    ]
+  );
+});
+
+test("accounts view title menu hides switch mode and auto-switch settings", () => {
+  const titleMenus = manifest.contributes.menus["view/title"] ?? [];
+  const enabledItem = titleMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.enableAutoSwitch" &&
+      item.when ===
+        "view == codexSwitchBridgeAccounts && !codexSwitchBridge.autoSwitchEnabled"
+  );
+  const disabledItem = titleMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.disableAutoSwitch" &&
+      item.when ===
+        "view == codexSwitchBridgeAccounts && codexSwitchBridge.autoSwitchEnabled"
+  );
+  const settingsItem = titleMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.configureAutoSwitch" &&
+      item.when === "view == codexSwitchBridgeAccounts"
+  );
+  const switchModeItem = titleMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.switchMode" &&
+      item.when === "view == codexSwitchBridgeAccounts"
+  );
+
+  assert.equal(enabledItem?.group, "navigation@8");
+  assert.equal(disabledItem?.group, "navigation@8");
+  assert.equal(settingsItem, undefined);
+  assert.equal(switchModeItem, undefined);
+});
+
+test("providers view hides switch mode title and welcome entrypoints", () => {
+  const titleMenus = manifest.contributes.menus["view/title"] ?? [];
+  const providerSwitchModeItem = titleMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.switchMode" &&
+      item.when === "view == codexSwitchBridgeProviders"
+  );
+  const providerWelcome = manifest.contributes.viewsWelcome.find(
+    (item) => item.view === "codexSwitchBridgeProviders"
+  );
+
+  assert.equal(providerSwitchModeItem, undefined);
+  assert.equal(providerWelcome?.contents.includes("Switch mode"), false);
+});
+
+test("locked cloud accounts expose unlock in the context menu", () => {
+  const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
+  const unlockMenuItem = contextMenus.find(
+    (item) =>
+      item.command === "codex-switchbridge.unlockStorage" &&
+      item.when ===
+        "view == codexSwitchBridgeAccounts && viewItem == accountCloudLocked"
+  );
+
+  assert.equal(unlockMenuItem?.group, "context@1");
+});
+
+test("account email copy command is contributed", () => {
+  const byId = new Map(commands.map((command) => [command.command, command]));
+  const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
+
+  assert.equal(
+    byId.get("codex-switchbridge.copyAccountField")?.title,
+    "Copy Account Value"
+  );
+  assert.equal(
+    contextMenus.find(
+      (item) =>
+        item.command === "codex-switchbridge.copyAccountField" &&
+        item.when ===
+          "view == codexSwitchBridgeAccounts && viewItem == accountCopyableField"
+    )?.group,
+    "context@1"
+  );
+});

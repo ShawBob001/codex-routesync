@@ -1,0 +1,29 @@
+{
+  "name": "@codex-switchbridge/core",
+  "version": "0.1.0",
+  "description": "Core logic for Codex SwitchBridge",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/baoshichao001-dev/codex-switchbridge",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/baoshichao001-dev/codex-switchbridge",
+  "bugs": {
+    "url": "https://github.com/baoshichao001-dev/codex-switchbridge/issues"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "npm run build && node --test test/**/*.test.js"
+  },
+  "dependencies": {
+    "jwt-decode": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,266 @@
+import * as vscode from "vscode";
+import { QuotaInfo, WindowInfo, getModeDisplayName } from "@codex-switchbridge/core";
+import { logInfo, logWarn, startPerformanceLog } from "./log";
+import {
+  createSavedEntriesSnapshot,
+  getSavedAccountEntry,
+  getSavedCurrentSelection,
+  querySavedAccountQuota,
+  SavedAccountQuotaQueryContext,
+  SavedEntriesSnapshot,
+} from "./savedEntries";
+const LOG_PREFIX = "[codex-switchbridge:vscode:statusBar]";
+
+interface StatusBarRefreshOptions {
+  skipQuota?: boolean;
+  snapshot?: SavedEntriesSnapshot;
+  queryContext?: SavedAccountQuotaQueryContext;
+  reason?: string;
+  refreshId?: string;
+}
+
+function windowLabel(window: WindowInfo): string {
+  if (window.windowSeconds == null) return "quota";
+  const hours = window.windowSeconds / 3600;
+  if (hours <= 5) return "5h";
+  if (hours <= 24) return `${Math.round(hours)}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+function isFiveHourWindow(window: WindowInfo): boolean {
+  if (window.windowSeconds == null) return false;
+  return window.windowSeconds / 3600 <= 5;
+}
+
+function getPreferredStatusWindow(info: QuotaInfo): WindowInfo | null {
+  if (info.primaryWindow && isFiveHourWindow(info.primaryWindow)) {
+    return info.primaryWindow;
+  }
+  if (info.secondaryWindow && isFiveHourWindow(info.secondaryWindow)) {
+    return info.secondaryWindow;
+  }
+  return info.primaryWindow ?? info.secondaryWindow ?? null;
+}
+
+export class StatusBarManager implements vscode.Disposable {
+  private statusBarItem: vscode.StatusBarItem;
+  private reloadStatusBarItem: vscode.StatusBarItem;
+  private configListener: vscode.Disposable | undefined;
+  private reloadRecommended = false;
+
+  constructor() {
+    this.statusBarItem = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      100
+    );
+    this.statusBarItem.command = "codex-switchbridge.refreshQuota";
+    this.statusBarItem.name = "Codex SwitchBridge Quota";
+    this.reloadStatusBarItem = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      101,
+    );
+    this.reloadStatusBarItem.command = "codex-switchbridge.reloadWindow";
+    this.reloadStatusBarItem.name = "Codex SwitchBridge Reload Recommendation";
+    this.reloadStatusBarItem.text = "$(debug-restart) Reload recommended";
+    this.reloadStatusBarItem.tooltip = "Reload this VS Code window so Codex uses the newly selected account or provider.";
+    this.updateVisibility();
+  }
+
+  private isVisibleEnabled(): boolean {
+    return vscode.workspace.getConfiguration("codex-switchbridge").get<boolean>("showStatusBar", true);
+  }
+
+  private updateVisibility() {
+    if (this.isVisibleEnabled()) {
+      this.statusBarItem.show();
+    } else {
+      this.statusBarItem.hide();
+    }
+
+    if (this.reloadRecommended) {
+      this.reloadStatusBarItem.show();
+    } else {
+      this.reloadStatusBarItem.hide();
+    }
+  }
+
+  markReloadRecommended(reason?: string): void {
+    this.reloadRecommended = true;
+    this.reloadStatusBarItem.tooltip = reason
+      ? `${reason}\n\nClick to reload this VS Code window.`
+      : "Reload this VS Code window so Codex uses the newly selected account or provider.";
+    this.updateVisibility();
+  }
+
+  clearReloadRecommendation(): void {
+    this.reloadRecommended = false;
+    this.reloadStatusBarItem.hide();
+  }
+
+  startConfigurationSync(context: vscode.ExtensionContext) {
+    this.configListener = vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("codex-switchbridge.showStatusBar")) {
+        this.updateVisibility();
+        if (this.isVisibleEnabled()) {
+          void this.refreshNow({
+            snapshot: createSavedEntriesSnapshot(),
+            reason: "config-change",
+          }).catch((error) => {
+            logWarn(LOG_PREFIX, "show-status-bar-refresh-failed", {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
+        }
+      }
+    });
+    context.subscriptions.push(this.configListener);
+  }
+
+  async refreshNow(options: StatusBarRefreshOptions = {}) {
+    const perf = startPerformanceLog(LOG_PREFIX, "statusBar.refreshNow", {
+      skipQuota: options?.skipQuota ?? false,
+      reason: options.reason ?? null,
+      refreshId: options.refreshId ?? null,
+    });
+    if (!this.isVisibleEnabled()) {
+      perf.finish({
+        result: "hidden",
+      });
+      return;
+    }
+
+    try {
+      const snapshot = options.snapshot ?? createSavedEntriesSnapshot();
+      const selection = getSavedCurrentSelection(snapshot);
+      perf.mark("get-saved-current-selection", {
+        selectionKind: selection.kind,
+        name: "name" in selection ? selection.name : null,
+      });
+      logInfo(LOG_PREFIX, "refresh-start", {
+        selectionKind: selection.kind,
+        name: "name" in selection ? selection.name : null,
+      });
+
+      if (selection.kind === "provider") {
+        const modeLabel = getModeDisplayName(selection.name);
+        const sourceLabel = selection.source === "cloud" ? "cloud" : "local";
+        this.statusBarItem.text = `$(plug) ${modeLabel} [${sourceLabel}]`;
+        this.statusBarItem.tooltip = `Mode: ${modeLabel}\nSource: ${sourceLabel}\nQuota is unavailable in provider mode`;
+        perf.finish({
+          result: "provider",
+          name: selection.name,
+          source: selection.source,
+        });
+        return;
+      }
+
+      if (selection.kind !== "account") {
+        this.statusBarItem.text = "$(account) Codex: No account";
+        this.statusBarItem.tooltip = "No active Codex account detected";
+        perf.finish({
+          result: "no-account",
+        });
+        return;
+      }
+
+      const name = selection.name;
+      if (options?.skipQuota) {
+        this.statusBarItem.text = `$(account) ${name} [${selection.source}]`;
+        this.statusBarItem.tooltip = `Account: ${name}\nSource: ${selection.source}\nQuota refresh pending`;
+        perf.finish({
+          result: "skip-quota",
+          name,
+          source: selection.source,
+        });
+        return;
+      }
+
+      const account = getSavedAccountEntry(name, selection.source, snapshot);
+      perf.mark("get-saved-account-entry", {
+        foundAccount: Boolean(account),
+        name,
+        source: selection.source,
+      });
+      if (!account) {
+        this.statusBarItem.text = `$(account) ${name}`;
+        this.statusBarItem.tooltip = `Account: ${name}\nSource: ${selection.source}\nSaved entry is unavailable`;
+        perf.finish({
+          result: "missing-account",
+          name,
+          source: selection.source,
+        });
+        return;
+      }
+
+      this.statusBarItem.text = `$(loading~spin) ${name} [${selection.source}]`;
+      const result = await querySavedAccountQuota(account, options.queryContext, {
+        reason: options.reason,
+      });
+      perf.mark("query-saved-account-quota", {
+        resultKind: result.kind,
+      });
+      if (result.kind !== "ok") {
+        logWarn(LOG_PREFIX, "refresh-result-not-ok", {
+          resultKind: result.kind,
+          message: result.message,
+          account: account.id,
+        });
+        this.statusBarItem.text = `$(account) ${name} [${selection.source}]`;
+        this.statusBarItem.tooltip = result.message;
+        perf.finish({
+          resultKind: result.kind,
+          name,
+          source: selection.source,
+        });
+        return;
+      }
+
+      const { info } = result;
+      const preferredWindow = getPreferredStatusWindow(info);
+
+      if (preferredWindow) {
+        const used = Math.round(preferredWindow.usedPercent);
+        const remaining = Math.max(0, 100 - used);
+        const icon =
+          remaining === 0 ? "$(error)" : remaining <= 30 ? "$(warning)" : remaining <= 50 ? "$(info)" : "$(check)";
+        this.statusBarItem.text = `${icon} ${name} [${selection.source}]: ${remaining}%`;
+
+        let tip = `Account: ${name}\nSource: ${selection.source}\nEmail: ${info.email}\nPlan: ${info.plan}\n`;
+        tip += `\n${windowLabel(preferredWindow)} quota: ${remaining}% remaining`;
+        const otherWindow =
+          preferredWindow === info.primaryWindow ? info.secondaryWindow : info.primaryWindow;
+        if (otherWindow) {
+          tip += `\n${windowLabel(otherWindow)} quota: ${Math.max(0, 100 - Math.round(otherWindow.usedPercent))}% remaining`;
+        }
+        this.statusBarItem.tooltip = tip;
+      } else {
+        const reason = info.unavailableReason?.message;
+        this.statusBarItem.text = `${reason ? "$(warning)" : "$(account)"} ${name} [${selection.source}]`;
+        this.statusBarItem.tooltip = reason
+          ? `Account: ${name}\nSource: ${selection.source}\nEmail: ${info.email}\nPlan: ${info.plan}\nQuota: ${reason}`
+          : `Account: ${name}\nSource: ${selection.source}\nEmail: ${info.email}\nPlan: ${info.plan}`;
+      }
+      logInfo(LOG_PREFIX, "refresh-finish", { account: name });
+      perf.finish({
+        resultKind: result.kind,
+        name,
+        source: selection.source,
+        unavailableReason: info.unavailableReason?.code ?? null,
+      });
+    } catch (error) {
+      logWarn(LOG_PREFIX, "refresh-error", {
+        account: this.statusBarItem.text,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.statusBarItem.text = this.statusBarItem.text || "$(account) Codex";
+      this.statusBarItem.tooltip = "Quota lookup failed";
+      perf.fail(error);
+    }
+  }
+
+  dispose() {
+    this.configListener?.dispose();
+    this.statusBarItem.dispose();
+    this.reloadStatusBarItem.dispose();
+  }
+}

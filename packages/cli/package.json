@@ -1,0 +1,51 @@
+{
+  "name": "codex-switchbridge-cli",
+  "version": "0.1.0",
+  "description": "Codex SwitchBridge CLI for managing multiple Codex accounts",
+  "main": "dist/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/baoshichao001-dev/codex-switchbridge",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/baoshichao001-dev/codex-switchbridge",
+  "bugs": {
+    "url": "https://github.com/baoshichao001-dev/codex-switchbridge/issues"
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "codex-switchbridge": "dist/index.js"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "prebuild": "npm run build -w @codex-switchbridge/core",
+    "build": "tsc --emitDeclarationOnly && node ./scripts/build.mjs",
+    "predev": "npm run build -w @codex-switchbridge/core",
+    "dev": "tsc --watch",
+    "test": "npm run build && node --test test/**/*.test.js",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "codex",
+    "cli",
+    "account",
+    "switch"
+  ],
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3"
+  },
+  "devDependencies": {
+    "@codex-switchbridge/core": "*",
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT"
+}

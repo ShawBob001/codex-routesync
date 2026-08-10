@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.tgz
+*.vsix
+.vscode-test/
+packages/core/tsconfig.tsbuildinfo
+.playwright-mcp/

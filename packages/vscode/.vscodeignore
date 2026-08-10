@@ -1,0 +1,11 @@
+src/**
+scripts/**
+tsconfig.json
+*.tsbuildinfo
+dist/**/*.map
+node_modules/**
+.vscode-test/**
+test/**
+.env*
+.npmrc
+*.vsix

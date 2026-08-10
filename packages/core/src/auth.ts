@@ -1,0 +1,387 @@
+import * as fs from "fs";
+import * as path from "path";
+import { jwtDecode } from "jwt-decode";
+import { getCodexAuthPath, getNamedAuthPath, listNamedAuthFiles } from "./paths";
+import { AuthFile, IdTokenPayload, AccountMeta } from "./types";
+import { readSavedJsonFile, SavedStorageReadResult, writeSavedJsonFile } from "./savedStorage";
+
+const AUTH_UPDATED_AT_FIELD = "codex_switchbridge_auth_updated_at";
+
+function sanitizeAuthFile(auth: AuthFile): AuthFile {
+  const sanitized: AuthFile = {};
+
+  if (typeof auth.auth_mode === "string" && auth.auth_mode) {
+    sanitized.auth_mode = auth.auth_mode;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(auth, "OPENAI_API_KEY")) {
+    sanitized.OPENAI_API_KEY = auth.OPENAI_API_KEY ?? null;
+  }
+
+  if (auth.tokens && typeof auth.tokens === "object") {
+    const tokens = auth.tokens;
+    const sanitizedTokens: NonNullable<AuthFile["tokens"]> = {};
+
+    if (typeof tokens.id_token === "string") {
+      sanitizedTokens.id_token = tokens.id_token;
+    }
+    if (typeof tokens.access_token === "string") {
+      sanitizedTokens.access_token = tokens.access_token;
+    }
+    if (typeof tokens.refresh_token === "string") {
+      sanitizedTokens.refresh_token = tokens.refresh_token;
+    }
+    if (typeof tokens.account_id === "string") {
+      sanitizedTokens.account_id = tokens.account_id;
+    }
+
+    if (Object.keys(sanitizedTokens).length > 0) {
+      sanitized.tokens = sanitizedTokens;
+    }
+  }
+
+  if (typeof auth.last_refresh === "string" && auth.last_refresh) {
+    sanitized.last_refresh = auth.last_refresh;
+  }
+
+  if (typeof auth.last_token_auto_update === "string" && auth.last_token_auto_update) {
+    sanitized.last_token_auto_update = auth.last_token_auto_update;
+  }
+
+  if (typeof auth[AUTH_UPDATED_AT_FIELD] === "string" && auth[AUTH_UPDATED_AT_FIELD]) {
+    sanitized[AUTH_UPDATED_AT_FIELD] = auth[AUTH_UPDATED_AT_FIELD];
+  }
+
+  return sanitized;
+}
+
+function readCompatibleAuthFile(filePath: string): AuthFile | null {
+  const result = readSavedJsonFile<AuthFile>(filePath, "saved_auth");
+  if (result.status !== "ok") {
+    return null;
+  }
+  return sanitizeAuthFile(result.value);
+}
+
+export function readCurrentAuth(): AuthFile | null {
+  const p = getCodexAuthPath();
+  if (!fs.existsSync(p)) {
+    return null;
+  }
+  return readCompatibleAuthFile(p);
+}
+
+export function readAuthFile(filePath: string): AuthFile | null {
+  if (!fs.existsSync(filePath)) return null;
+  return readCompatibleAuthFile(filePath);
+}
+
+function resolveAuthWriteTarget(filePath: string): string {
+  try {
+    if (fs.lstatSync(filePath).isSymbolicLink()) {
+      return fs.realpathSync(filePath);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+  return filePath;
+}
+
+function fsyncDirectoryBestEffort(directory: string): void {
+  let descriptor: number | null = null;
+  try {
+    descriptor = fs.openSync(directory, "r");
+    fs.fsyncSync(descriptor);
+  } catch {
+    // Some platforms/filesystems do not allow directory fsync.
+  } finally {
+    if (descriptor !== null) {
+      fs.closeSync(descriptor);
+    }
+  }
+}
+
+export function writeAuthFile(filePath: string, auth: AuthFile): void {
+  const target = resolveAuthWriteTarget(filePath);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const temporary = `${target}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+  let descriptor: number | null = null;
+  try {
+    descriptor = fs.openSync(temporary, "wx", 0o600);
+    fs.fchmodSync(descriptor, 0o600);
+    fs.writeFileSync(descriptor, JSON.stringify(sanitizeAuthFile(auth), null, 2), "utf-8");
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptor = null;
+    fs.renameSync(temporary, target);
+    fs.chmodSync(target, 0o600);
+    fsyncDirectoryBestEffort(path.dirname(target));
+  } finally {
+    if (descriptor !== null) {
+      fs.closeSync(descriptor);
+    }
+    if (fs.existsSync(temporary)) {
+      fs.unlinkSync(temporary);
+    }
+  }
+}
+
+export function readSavedAuthFileResult(filePath: string): SavedStorageReadResult<AuthFile> {
+  const result = readSavedJsonFile<AuthFile>(filePath, "saved_auth");
+  if (result.status !== "ok") {
+    return result;
+  }
+
+  return {
+    ...result,
+    value: sanitizeAuthFile(result.value),
+  };
+}
+
+export function writeSavedAuthFile(filePath: string, auth: AuthFile): void {
+  writeSavedJsonFile(filePath, "saved_auth", sanitizeAuthFile(auth));
+}
+
+export function writeCurrentAuth(auth: AuthFile): void {
+  writeAuthFile(getCodexAuthPath(), auth);
+}
+
+function normalizeIdentityValue(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function decodeIdTokenPayload(auth: AuthFile | null | undefined): IdTokenPayload | null {
+  const idToken = auth?.tokens?.id_token;
+  if (typeof idToken !== "string" || !idToken) {
+    return null;
+  }
+
+  try {
+    return jwtDecode<IdTokenPayload>(idToken);
+  } catch {
+    return null;
+  }
+}
+
+function getUserIdentity(auth: AuthFile | null | undefined): string | null {
+  const decoded = decodeIdTokenPayload(auth);
+  const authInfo = decoded?.["https://api.openai.com/auth"];
+
+  const chatgptUserId = normalizeIdentityValue(authInfo?.chatgpt_user_id);
+  if (chatgptUserId) {
+    return `chatgpt_user_id::${chatgptUserId}`;
+  }
+
+  const userId = normalizeIdentityValue(authInfo?.user_id);
+  if (userId) {
+    return `user_id::${userId}`;
+  }
+
+  const subject = normalizeIdentityValue(decoded?.sub);
+  if (subject) {
+    return `sub::${subject}`;
+  }
+
+  return null;
+}
+
+function getWorkspaceIdentity(auth: AuthFile | null | undefined): string | null {
+  const decoded = decodeIdTokenPayload(auth);
+  const authInfo = decoded?.["https://api.openai.com/auth"];
+
+  const organizationId =
+    normalizeIdentityValue(authInfo?.selected_organization_id) ||
+    normalizeIdentityValue(authInfo?.default_organization_id) ||
+    normalizeIdentityValue(authInfo?.chatgpt_account_id);
+  if (organizationId) {
+    return `organization::${organizationId}`;
+  }
+
+  const organizations = Array.isArray(authInfo?.organizations) ? authInfo.organizations : [];
+  const organizationIds = Array.from(
+    new Set(
+      organizations
+        .map((organization) => normalizeIdentityValue(organization?.id))
+        .filter((organizationId) => organizationId)
+    )
+  );
+  if (organizationIds.length === 1) {
+    return `organization::${organizationIds[0]}`;
+  }
+
+  const accountId = normalizeIdentityValue(auth?.tokens?.account_id);
+  if (accountId) {
+    return `account_id::${accountId}`;
+  }
+
+  return null;
+}
+
+export function extractMeta(auth: AuthFile): AccountMeta {
+  let email = "unknown";
+  let name = "unknown";
+  let plan = "unknown";
+
+  const decoded = decodeIdTokenPayload(auth);
+  if (decoded) {
+    email = decoded.email ?? email;
+    name = decoded.name ?? decoded.sub ?? name;
+    const authInfo = decoded["https://api.openai.com/auth"];
+    if (authInfo?.chatgpt_plan_type) {
+      plan = authInfo.chatgpt_plan_type;
+    }
+  }
+
+  return { name, email, plan };
+}
+
+export function getAccountIdentityFromMeta(meta: AccountMeta | null | undefined): string | null {
+  if (!meta) return null;
+  const email = normalizeIdentityValue(meta.email);
+  const plan = normalizeIdentityValue(meta.plan);
+  if (!email || !plan || email === "unknown" || plan === "unknown") return null;
+  return `${email}::${plan}`;
+}
+
+export function getAccountIdentity(auth: AuthFile | null | undefined): string | null {
+  const userIdentity = getUserIdentity(auth);
+  const workspaceIdentity = getWorkspaceIdentity(auth);
+  if (userIdentity && workspaceIdentity) {
+    return `${userIdentity}::${workspaceIdentity}`;
+  }
+
+  if (userIdentity) {
+    return userIdentity;
+  }
+
+  const metaIdentity = getAccountIdentityFromMeta(auth ? extractMeta(auth) : null);
+  if (metaIdentity && workspaceIdentity) {
+    return `meta::${metaIdentity}::${workspaceIdentity}`;
+  }
+
+  if (workspaceIdentity) {
+    return workspaceIdentity;
+  }
+
+  if (metaIdentity) {
+    return `meta::${metaIdentity}`;
+  }
+
+  return null;
+}
+
+export function hasAccountAuthTokens(auth: AuthFile | null | undefined): boolean {
+  if (!auth) {
+    return false;
+  }
+
+  return typeof auth.tokens?.access_token === "string" && auth.tokens.access_token.trim().length > 0;
+}
+
+function getJwtExpiry(token: string | null | undefined): Date | null {
+  if (!token) return null;
+  try {
+    const decoded = jwtDecode<{ exp?: number }>(token);
+    if (decoded.exp) {
+      return new Date(decoded.exp * 1000);
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function formatExpiry(expiry: Date | null): string {
+  if (!expiry) return "unknown";
+  const now = Date.now();
+  const diff = expiry.getTime() - now;
+  if (diff <= 0) {
+    const ago = Math.abs(diff);
+    const m = Math.floor(ago / 60000);
+    if (m < 60) return `expired ${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `expired ${h}h${m % 60}m ago`;
+    return `expired ${Math.floor(h / 24)}d${h % 24}h ago`;
+  }
+  const m = Math.floor(diff / 60000);
+  if (m < 60) return `expires in ${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `expires in ${h}h${m % 60}m`;
+  return `expires in ${Math.floor(h / 24)}d${h % 24}h`;
+}
+
+export function getTokenExpiry(auth: AuthFile): Date | null {
+  return getJwtExpiry(auth.tokens?.access_token);
+}
+
+export function getRefreshTokenExpiry(auth: AuthFile): Date | null {
+  return getJwtExpiry(auth.tokens?.refresh_token);
+}
+
+export function isTokenExpired(auth: AuthFile): boolean {
+  const expiry = getTokenExpiry(auth);
+  if (!expiry) return true;
+  return expiry.getTime() < Date.now();
+}
+
+export function isTokenExpiringWithin(auth: AuthFile, thresholdMs: number): boolean {
+  const expiry = getTokenExpiry(auth);
+  if (!expiry) return false;
+  return expiry.getTime() - Date.now() < thresholdMs;
+}
+
+export function isRefreshTokenExpiringWithin(auth: AuthFile, thresholdMs: number): boolean {
+  const expiry = getRefreshTokenExpiry(auth);
+  if (!expiry) return false;
+  return expiry.getTime() - Date.now() < thresholdMs;
+}
+
+export function formatTokenExpiry(auth: AuthFile): string {
+  return formatExpiry(getTokenExpiry(auth));
+}
+
+export function getRefreshTokenStatus(auth: AuthFile): "available" | "missing" {
+  const refreshToken = auth.tokens?.refresh_token;
+  return typeof refreshToken === "string" && refreshToken.trim().length > 0 ? "available" : "missing";
+}
+
+export function formatRefreshTokenStatus(auth: AuthFile): string {
+  return getRefreshTokenStatus(auth);
+}
+
+export function findMatchingNamedAuthName(auth: AuthFile | null | undefined): string | null {
+  if (!hasAccountAuthTokens(auth)) {
+    return null;
+  }
+
+  const identity = getAccountIdentity(auth);
+  if (!identity) {
+    return null;
+  }
+
+  for (const name of listNamedAuthFiles()) {
+    const namedResult = readSavedAuthFileResult(getNamedAuthPath(name));
+    if (namedResult.status === "ok" && getAccountIdentity(namedResult.value) === identity) {
+      return name;
+    }
+  }
+
+  return null;
+}
+
+export function syncCurrentAuthToSavedAccount(): { name: string; auth: AuthFile } | null {
+  const auth = readCurrentAuth();
+  if (!auth) {
+    return null;
+  }
+
+  const name = findMatchingNamedAuthName(auth);
+  if (!name) {
+    return null;
+  }
+
+  writeSavedAuthFile(getNamedAuthPath(name), auth);
+  return { name, auth };
+}
