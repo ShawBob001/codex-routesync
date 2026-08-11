@@ -5,5 +5,6 @@ dist/
 .vscode-test/
 packages/core/tsconfig.tsbuildinfo
 .playwright-mcp/
+.superpowers/
 __pycache__/
 *.py[cod]
