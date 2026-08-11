@@ -447,7 +447,67 @@ export function cmdUse(name: string): void {
   }
 }
 
-export async function cmdMode(name?: string): Promise<void> {
+function getSelectionRouteLabel(selection: ReturnType<typeof getCurrentSelection>): string {
+  if (selection.kind === "provider") {
+    return `provider:${selection.name}`;
+  }
+  if (selection.kind === "account") {
+    return `account:${selection.name}`;
+  }
+  return "account:unknown";
+}
+
+function switchToAccountMode(): void {
+  const selection = getCurrentSelection();
+  if (selection.kind === "account") {
+    console.log(chalk.green(`Already in account mode with account "${selection.name}".`));
+    return;
+  }
+
+  const accounts = listAccounts();
+  if (accounts.length === 0) {
+    console.log(
+      chalk.red(
+        "Cannot switch to account mode because no saved Codex account is available. The current API provider was left unchanged."
+      )
+    );
+    console.log(chalk.dim("  Add an account first with `codex-switchbridge add <name>`."));
+    return;
+  }
+
+  if (accounts.length > 1) {
+    console.log(
+      chalk.yellow(
+        "Multiple saved Codex accounts are available, so the current API provider was left unchanged. Choose one explicitly:"
+      )
+    );
+    accounts.forEach((account) => console.log(`  codex-switchbridge use ${account.name}`));
+    return;
+  }
+
+  const account = accounts[0];
+  const result = useAccount(account.name, {
+    source: getSelectionRouteLabel(selection),
+    target: `account:${account.name}`,
+  });
+  if (!result.success) {
+    console.log(chalk.red(result.message));
+    console.log(chalk.red("The current API provider was left unchanged."));
+    return;
+  }
+
+  console.log(chalk.green(`✓ ${result.message}`));
+  console.log(chalk.dim("  Restored the only saved Codex account; shared local conversation history remains available."));
+  if (result.meta) {
+    console.log(chalk.dim(`  Email: ${result.meta.email}`));
+    console.log(chalk.dim(`  Plan: ${result.meta.plan}`));
+  }
+}
+
+export async function cmdMode(
+  name?: string,
+  options?: { separateHistory?: boolean }
+): Promise<void> {
   if (!name) {
     const selection = getCurrentSelection();
     const currentMode = selection.kind === "provider" ? selection.name : "account";
@@ -460,19 +520,24 @@ export async function cmdMode(name?: string): Promise<void> {
       const kindLabel = modeName === "account" ? chalk.dim("account mode") : chalk.cyan("provider mode");
       console.log(`  ${getModeDisplayName(modeName)}  ${kindLabel}${tag}`);
     });
+    console.log(chalk.dim("\nResponses API providers share local conversation history with account mode by default."));
     console.log();
     return;
   }
 
   const resolvedName = resolveModeNameInput(name);
+  if (resolvedName === "account") {
+    switchToAccountMode();
+    return;
+  }
 
-  const providerResult = resolvedName === "account" ? null : readProviderProfileResult(resolvedName);
+  const providerResult = readProviderProfileResult(resolvedName);
   if (providerResult?.status === "locked") {
     console.log(chalk.red(providerResult.message));
     return;
   }
 
-  if (resolvedName !== "account" && providerResult?.status !== "ok") {
+  if (providerResult.status !== "ok") {
     const created = await ensureProviderProfile(resolvedName);
     if (!created) {
       console.log(chalk.red(`Failed to create provider "${resolvedName}".`));
@@ -480,8 +545,23 @@ export async function cmdMode(name?: string): Promise<void> {
     }
   }
 
-  const result = switchMode(resolvedName);
+  const shareHistoryAcrossProviders = options?.separateHistory !== true;
+  const selection = getCurrentSelection();
+  const result = switchMode(resolvedName, {
+    shareHistoryAcrossProviders,
+    source: getSelectionRouteLabel(selection),
+    target: `provider:${resolvedName}`,
+  });
   console.log(result.success ? chalk.green(`✓ ${result.message}`) : chalk.red(result.message));
+  if (result.success) {
+    console.log(
+      chalk.dim(
+        shareHistoryAcrossProviders
+          ? "  Shared local conversation history: enabled across account and API provider modes."
+          : "  Shared local conversation history: disabled for this provider switch (--separate-history)."
+      )
+    );
+  }
 }
 
 function formatResetTime(resetsAt: Date | null): string {

@@ -385,7 +385,11 @@ function createVscodeMock(options) {
         const item = {
           visible: false,
           disposed: false,
-          show() { this.visible = true; },
+          showCount: 0,
+          show() {
+            this.visible = true;
+            this.showCount += 1;
+          },
           hide() { this.visible = false; },
           dispose() { this.disposed = true; },
           text: "",
@@ -3029,7 +3033,7 @@ test("manual cloud refresh increments visible sync version metadata", async (t) 
   });
 });
 
-test("shared history switches recommend reload in the status bar without prompting", async (t) => {
+test("shared history local provider syncs current auth before switching accounts", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-shared-local-provider-"));
   const codexHome = path.join(tempRoot, ".codex");
   const authDir = path.join(tempRoot, "saved-auth");
@@ -3096,15 +3100,42 @@ test("shared history switches recommend reload in the status bar without prompti
         assert.ok(reloadItem);
         assert.equal(reloadItem.visible, true);
         assert.match(reloadItem.text, /Reload recommended/);
+        const reloadShowCount = reloadItem.showCount;
 
         const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "alpha" && item.account.source === "local");
+        assert.ok(accountItem);
+
+        fs.writeFileSync(
+          path.join(codexHome, "auth.json"),
+          JSON.stringify({ OPENAI_API_KEY: "sk-proxy-refreshed" }, null, 2),
+          "utf-8",
+        );
+
+        await mocked.registeredCommands.get("codex-switchbridge.switchProvider")(providerItem);
+
+        assert.deepEqual(
+          JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8")),
+          { OPENAI_API_KEY: "sk-proxy-refreshed" },
+        );
+        assert.equal(reloadItem.showCount, reloadShowCount);
+        const providerAfterReselect = core.readProviderProfileResult("proxy");
+        assert.equal(providerAfterReselect.status, "ok");
+        assert.equal(providerAfterReselect.value.auth.OPENAI_API_KEY, "sk-proxy-refreshed");
 
         await mocked.registeredCommands.get("codex-switchbridge.useAccount")(accountItem);
 
+        assert.deepEqual(mocked.errorMessages, []);
+        assert.equal(
+          JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8")).tokens?.account_id,
+          "acct-alpha",
+        );
         assert.equal(core.getSharedHistoryRouteState(), null);
         assert.deepEqual(core.getOpenAIBaseUrlSnapshot(), { present: false, value: null });
+        const savedProvider = core.readProviderProfileResult("proxy");
+        assert.equal(savedProvider.status, "ok");
+        assert.equal(savedProvider.value.auth.OPENAI_API_KEY, "sk-proxy-refreshed");
 
         for (const subscription of context.subscriptions.reverse()) {
           subscription?.dispose?.();
@@ -3131,10 +3162,12 @@ test("shared history switches recommend reload in the status bar without prompti
   });
 });
 
-test("shared history setting routes cloud provider switches through openai", async (t) => {
+test("shared history cloud provider syncs its current auth before switching to an account", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-shared-cloud-provider-"));
   const codexHome = path.join(tempRoot, ".codex");
+  const authDir = path.join(tempRoot, "saved-auth");
   fs.mkdirSync(codexHome, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
 
   const previousCodexHome = process.env.CODEX_HOME;
   const previousNamedAuthDir = process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
@@ -3142,6 +3175,22 @@ test("shared history setting routes cloud provider switches through openai", asy
   delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
 
   try {
+    core.setNamedAuthDir(authDir);
+    core.writeSavedAuthFile(
+      path.join(authDir, "auth_alpha.json"),
+      makeAuthFile("acct-alpha"),
+    );
+    core.writeProviderProfile({
+      kind: "provider",
+      name: "cloud-proxy",
+      auth: { OPENAI_API_KEY: "sk-local-same-name" },
+      config: {
+        name: "cloud-proxy",
+        base_url: "https://local-same-name.example.com/v1",
+        wire_api: "responses",
+      },
+    });
+    core.setNamedAuthDir(undefined);
     const providerProfile = {
       kind: "provider",
       name: "cloud-proxy",
@@ -3152,13 +3201,23 @@ test("shared history setting routes cloud provider switches through openai", asy
         wire_api: "responses",
       },
     };
+    core.setSavedAuthPassphrase("shared-cloud-provider-passphrase");
+    const encryptedProvider = core.serializeSavedValue("saved_provider", providerProfile, {
+      requireEncryption: true,
+    });
+    core.setSavedAuthPassphrase(null);
     const mocked = createVscodeMock({
+      authDirectory: authDir,
       shareHistoryAcrossProviders: true,
+      reloadWindowAfterSwitch: "always",
+      secretValues: {
+        [STORAGE_SECRET_KEY]: "shared-cloud-provider-passphrase",
+      },
       syncedStorage: {
         version: 1,
         accounts: {},
         providers: {
-          "cloud-proxy": core.serializeSavedValue("saved_provider", providerProfile),
+          "cloud-proxy": encryptedProvider,
         },
       },
     });
@@ -3180,6 +3239,173 @@ test("shared history setting routes cloud provider switches through openai", asy
         assert.doesNotMatch(config, /^model_provider\s*=/m);
         assert.match(config, /^openai_base_url = "https:\/\/cloud-proxy\.example\.com\/v1"$/m);
         assert.equal(core.getSharedHistoryRouteState()?.activeProvider, "cloud-proxy");
+        assert.equal(
+          mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length,
+          1,
+        );
+
+        fs.writeFileSync(
+          path.join(codexHome, "auth.json"),
+          JSON.stringify({ OPENAI_API_KEY: "sk-cloud-proxy-refreshed" }, null, 2),
+          "utf-8",
+        );
+
+        await mocked.registeredCommands.get("codex-switchbridge.switchProvider")(providerItem);
+
+        assert.deepEqual(
+          JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8")),
+          { OPENAI_API_KEY: "sk-cloud-proxy-refreshed" },
+        );
+        assert.equal(
+          mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length,
+          1,
+        );
+        const providerAfterReselect = readCloudProvider(
+          mocked.config,
+          "cloud-proxy",
+          "shared-cloud-provider-passphrase",
+        );
+        assert.equal(providerAfterReselect.auth.OPENAI_API_KEY, "sk-cloud-proxy-refreshed");
+
+        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
+          .filter((item) => item.account.name === "alpha" && item.account.source === "local");
+
+        await mocked.registeredCommands.get("codex-switchbridge.useAccount")(accountItem);
+
+        const savedProvider = readCloudProvider(
+          mocked.config,
+          "cloud-proxy",
+          "shared-cloud-provider-passphrase",
+        );
+        assert.equal(savedProvider.auth.OPENAI_API_KEY, "sk-cloud-proxy-refreshed");
+        core.setNamedAuthDir(authDir);
+        const sameNameLocalProvider = core.readProviderProfileResult("cloud-proxy");
+        core.setNamedAuthDir(undefined);
+        assert.equal(sameNameLocalProvider.status, "ok");
+        assert.equal(sameNameLocalProvider.value.auth.OPENAI_API_KEY, "sk-local-same-name");
+        assert.equal(core.getSharedHistoryRouteState(), null);
+        const currentAuth = JSON.parse(
+          fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8"),
+        );
+        assert.equal(currentAuth.tokens.account_id, "acct-alpha");
+
+        for (const subscription of context.subscriptions.reverse()) {
+          subscription?.dispose?.();
+        }
+        await waitForRefreshCoordinatorIdle(context);
+      })
+    );
+  } finally {
+    core.setSavedAuthPassphrase(null);
+    core.setNamedAuthDir(undefined);
+    if (previousCodexHome === undefined) {
+      delete process.env.CODEX_HOME;
+    } else {
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+    if (previousNamedAuthDir === undefined) {
+      delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+    } else {
+      process.env.CODEX_SWITCHBRIDGE_AUTH_DIR = previousNamedAuthDir;
+    }
+  }
+
+  await t.test("cleanup", () => {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+});
+
+test("Switch Mode Account Mode prompts for and activates a saved account", async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-switch-mode-account-"));
+  const codexHome = path.join(tempRoot, ".codex");
+  const authDir = path.join(tempRoot, "saved-auth");
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
+
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousNamedAuthDir = process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+  process.env.CODEX_HOME = codexHome;
+  delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+
+  try {
+    const alphaAuth = makeAuthFile("acct-alpha");
+    const betaAuth = makeAuthFile("acct-beta", { email: "beta@example.com" });
+    core.setNamedAuthDir(authDir);
+    core.writeSavedAuthFile(path.join(authDir, "auth_alpha.json"), alphaAuth);
+    core.writeSavedAuthFile(path.join(authDir, "auth_beta.json"), betaAuth);
+    core.writeProviderProfile({
+      kind: "provider",
+      name: "proxy",
+      auth: { OPENAI_API_KEY: "sk-proxy" },
+      config: {
+        name: "proxy",
+        base_url: "https://proxy.example.com/v1",
+        wire_api: "responses",
+      },
+    });
+    core.setNamedAuthDir(undefined);
+    fs.writeFileSync(
+      path.join(codexHome, "auth.json"),
+      JSON.stringify(alphaAuth, null, 2),
+      "utf-8",
+    );
+
+    let accountModePrompted = false;
+    let accountSelectionPrompted = false;
+    const mocked = createVscodeMock({
+      authDirectory: authDir,
+      shareHistoryAcrossProviders: true,
+      reloadWindowAfterSwitch: "never",
+      quickPickResponses: [
+        (items) => {
+          accountModePrompted = true;
+          return items.find((item) => item.action === "switch" && item.provider === null);
+        },
+        (items) => {
+          accountSelectionPrompted = true;
+          return items.find((item) => item.account?.name === "beta");
+        },
+      ],
+    });
+
+    await withDisabledIntervals(() =>
+      withSuccessfulHttps(async () => {
+        const extension = loadExtensionWithMockedVscode(mocked.vscode);
+        const context = createExtensionContext(mocked);
+        await extension.activate(context);
+
+        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const [providerItem] = providerTreeView.treeDataProvider
+          .getChildren()
+          .filter((item) => item.provider?.name === "proxy" && item.provider?.source === "local");
+        await mocked.registeredCommands.get("codex-switchbridge.switchProvider")(providerItem);
+        assert.deepEqual(
+          JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8")),
+          { OPENAI_API_KEY: "sk-proxy" },
+        );
+
+        await mocked.registeredCommands.get("codex-switchbridge.switchMode")();
+
+        assert.equal(accountModePrompted, true);
+        assert.equal(accountSelectionPrompted, true);
+        const currentAuth = JSON.parse(
+          fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8"),
+        );
+        assert.equal(currentAuth.tokens.account_id, "acct-beta");
+        assert.equal(currentAuth.OPENAI_API_KEY, undefined);
+        assert.equal(core.getSharedHistoryRouteState(), null);
+        assert.deepEqual(
+          mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"),
+          { kind: "account", name: "beta", source: "local" },
+        );
+        assert.equal(
+          mocked.informationMessages.some((entry) =>
+            entry.message.includes('Switched to account "beta"')
+            && entry.message.includes("beta@example.com")
+          ),
+          true,
+        );
 
         for (const subscription of context.subscriptions.reverse()) {
           subscription?.dispose?.();
@@ -3353,6 +3579,142 @@ test("failed relogin restores local provider through shared openai route", async
       })
     );
   } finally {
+    core.setNamedAuthDir(undefined);
+    if (previousCodexHome === undefined) {
+      delete process.env.CODEX_HOME;
+    } else {
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+    if (previousNamedAuthDir === undefined) {
+      delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+    } else {
+      process.env.CODEX_SWITCHBRIDGE_AUTH_DIR = previousNamedAuthDir;
+    }
+  }
+
+  await t.test("cleanup", () => {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+});
+
+test("cancelled relogin saves active cloud provider auth without touching same-name local provider", async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-cloud-relogin-source-aware-"));
+  const codexHome = path.join(tempRoot, ".codex");
+  const authDir = path.join(tempRoot, "saved-auth");
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
+
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousNamedAuthDir = process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+  process.env.CODEX_HOME = codexHome;
+  delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+
+  try {
+    const accountAuth = makeAuthFile("acct-alpha");
+    core.setNamedAuthDir(authDir);
+    core.writeSavedAuthFile(path.join(authDir, "auth_alpha.json"), accountAuth);
+    core.writeProviderProfile({
+      kind: "provider",
+      name: "proxy",
+      auth: { OPENAI_API_KEY: "sk-local-unchanged" },
+      config: {
+        name: "proxy",
+        base_url: "https://local-proxy.example.com/v1",
+        wire_api: "responses",
+      },
+    });
+    core.setNamedAuthDir(undefined);
+    fs.writeFileSync(
+      path.join(codexHome, "auth.json"),
+      JSON.stringify(accountAuth, null, 2),
+      "utf-8",
+    );
+
+    const cloudProfile = {
+      kind: "provider",
+      name: "proxy",
+      auth: { OPENAI_API_KEY: "sk-cloud-old" },
+      config: {
+        name: "proxy",
+        base_url: "https://cloud-proxy.example.com/v1",
+        wire_api: "responses",
+      },
+    };
+    core.setSavedAuthPassphrase("cloud-relogin-passphrase");
+    const cloudEntry = core.serializeSavedValue("saved_provider", cloudProfile, {
+      requireEncryption: true,
+    });
+    cloudEntry.entryVersion = 1;
+    cloudEntry.updatedAt = "2026-08-01T00:00:00.000Z";
+    core.setSavedAuthPassphrase(null);
+
+    const mocked = createVscodeMock({
+      authDirectory: authDir,
+      shareHistoryAcrossProviders: true,
+      warningResponses: ["Re-login"],
+      secretValues: {
+        [STORAGE_SECRET_KEY]: "cloud-relogin-passphrase",
+      },
+      syncedStorage: {
+        version: 1,
+        accounts: {},
+        providers: { proxy: cloudEntry },
+      },
+    });
+
+    await withDisabledIntervals(() =>
+      withSuccessfulHttps(async () => {
+        const extension = loadExtensionWithMockedVscode(mocked.vscode);
+        const context = createExtensionContext(mocked);
+        await extension.activate(context);
+
+        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const [cloudProviderItem] = providerTreeView.treeDataProvider
+          .getChildren()
+          .filter((item) => item.provider?.name === "proxy" && item.provider?.source === "cloud");
+        await mocked.registeredCommands.get("codex-switchbridge.switchProvider")(cloudProviderItem);
+        assert.equal(core.getSharedHistoryRouteState()?.activeProvider, "proxy");
+
+        fs.writeFileSync(
+          path.join(codexHome, "auth.json"),
+          JSON.stringify({ OPENAI_API_KEY: "sk-cloud-rotated-before-login" }, null, 2),
+          "utf-8",
+        );
+
+        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
+          .filter((item) => item.account.name === "alpha" && item.account.source === "local");
+        await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
+
+        const savedCloudProvider = readCloudProvider(
+          mocked.config,
+          "proxy",
+          "cloud-relogin-passphrase",
+        );
+        assert.equal(
+          savedCloudProvider.auth.OPENAI_API_KEY,
+          "sk-cloud-rotated-before-login",
+        );
+        core.setNamedAuthDir(authDir);
+        const savedLocalProvider = core.readProviderProfileResult("proxy");
+        core.setNamedAuthDir(undefined);
+        assert.equal(savedLocalProvider.status, "ok");
+        assert.equal(savedLocalProvider.value.auth.OPENAI_API_KEY, "sk-local-unchanged");
+        assert.deepEqual(
+          JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8")),
+          { OPENAI_API_KEY: "sk-cloud-rotated-before-login" },
+        );
+        assert.equal(core.getSharedHistoryRouteState()?.activeProvider, "proxy");
+        assert.equal(mocked.errorMessages.length, 0);
+
+        for (const subscription of context.subscriptions.reverse()) {
+          subscription?.dispose?.();
+        }
+        await waitForRefreshCoordinatorIdle(context);
+      })
+    );
+  } finally {
+    core.setSavedAuthPassphrase(null);
     core.setNamedAuthDir(undefined);
     if (previousCodexHome === undefined) {
       delete process.env.CODEX_HOME;
@@ -7519,7 +7881,7 @@ test("moveAccountToLocal refreshes only the affected account quota", async (t) =
   });
 });
 
-test("switching away from a cloud account syncs the current auth back to cloud storage", async (t) => {
+test("current cloud account reselect preserves rotated auth without reload before switching away", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-cloud-manual-switch-"));
   const codexHome = path.join(tempRoot, ".codex");
   const authDir = path.join(tempRoot, "saved-auth");
@@ -7577,6 +7939,7 @@ test("switching away from a cloud account syncs the current auth back to cloud s
 
     const mocked = createVscodeMock({
       authDirectory: authDir,
+      reloadWindowAfterSwitch: "always",
       syncedStorage,
       secretValues: {
         [STORAGE_SECRET_KEY]: "manual-passphrase",
@@ -7597,8 +7960,22 @@ test("switching away from a cloud account syncs the current auth back to cloud s
         await extension.activate(context);
 
         const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
+          .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
+
+        await mocked.registeredCommands.get("codex-switchbridge.useAccount")(cloudItem);
+
+        const authAfterReselect = JSON.parse(
+          fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8"),
+        );
+        assert.equal(authAfterReselect.tokens.access_token, "access-cloud-current");
+        assert.equal(authAfterReselect.tokens.refresh_token, "refresh-cloud-current");
+        assert.equal(
+          mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length,
+          0,
+        );
 
         await mocked.registeredCommands.get("codex-switchbridge.useAccount")(localItem);
 
@@ -7609,6 +7986,10 @@ test("switching away from a cloud account syncs the current auth back to cloud s
         );
         assert.equal(cloudAuth.tokens.access_token, "access-cloud-current");
         assert.equal(cloudAuth.tokens.refresh_token, "refresh-cloud-current");
+        assert.equal(
+          mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length,
+          1,
+        );
 
         for (const subscription of context.subscriptions.reverse()) {
           subscription?.dispose?.();

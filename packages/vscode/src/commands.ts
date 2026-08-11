@@ -56,6 +56,7 @@ import {
   querySavedAccountQuota,
   SavedProviderInfo,
   StorageSource,
+  syncCurrentAuthToSavedSelection,
   switchToSavedProviderEntry,
   useSavedAccountEntry,
 } from "./savedEntries";
@@ -277,6 +278,15 @@ async function performAutomaticAccountSwitch(
     } else {
       void vscode.window.showWarningMessage(result.message);
     }
+    return false;
+  }
+
+  if (result.selectionChanged === false) {
+    logCommandInfo("auto-switch", "already-active", {
+      account: account.name,
+      source: account.source,
+      refreshId: options.refreshId ?? null,
+    });
     return false;
   }
 
@@ -676,13 +686,40 @@ async function pickSavedProvider(item: ProviderTreeItem | undefined, placeHolder
   return picked?.provider;
 }
 
-function exitProviderModeForLogin(): { previousSelection: ReturnType<typeof getSavedCurrentSelection>; switched: boolean } | null {
+async function exitProviderModeForLogin(): Promise<{
+  previousSelection: ReturnType<typeof getSavedCurrentSelection>;
+  switched: boolean;
+} | null> {
   const previousSelection = getSavedCurrentSelection();
   if (previousSelection.kind !== "provider") {
     return { previousSelection, switched: false };
   }
 
-  const switched = switchMode("account");
+  const syncResult = await syncCurrentAuthToSavedSelection();
+  if (!syncResult.success) {
+    logCommandWarn("login", "sync-provider-before-exit-failed", {
+      provider: previousSelection.name,
+      source: previousSelection.source,
+      conflict: syncResult.conflict ?? false,
+      message: syncResult.message ?? null,
+    });
+    if (syncResult.conflict && syncResult.message) {
+      await showSyncConflictWarning(syncResult.message);
+    } else {
+      void vscode.window.showErrorMessage(
+        syncResult.message ?? "Failed to save the current API provider auth before login.",
+      );
+    }
+    return null;
+  }
+
+  const switched = switchMode("account", {
+    ...providerSwitchOptions(
+      `provider:${previousSelection.source}:${previousSelection.name}`,
+      "account:login",
+    ),
+    syncCurrentProviderAuth: false,
+  });
   if (!switched.success) {
     logCommandWarn("login", "exit-provider-mode-failed", {
       provider: previousSelection.name,
@@ -712,7 +749,10 @@ async function restoreProviderModeAfterFailedLogin(previousSelection: ReturnType
     previousSelection.source === "local"
       ? switchMode(
           previousSelection.name,
-          providerSwitchOptions("account", `provider:local:${previousSelection.name}`),
+          {
+            ...providerSwitchOptions("account", `provider:local:${previousSelection.name}`),
+            syncCurrentProviderAuth: false,
+          },
         )
       : await switchToSavedProviderEntry(
           getSavedProviderEntry(previousSelection.name, "cloud") ?? {
@@ -810,6 +850,88 @@ async function pickModeAction(): Promise<
   return { action: "switch", provider: picked.provider };
 }
 
+async function switchSavedAccountForCommand(
+  context: vscode.ExtensionContext,
+  refreshCoordinator: RefreshCoordinator,
+  statusBarManager: StatusBarManager,
+  options: {
+    item?: AccountTreeItem;
+    placeHolder: string;
+    logScope: string;
+    perf?: ReturnType<typeof startPerformanceLog>;
+  },
+): Promise<boolean> {
+  let account = await pickSavedAccount(options.item, options.placeHolder);
+  if (!account) {
+    return false;
+  }
+  options.perf?.mark("pick-saved-account", {
+    account: account.name,
+    source: account.source,
+  });
+
+  account = await ensureAccountAvailable(context, refreshCoordinator, account);
+  if (!account) {
+    return false;
+  }
+  options.perf?.mark("ensure-account-available", {
+    account: account.name,
+    source: account.source,
+  });
+  logCommandInfo(options.logScope, "started", {
+    account: account.name,
+    source: account.source,
+  });
+
+  const result = await useSavedAccountEntry(account);
+  options.perf?.mark("use-saved-account-entry", {
+    success: result.success,
+    conflict: result.conflict ?? false,
+  });
+  if (!result.success) {
+    logCommandWarn(options.logScope, "switch-failed", {
+      account: account.name,
+      source: account.source,
+      conflict: result.conflict ?? false,
+      message: result.message,
+    });
+    if (result.conflict) {
+      await showSyncConflictWarning(result.message);
+    } else {
+      vscode.window.showErrorMessage(result.message);
+    }
+    return false;
+  }
+
+  if (result.healedMarker) {
+    vscode.window.showInformationMessage(formatHealedMarkerMessage(result.healedMarker));
+  }
+  vscode.window.showInformationMessage(
+    `✓ ${result.message} (${result.meta?.email ?? "unknown"})`
+  );
+  if (result.selectionChanged === false) {
+    logCommandInfo(options.logScope, "already-active", {
+      account: account.name,
+      source: account.source,
+    });
+    return true;
+  }
+  logCommandInfo(options.logScope, "switched", {
+    account: account.name,
+    source: account.source,
+    email: result.meta?.email ?? null,
+  });
+  refreshViews(refreshCoordinator, "account-switch");
+  options.perf?.mark("refresh-views");
+  refreshCoordinator.scheduleQuotaRefresh({
+    targetIds: [account.id],
+    reason: "account-switch",
+  });
+  options.perf?.mark("schedule-quota-refresh");
+  await maybeReloadWindowAfterSwitch(statusBarManager, account.name, "account");
+  return true;
+}
+
 async function switchSavedProviderForCommand(
   context: vscode.ExtensionContext,
   refreshCoordinator: RefreshCoordinator,
@@ -867,14 +989,21 @@ async function switchSavedProviderForCommand(
     return false;
   }
 
-  logCommandInfo(logScope, "provider-switched", {
-    provider: savedProvider.name,
-    source: savedProvider.source,
-  });
   if (result.healedMarker) {
     vscode.window.showInformationMessage(formatHealedMarkerMessage(result.healedMarker));
   }
   vscode.window.showInformationMessage(`✓ ${result.message}`);
+  if (result.selectionChanged === false) {
+    logCommandInfo(logScope, "provider-already-active", {
+      provider: savedProvider.name,
+      source: savedProvider.source,
+    });
+    return true;
+  }
+  logCommandInfo(logScope, "provider-switched", {
+    provider: savedProvider.name,
+    source: savedProvider.source,
+  });
   refreshAll(refreshCoordinator, undefined, {
     reason: "provider-switch",
     fullRefresh: false,
@@ -1525,7 +1654,7 @@ export function registerCommands(
             return;
           }
 
-          const loginState = exitProviderModeForLogin();
+          const loginState = await exitProviderModeForLogin();
           if (!loginState) return;
 
           const previousSelection = loginState.previousSelection;
@@ -1672,63 +1801,12 @@ export function registerCommands(
       "codex-switchbridge.useAccount",
       async (item?: AccountTreeItem) => {
         await runTimedCommand("useAccount", async (perf) => {
-          let account = await pickSavedAccount(item, "Select an account to switch to");
-          if (!account) return;
-          perf.mark("pick-saved-account", {
-            account: account.name,
-            source: account.source,
+          await switchSavedAccountForCommand(context, refreshCoordinator, statusBar, {
+            item,
+            placeHolder: "Select an account to switch to",
+            logScope: "use-account",
+            perf,
           });
-          account = await ensureAccountAvailable(context, refreshCoordinator, account);
-          if (!account) {
-            return;
-          }
-          perf.mark("ensure-account-available", {
-            account: account.name,
-            source: account.source,
-          });
-          logCommandInfo("use-account", "started", {
-            account: account.name,
-            source: account.source,
-          });
-
-          const result = await useSavedAccountEntry(account);
-          perf.mark("use-saved-account-entry", {
-            success: result.success,
-            conflict: result.conflict ?? false,
-          });
-          if (result.success) {
-            logCommandInfo("use-account", "switched", {
-              account: account.name,
-              source: account.source,
-              email: result.meta?.email ?? null,
-            });
-            if (result.healedMarker) {
-              vscode.window.showInformationMessage(formatHealedMarkerMessage(result.healedMarker));
-            }
-            vscode.window.showInformationMessage(
-              `✓ ${result.message} (${result.meta?.email ?? "unknown"})`
-            );
-            refreshViews(refreshCoordinator, "account-switch");
-            perf.mark("refresh-views");
-            refreshCoordinator.scheduleQuotaRefresh({
-              targetIds: [account.id],
-              reason: "account-switch",
-            });
-            perf.mark("schedule-quota-refresh");
-            await maybeReloadWindowAfterSwitch(statusBar, account.name, "account");
-          } else {
-            logCommandWarn("use-account", "switch-failed", {
-              account: account.name,
-              source: account.source,
-              conflict: result.conflict ?? false,
-              message: result.message,
-            });
-            if (result.conflict) {
-              await showSyncConflictWarning(result.message);
-            } else {
-              vscode.window.showErrorMessage(result.message);
-            }
-          }
         });
       }
     ),
@@ -1807,6 +1885,9 @@ export function registerCommands(
           vscode.window.showInformationMessage(formatHealedMarkerMessage(result.healedMarker));
         }
         vscode.window.showInformationMessage(`✓ ${result.message}`);
+        if (result.selectionChanged === false) {
+          return;
+        }
         refreshAll(refreshCoordinator, undefined, {
           reason: "provider-switch",
           fullRefresh: false,
@@ -1816,21 +1897,10 @@ export function registerCommands(
       }
 
       if (!picked.provider) {
-        const result = switchMode("account");
-        if (!result.success) {
-          logCommandWarn("switch-mode", "account-mode-failed", {
-            message: result.message,
-          });
-          vscode.window.showErrorMessage(result.message);
-          return;
-        }
-        logCommandInfo("switch-mode", "account-mode-switched");
-        vscode.window.showInformationMessage(`✓ ${result.message}`);
-        refreshAll(refreshCoordinator, undefined, {
-          reason: "account-switch",
-          fullRefresh: false,
+        await switchSavedAccountForCommand(context, refreshCoordinator, statusBar, {
+          placeHolder: "Select the saved account to use in Account Mode",
+          logScope: "switch-mode-account",
         });
-        await maybeReloadWindowAfterSwitch(statusBar, "account", "mode");
         return;
       }
 

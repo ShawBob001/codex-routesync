@@ -1,5 +1,10 @@
 import * as fs from "fs";
-import { syncCurrentAuthToSavedAccount } from "./auth";
+import { isDeepStrictEqual } from "node:util";
+import {
+  hasAccountAuthTokens,
+  readCurrentAuth,
+  syncCurrentAuthToSavedAccount,
+} from "./auth";
 import { getActiveModelProvider, removeProviderConfig } from "./config";
 import {
   activateProviderProfile,
@@ -122,6 +127,79 @@ export function writeProviderProfile(profile: ProviderProfile): void {
   writeSavedJsonFile(getNamedProviderPath(profile.name), "saved_provider", profile as unknown as Record<string, unknown>);
 }
 
+export type SyncCurrentProviderAuthResult =
+  | { success: true; provider: string | null; changed: boolean }
+  | { success: false; provider: string | null; changed: false; message: string };
+
+export function mergeCurrentAuthIntoProviderProfile(
+  profile: ProviderProfile,
+  currentAuth: ProviderProfile["auth"] | null,
+): ProviderProfile | null {
+  if (
+    !currentAuth
+    || hasAccountAuthTokens(currentAuth)
+    || typeof currentAuth.OPENAI_API_KEY !== "string"
+    || !currentAuth.OPENAI_API_KEY.trim()
+  ) {
+    return null;
+  }
+
+  const nextAuth = {
+    ...profile.auth,
+    ...currentAuth,
+  };
+  if (isDeepStrictEqual(nextAuth, profile.auth)) {
+    return null;
+  }
+
+  return {
+    ...profile,
+    auth: nextAuth,
+  };
+}
+
+export function syncCurrentAuthToSavedProvider(): SyncCurrentProviderAuthResult {
+  const activeProvider = getEffectiveActiveProviderForMutation();
+  if (!activeProvider.success) {
+    return {
+      success: false,
+      provider: null,
+      changed: false,
+      message: activeProvider.message,
+    };
+  }
+
+  if (!activeProvider.provider) {
+    return { success: true, provider: null, changed: false };
+  }
+
+  const profileResult = readProviderProfileResult(activeProvider.provider);
+  if (profileResult.status === "missing") {
+    // A VS Code cloud provider has no local provider file. Its storage adapter
+    // persists the current auth before switching.
+    return { success: true, provider: activeProvider.provider, changed: false };
+  }
+  if (profileResult.status !== "ok") {
+    return {
+      success: false,
+      provider: activeProvider.provider,
+      changed: false,
+      message: profileResult.message,
+    };
+  }
+
+  const nextProfile = mergeCurrentAuthIntoProviderProfile(
+    profileResult.value,
+    readCurrentAuth(),
+  );
+  if (!nextProfile) {
+    return { success: true, provider: activeProvider.provider, changed: false };
+  }
+
+  writeProviderProfile(nextProfile);
+  return { success: true, provider: activeProvider.provider, changed: true };
+}
+
 export function deleteProviderProfile(name: string): DeleteProviderResult {
   if (name === "account") {
     return {
@@ -186,6 +264,12 @@ export function switchMode(
 ): SwitchModeResult {
   if (name === "account") {
     try {
+      if (options.syncCurrentProviderAuth !== false) {
+        const providerSync = syncCurrentAuthToSavedProvider();
+        if (!providerSync.success) {
+          return { success: false, message: providerSync.message };
+        }
+      }
       deactivateProviderRoute({
         source: `provider:${getEffectiveActiveProvider() ?? "unknown"}`,
         target: "account",
@@ -209,8 +293,28 @@ export function switchMode(
   }
   try {
     fs.mkdirSync(getNamedAuthDir(), { recursive: true });
+    let profileToActivate = profileResult.value;
+    if (options.syncCurrentProviderAuth !== false) {
+      const providerSync = syncCurrentAuthToSavedProvider();
+      if (!providerSync.success) {
+        return { success: false, message: providerSync.message };
+      }
+      if (providerSync.changed && providerSync.provider === name) {
+        const synchronizedProfile = readProviderProfileResult(name);
+        if (synchronizedProfile.status !== "ok") {
+          return {
+            success: false,
+            message:
+              synchronizedProfile.status === "missing"
+                ? `Provider "${name}" disappeared after its current auth was synchronized.`
+                : synchronizedProfile.message,
+          };
+        }
+        profileToActivate = synchronizedProfile.value;
+      }
+    }
     syncCurrentAuthToSavedAccount();
-    activateProviderProfile(profileResult.value, options);
+    activateProviderProfile(profileToActivate, options);
     return { success: true, message: `Switched to mode "${getModeDisplayName(name)}"` };
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : String(error) };

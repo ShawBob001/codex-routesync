@@ -32,6 +32,7 @@ import {
   isSerializedSavedValueEncrypted,
   listNamedAuthFiles,
   listProviderModes,
+  mergeCurrentAuthIntoProviderProfile,
   queryQuota,
   readCurrentAuth,
   readProviderProfileResult,
@@ -43,6 +44,7 @@ import {
   serializeSavedValue,
   switchMode,
   syncCurrentAuthToSavedAccount,
+  syncCurrentAuthToSavedProvider,
   useAccount,
   withAccountLock,
   writeCurrentAuth,
@@ -2169,7 +2171,18 @@ export async function syncCurrentAuthToSavedSelection(): Promise<SyncCurrentSele
   const healedMarker = await reconcileCurrentCloudMarker();
   const marker = getMarker();
   if (!marker || marker.source === "local") {
-    syncCurrentAuthToSavedAccount();
+    if (marker?.kind === "provider" || getEffectiveActiveProvider()) {
+      const providerSync = syncCurrentAuthToSavedProvider();
+      if (!providerSync.success) {
+        return {
+          success: false,
+          message: providerSync.message,
+          healedMarker: healedMarker ?? undefined,
+        };
+      }
+    } else {
+      syncCurrentAuthToSavedAccount();
+    }
     return healedMarker ? { success: true, healedMarker } : { success: true };
   }
 
@@ -2212,17 +2225,22 @@ export async function syncCurrentAuthToSavedSelection(): Promise<SyncCurrentSele
     return healedMarker ? { success: true, healedMarker } : { success: true };
   }
 
-  const activeProvider = getActiveModelProvider();
+  const activeProvider = getEffectiveActiveProvider();
   if (marker.kind === "provider" && activeProvider === marker.name) {
     const provider = getSavedProviderEntry(marker.name, "cloud");
     const currentAuth = readCurrentAuth();
-    if (provider?.profile && currentAuth) {
+    const profileToWrite = provider?.profile
+      ? mergeCurrentAuthIntoProviderProfile(provider.profile, currentAuth)
+      : null;
+    if (profileToWrite && provider) {
       const expectedEntryVersion = marker.entryVersion ?? provider.syncVersion ?? null;
       const expectedUpdatedAt = marker.updatedAt ?? provider.syncUpdatedAt ?? null;
-      const result = await writeCloudProviderWithExpectedVersion({
-        ...provider.profile,
-        auth: currentAuth,
-      }, expectedEntryVersion, expectedUpdatedAt, "sync_current_provider_auth");
+      const result = await writeCloudProviderWithExpectedVersion(
+        profileToWrite,
+        expectedEntryVersion,
+        expectedUpdatedAt,
+        "sync_current_provider_auth",
+      );
       if (!result.success) {
         return {
           success: false,
@@ -2231,10 +2249,7 @@ export async function syncCurrentAuthToSavedSelection(): Promise<SyncCurrentSele
           healedMarker: healedMarker ?? undefined,
         };
       }
-      const verifyResult = verifyCloudProviderWrite({
-        ...provider.profile,
-        auth: currentAuth,
-      }, {
+      const verifyResult = verifyCloudProviderWrite(profileToWrite, {
         entryVersion: result.syncVersion ?? null,
         updatedAt: result.syncUpdatedAt ?? null,
       });
@@ -2371,7 +2386,14 @@ export async function saveAuthAsAccount(
 
 export async function useSavedAccountEntry(
   account: SavedAccountInfo,
-): Promise<{ success: boolean; message: string; meta?: AccountMeta; conflict?: CloudSyncConflict; healedMarker?: HealedCloudMarker }> {
+): Promise<{
+  success: boolean;
+  message: string;
+  meta?: AccountMeta;
+  conflict?: CloudSyncConflict;
+  healedMarker?: HealedCloudMarker;
+  selectionChanged?: boolean;
+}> {
   const syncResult = await syncCurrentAuthToSavedSelection();
   if (!syncResult.success) {
     return {
@@ -2382,18 +2404,46 @@ export async function useSavedAccountEntry(
     };
   }
 
+  const refreshedAccount = getSavedAccountEntry(account.name, account.source);
+  if (!refreshedAccount) {
+    return {
+      success: false,
+      message: `Account "${account.name}" is unavailable after synchronizing the current selection.`,
+      healedMarker: syncResult.healedMarker,
+    };
+  }
+  account = refreshedAccount;
+
   const currentSelection = getSavedCurrentSelection();
+  if (
+    currentSelection.kind === "account"
+    && currentSelection.name === account.name
+    && currentSelection.source === account.source
+  ) {
+    const currentAuth = readCurrentAuth();
+    return {
+      success: true,
+      message: `Account "${account.name}" is already active`,
+      meta: currentAuth ? extractMeta(currentAuth) : account.meta ?? undefined,
+      healedMarker: syncResult.healedMarker,
+      selectionChanged: false,
+    };
+  }
+
   if (account.source === "local") {
     const result = useAccount(account.name, {
       source: selectionSwitchLabel(currentSelection),
       target: `account:local:${account.name}`,
+      syncCurrentProviderAuth: false,
     });
     if (result.success) {
       await setMarker({ kind: "account", name: account.name, source: "local" });
     }
-    return result.success && syncResult.healedMarker
-      ? { ...result, healedMarker: syncResult.healedMarker }
-      : result;
+    return {
+      ...result,
+      ...(result.success && syncResult.healedMarker ? { healedMarker: syncResult.healedMarker } : {}),
+      selectionChanged: result.success,
+    };
   }
 
   if (account.storageState !== "ready" || !account.auth) {
@@ -2420,6 +2470,7 @@ export async function useSavedAccountEntry(
     message: `Switched to account "${account.name}"`,
     meta: account.meta ?? extractMeta(account.auth),
     healedMarker: syncResult.healedMarker,
+    selectionChanged: true,
   };
 }
 
@@ -2905,7 +2956,13 @@ export async function buildProviderProfileForSource(
 
 export async function switchToSavedProviderEntry(
   provider: SavedProviderInfo,
-): Promise<{ success: boolean; message: string; conflict?: CloudSyncConflict; healedMarker?: HealedCloudMarker }> {
+): Promise<{
+  success: boolean;
+  message: string;
+  conflict?: CloudSyncConflict;
+  healedMarker?: HealedCloudMarker;
+  selectionChanged?: boolean;
+}> {
   const syncResult = await syncCurrentAuthToSavedSelection();
   if (!syncResult.success) {
     return {
@@ -2917,17 +2974,45 @@ export async function switchToSavedProviderEntry(
   }
 
   const currentSelection = getSavedCurrentSelection();
+  const refreshedProvider = getSavedProviderEntry(provider.name, provider.source);
+  if (!refreshedProvider) {
+    return {
+      success: false,
+      message: `Provider "${provider.name}" is unavailable after synchronizing the current selection.`,
+      healedMarker: syncResult.healedMarker,
+    };
+  }
+  provider = refreshedProvider;
+
+  if (
+    currentSelection.kind === "provider"
+    && currentSelection.name === provider.name
+    && currentSelection.source === provider.source
+  ) {
+    return {
+      success: true,
+      message: `Mode "${getModeDisplayName(provider.name)}" is already active`,
+      healedMarker: syncResult.healedMarker,
+      selectionChanged: false,
+    };
+  }
+
   if (provider.source === "local") {
     const result = switchMode(
       provider.name,
-      providerSwitchOptions(selectionSwitchLabel(currentSelection), `provider:local:${provider.name}`)
+      {
+        ...providerSwitchOptions(selectionSwitchLabel(currentSelection), `provider:local:${provider.name}`),
+        syncCurrentProviderAuth: false,
+      },
     );
     if (result.success) {
       await setMarker({ kind: "provider", name: provider.name, source: "local" });
     }
-    return result.success && syncResult.healedMarker
-      ? { ...result, healedMarker: syncResult.healedMarker }
-      : result;
+    return {
+      ...result,
+      ...(result.success && syncResult.healedMarker ? { healedMarker: syncResult.healedMarker } : {}),
+      selectionChanged: result.success,
+    };
   }
 
   if (!provider.profile || provider.locked || provider.invalid) {
@@ -2957,6 +3042,7 @@ export async function switchToSavedProviderEntry(
     success: true,
     message: `Switched to mode "${getModeDisplayName(provider.name)}"`,
     healedMarker: syncResult.healedMarker,
+    selectionChanged: true,
   };
 }
 

@@ -478,6 +478,226 @@ test("useAccount restores a shared relay route", (t) => {
   assert.deepEqual(core.getOpenAIBaseUrlSnapshot(), { present: false, value: null });
 });
 
+test("useAccount saves changed legacy provider auth before restoring an account", (t) => {
+  const codexHome = createTempCodexHome();
+  process.env.CODEX_HOME = codexHome;
+  core.setNamedAuthDir(codexHome);
+  t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));
+
+  core.writeSavedAuthFile(
+    path.join(codexHome, "auth_work.json"),
+    makeAccountAuth("work", "refresh-work"),
+  );
+  core.writeProviderProfile({
+    kind: "provider",
+    name: "relay",
+    auth: { OPENAI_API_KEY: "provider-old", custom_header: "keep-me" },
+    config: {
+      name: "relay",
+      base_url: "https://relay.example/v1",
+      wire_api: "responses",
+    },
+  });
+  writeJson(path.join(codexHome, "auth.json"), { OPENAI_API_KEY: "provider-rotated" });
+  writeText(
+    path.join(codexHome, "config.toml"),
+    [
+      'model_provider = "relay"',
+      "",
+      "[model_providers.relay]",
+      'name = "relay"',
+      'base_url = "https://relay.example/v1"',
+      'wire_api = "responses"',
+    ].join("\n"),
+  );
+
+  const result = core.useAccount("work");
+
+  assert.equal(result.success, true);
+  const savedProvider = core.readProviderProfile("relay");
+  assert.equal(savedProvider.auth.OPENAI_API_KEY, "provider-rotated");
+  assert.equal(savedProvider.auth.custom_header, "keep-me");
+});
+
+test("useAccount saves changed shared-route provider auth before restoring an account", (t) => {
+  const codexHome = createTempCodexHome();
+  process.env.CODEX_HOME = codexHome;
+  core.setNamedAuthDir(codexHome);
+  t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));
+
+  const accountAuth = makeAccountAuth("work", "refresh-work");
+  core.writeSavedAuthFile(path.join(codexHome, "auth_work.json"), accountAuth);
+  writeJson(path.join(codexHome, "auth.json"), accountAuth);
+  core.writeProviderProfile({
+    kind: "provider",
+    name: "relay",
+    auth: { OPENAI_API_KEY: "provider-old" },
+    config: {
+      name: "relay",
+      base_url: "https://relay.example/v1",
+      wire_api: "responses",
+    },
+  });
+  const switched = core.switchMode("relay", {
+    shareHistoryAcrossProviders: true,
+    source: "account:work",
+    target: "provider:relay",
+  });
+  assert.equal(switched.success, true);
+  writeJson(path.join(codexHome, "auth.json"), { OPENAI_API_KEY: "provider-rotated" });
+
+  const result = core.useAccount("work");
+
+  assert.equal(result.success, true);
+  assert.equal(core.readProviderProfile("relay").auth.OPENAI_API_KEY, "provider-rotated");
+  assert.equal(core.getSharedHistoryRouteState(), null);
+});
+
+test("provider auth sync never replaces a saved provider with account auth", (t) => {
+  const codexHome = createTempCodexHome();
+  process.env.CODEX_HOME = codexHome;
+  core.setNamedAuthDir(codexHome);
+  t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));
+
+  core.writeProviderProfile({
+    kind: "provider",
+    name: "relay",
+    auth: { OPENAI_API_KEY: "provider-stable" },
+    config: {
+      name: "relay",
+      base_url: "https://relay.example/v1",
+      wire_api: "responses",
+    },
+  });
+  writeText(path.join(codexHome, "config.toml"), 'model_provider = "relay"\n');
+  writeJson(path.join(codexHome, "auth.json"), makeAccountAuth("work", "refresh-work"));
+
+  const result = core.syncCurrentAuthToSavedProvider();
+
+  assert.deepEqual(result, { success: true, provider: "relay", changed: false });
+  assert.deepEqual(core.readProviderProfile("relay").auth, {
+    OPENAI_API_KEY: "provider-stable",
+  });
+});
+
+test("provider auth merge skips unchanged auth and preserves profile-only fields", () => {
+  const profile = {
+    kind: "provider",
+    name: "relay",
+    auth: { OPENAI_API_KEY: "provider-stable", custom_header: "keep-me" },
+    config: {
+      name: "relay",
+      base_url: "https://relay.example/v1",
+      wire_api: "responses",
+    },
+  };
+
+  assert.equal(
+    core.mergeCurrentAuthIntoProviderProfile(profile, { OPENAI_API_KEY: "provider-stable" }),
+    null,
+  );
+  assert.deepEqual(
+    core.mergeCurrentAuthIntoProviderProfile(profile, { OPENAI_API_KEY: "provider-rotated" }),
+    {
+      ...profile,
+      auth: { OPENAI_API_KEY: "provider-rotated", custom_header: "keep-me" },
+    },
+  );
+});
+
+test("switchMode reselecting the active provider preserves a rotated current API key", (t) => {
+  const codexHome = createTempCodexHome();
+  process.env.CODEX_HOME = codexHome;
+  core.setNamedAuthDir(codexHome);
+  t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));
+
+  core.writeProviderProfile({
+    kind: "provider",
+    name: "relay",
+    auth: { OPENAI_API_KEY: "provider-old", custom_header: "keep-me" },
+    config: {
+      name: "relay",
+      base_url: "https://relay.example/v1",
+      wire_api: "responses",
+    },
+  });
+  writeJson(path.join(codexHome, "auth.json"), { OPENAI_API_KEY: "provider-rotated" });
+  writeText(
+    path.join(codexHome, "config.toml"),
+    [
+      'model_provider = "relay"',
+      "",
+      "[model_providers.relay]",
+      'name = "relay"',
+      'base_url = "https://relay.example/v1"',
+      'wire_api = "responses"',
+    ].join("\n"),
+  );
+
+  const result = core.switchMode("relay");
+
+  assert.equal(result.success, true);
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf8")).OPENAI_API_KEY,
+    "provider-rotated",
+  );
+  const savedProvider = core.readProviderProfile("relay");
+  assert.equal(savedProvider.auth.OPENAI_API_KEY, "provider-rotated");
+  assert.equal(savedProvider.auth.custom_header, "keep-me");
+});
+
+test("syncCurrentProviderAuth false protects a same-named local profile in source-aware switches", (t) => {
+  const codexHome = createTempCodexHome();
+  process.env.CODEX_HOME = codexHome;
+  core.setNamedAuthDir(codexHome);
+  t.after(() => fs.rmSync(codexHome, { recursive: true, force: true }));
+
+  const accountAuth = makeAccountAuth("work", "refresh-work");
+  core.writeSavedAuthFile(path.join(codexHome, "auth_work.json"), accountAuth);
+  core.writeProviderProfile({
+    kind: "provider",
+    name: "relay",
+    auth: { OPENAI_API_KEY: "local-provider-key", custom_header: "local-only" },
+    config: {
+      name: "relay",
+      base_url: "https://local-relay.example/v1",
+      wire_api: "responses",
+    },
+  });
+  writeJson(path.join(codexHome, "auth.json"), { OPENAI_API_KEY: "cloud-provider-key" });
+  writeText(path.join(codexHome, "config.toml"), 'model_provider = "relay"\n');
+
+  const providerResult = core.switchMode("relay", {
+    shareHistoryAcrossProviders: false,
+    syncCurrentProviderAuth: false,
+    source: "provider:cloud:relay",
+    target: "provider:local:relay",
+  });
+
+  assert.equal(providerResult.success, true);
+  assert.deepEqual(core.readProviderProfile("relay").auth, {
+    OPENAI_API_KEY: "local-provider-key",
+    custom_header: "local-only",
+  });
+
+  writeJson(path.join(codexHome, "auth.json"), { OPENAI_API_KEY: "cloud-provider-rotated" });
+  const accountResult = core.useAccount("work", {
+    syncCurrentProviderAuth: false,
+    source: "provider:cloud:relay",
+    target: "account:local:work",
+  });
+
+  assert.equal(accountResult.success, true);
+  assert.deepEqual(core.readProviderProfile("relay").auth, {
+    OPENAI_API_KEY: "local-provider-key",
+    custom_header: "local-only",
+  });
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf8")).tokens.account_id,
+    accountAuth.tokens.account_id,
+  );
+});
+
 test("corrupt shared route state does not crash status helpers", async (t) => {
   const codexHome = createTempCodexHome();
   process.env.CODEX_HOME = codexHome;

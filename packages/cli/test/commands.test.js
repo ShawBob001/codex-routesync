@@ -152,8 +152,12 @@ test("--version prints version number", () => {
 test("--help prints usage information", () => {
   const home = tmpHome();
   const r = cli("--help", home);
+  const normalizedOutput = r.stdout.replace(/\s+/g, " ");
   assert.equal(r.code, 0);
   assert.ok(r.stdout.includes("codex-switchbridge"));
+  assert.ok(r.stdout.includes("Codex accounts"));
+  assert.ok(r.stdout.includes("Responses API providers"));
+  assert.ok(normalizedOutput.includes("shared local conversation history"));
   assert.ok(r.stdout.includes("list"));
   assert.ok(r.stdout.includes("add"));
   assert.ok(r.stdout.includes("remove"));
@@ -164,6 +168,15 @@ test("--help prints usage information", () => {
   assert.ok(r.stdout.includes("refresh"));
   assert.ok(r.stdout.includes("export"));
   assert.ok(r.stdout.includes("import"));
+});
+
+test("mode --help explains account/API switching and the separate-history opt-out", () => {
+  const home = tmpHome();
+  const r = cli("mode --help", home);
+  assert.equal(r.code, 0);
+  assert.ok(r.stdout.includes("Codex account and API provider modes"));
+  assert.ok(r.stdout.includes("--separate-history"));
+  assert.ok(r.stdout.includes("shared account/API history"));
 });
 
 test("unknown command shows error", () => {
@@ -540,6 +553,7 @@ test("mode: no args in account mode shows current and available", () => {
   assert.equal(r.code, 0);
   assert.ok(r.stdout.includes("Current mode:"));
   assert.ok(r.stdout.includes("account"));
+  assert.ok(r.stdout.includes("share local conversation history"));
 });
 
 test("mode: no args in provider mode shows provider name as current", () => {
@@ -554,20 +568,73 @@ test("mode: no args in provider mode shows provider name as current", () => {
   assert.ok(r.stdout.includes("[current]"));
 });
 
-test("mode: switch to account mode", () => {
+test("mode: account reports when the current saved account is already active", () => {
   const home = tmpHome();
+  const auth = makeAuth("work@example.com", "plus");
+  writeJson(path.join(home, "auth_work.json"), auth);
+  writeJson(path.join(home, "auth.json"), auth);
+
+  const r = cli("mode account", home);
+  assert.equal(r.code, 0);
+  assert.ok(r.stdout.includes('Already in account mode with account "work"'));
+  assert.deepEqual(readJson(path.join(home, "auth.json")), auth);
+});
+
+test("mode: account restores the only saved account from provider mode", () => {
+  const home = tmpHome();
+  const accountAuth = makeAuth("work@example.com", "plus");
+  writeJson(path.join(home, "auth_work.json"), accountAuth);
   writeJson(path.join(home, "auth.json"), { OPENAI_API_KEY: "sk-test" });
+  writeJson(path.join(home, "provider_cliproxyapi.json"), makeProviderProfile());
   fs.writeFileSync(path.join(home, "config.toml"), makeProviderConfig(), "utf-8");
 
   const r = cli("mode account", home);
   assert.equal(r.code, 0);
-  assert.ok(r.stdout.includes("Switched to account mode"));
+  assert.ok(r.stdout.includes('Switched to account "work"'));
+  assert.ok(r.stdout.includes("Restored the only saved Codex account"));
 
+  const current = readJson(path.join(home, "auth.json"));
+  assert.equal(current.tokens.account_id, accountAuth.tokens.account_id);
   const config = fs.readFileSync(path.join(home, "config.toml"), "utf-8");
   assert.doesNotMatch(config, /^model_provider =/m);
 });
 
-test("mode: switch to pre-configured provider", () => {
+test("mode: account preserves provider state when multiple saved accounts need a choice", () => {
+  const home = tmpHome();
+  writeJson(path.join(home, "auth_work.json"), makeAuth("work@example.com", "plus"));
+  writeJson(path.join(home, "auth_personal.json"), makeAuth("personal@example.com", "pro"));
+  writeJson(path.join(home, "auth.json"), { OPENAI_API_KEY: "sk-test" });
+  writeJson(path.join(home, "provider_cliproxyapi.json"), makeProviderProfile());
+  fs.writeFileSync(path.join(home, "config.toml"), makeProviderConfig(), "utf-8");
+  const authBefore = fs.readFileSync(path.join(home, "auth.json"), "utf-8");
+  const configBefore = fs.readFileSync(path.join(home, "config.toml"), "utf-8");
+
+  const r = cli("mode account", home);
+  assert.equal(r.code, 0);
+  assert.ok(r.stdout.includes("Multiple saved Codex accounts"));
+  assert.ok(r.stdout.includes("codex-switchbridge use work"));
+  assert.ok(r.stdout.includes("codex-switchbridge use personal"));
+  assert.equal(fs.readFileSync(path.join(home, "auth.json"), "utf-8"), authBefore);
+  assert.equal(fs.readFileSync(path.join(home, "config.toml"), "utf-8"), configBefore);
+});
+
+test("mode: account preserves provider state when no saved account exists", () => {
+  const home = tmpHome();
+  writeJson(path.join(home, "auth.json"), { OPENAI_API_KEY: "sk-test" });
+  writeJson(path.join(home, "provider_cliproxyapi.json"), makeProviderProfile());
+  fs.writeFileSync(path.join(home, "config.toml"), makeProviderConfig(), "utf-8");
+  const authBefore = fs.readFileSync(path.join(home, "auth.json"), "utf-8");
+  const configBefore = fs.readFileSync(path.join(home, "config.toml"), "utf-8");
+
+  const r = cli("mode account", home);
+  assert.equal(r.code, 0);
+  assert.ok(r.stdout.includes("no saved Codex account"));
+  assert.ok(r.stdout.includes("current API provider was left unchanged"));
+  assert.equal(fs.readFileSync(path.join(home, "auth.json"), "utf-8"), authBefore);
+  assert.equal(fs.readFileSync(path.join(home, "config.toml"), "utf-8"), configBefore);
+});
+
+test("mode: Responses provider shares local history by default", () => {
   const home = tmpHome();
   writeJson(path.join(home, "provider_cliproxyapi.json"), makeProviderProfile());
 
@@ -575,10 +642,48 @@ test("mode: switch to pre-configured provider", () => {
   assert.equal(r.code, 0);
   assert.ok(r.stdout.includes("Switched to mode"));
   assert.ok(r.stdout.includes("cliproxyapi"));
+  assert.ok(r.stdout.includes("Shared local conversation history: enabled"));
 
   assert.ok(fs.existsSync(path.join(home, "auth.json")));
   const config = fs.readFileSync(path.join(home, "config.toml"), "utf-8");
+  assert.doesNotMatch(config, /^model_provider\s*=/m);
+  assert.match(config, /^openai_base_url = "http:\/\/127\.0\.0\.1:34046\/v1"/m);
+  assert.equal(
+    readJson(path.join(home, "switchbridge-shared-history.json")).activeProvider,
+    "cliproxyapi"
+  );
+});
+
+test("mode: --separate-history retains legacy provider-isolated history routing", () => {
+  const home = tmpHome();
+  writeJson(path.join(home, "provider_cliproxyapi.json"), makeProviderProfile());
+
+  const r = cli("mode cliproxyapi --separate-history", home);
+  assert.equal(r.code, 0);
+  assert.ok(r.stdout.includes("Shared local conversation history: disabled"));
+
+  const config = fs.readFileSync(path.join(home, "config.toml"), "utf-8");
   assert.match(config, /^model_provider = "cliproxyapi"/m);
+  assert.doesNotMatch(config, /^openai_base_url\s*=/m);
+  assert.ok(!fs.existsSync(path.join(home, "switchbridge-shared-history.json")));
+});
+
+test("mode: non-Responses providers require --separate-history", () => {
+  const home = tmpHome();
+  const profile = makeProviderProfile("legacy-chat");
+  profile.config.wire_api = "chat";
+  writeJson(path.join(home, "provider_legacy-chat.json"), profile);
+
+  const shared = cli("mode legacy-chat", home);
+  assert.equal(shared.code, 0);
+  assert.ok(shared.stdout.includes('requires wire_api = "responses"'));
+  assert.ok(!fs.existsSync(path.join(home, "auth.json")));
+
+  const separate = cli("mode legacy-chat --separate-history", home);
+  assert.equal(separate.code, 0);
+  assert.ok(separate.stdout.includes("Switched to mode"));
+  const config = fs.readFileSync(path.join(home, "config.toml"), "utf-8");
+  assert.match(config, /^model_provider = "legacy-chat"/m);
 });
 
 test("mode: new provider prompts and creates profile when missing", () => {
@@ -600,7 +705,8 @@ test("mode: new provider prompts and creates profile when missing", () => {
   assert.equal(current.OPENAI_API_KEY, "sk-live-test");
 
   const config = fs.readFileSync(path.join(home, "config.toml"), "utf-8");
-  assert.match(config, /^model_provider = "my-proxy"/m);
+  assert.doesNotMatch(config, /^model_provider\s*=/m);
+  assert.match(config, /^openai_base_url = "http:\/\/my-proxy\.local\/v1"/m);
 });
 
 test("mode: incomplete provider profile is completed from prompts", () => {
@@ -642,7 +748,8 @@ test("mode: switch to custom-named provider", () => {
   assert.ok(r.stdout.includes("my-api"));
 
   const config = fs.readFileSync(path.join(home, "config.toml"), "utf-8");
-  assert.match(config, /^model_provider = "my-api"/m);
+  assert.doesNotMatch(config, /^model_provider\s*=/m);
+  assert.match(config, /^openai_base_url = "http:\/\/127\.0\.0\.1:34046\/v1"/m);
 });
 
 // ─── current ─────────────────────────────────────────────────
@@ -1102,11 +1209,11 @@ test("workflow: mode account after provider restores account listing", () => {
   assert.ok(r1.stdout.includes("cliproxyapi"));
   assert.ok(r1.stdout.includes("[current]"));
 
-  cli("mode account", home);
-
-  cli("use work", home);
+  const restored = cli("mode account", home);
+  assert.ok(restored.stdout.includes('Switched to account "work"'));
   const r2 = cli("list", home);
   assert.ok(r2.stdout.includes("[current]"));
+  assert.ok(!fs.existsSync(path.join(home, "switchbridge-shared-history.json")));
 });
 
 test("workflow: remove then use shows does not exist", () => {
@@ -1132,6 +1239,7 @@ test("mode: dotted provider names write quoted TOML table headers", () => {
   const config = fs.readFileSync(path.join(home, "config.toml"), "utf-8");
   assert.match(config, /\[model_providers\."corp\.proxy"\]/);
   assert.doesNotMatch(config, /\[model_providers\.corp\.proxy\]/);
+  assert.doesNotMatch(config, /^model_provider\s*=/m);
 });
 
 // ─── encryption helper ───────────────────────────────────────
