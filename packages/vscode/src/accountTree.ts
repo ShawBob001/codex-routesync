@@ -17,6 +17,7 @@ import {
   SavedEntriesSnapshot,
 } from "./savedEntries";
 import { getCachedQuotaSnapshot } from "./quotaCache";
+import { formatCompactTokens, stableSubjectId, UsageService } from "./tokenUsage";
 
 interface QuotaState {
   info: QuotaInfo | null;
@@ -229,7 +230,11 @@ export class AccountGroupItem extends vscode.TreeItem {
   ) {
     super(label, vscode.TreeItemCollapsibleState.Expanded);
     this.id = `accountGroup:${groupKind}`;
-    this.description = `${children.length}`;
+    const trackedTokens = children.reduce((sum, child) => sum + (child.trackedTokens ?? 0), 0);
+    const usageDescription = children.some((child) => child.trackedTokens == null)
+      ? "Indexing usage"
+      : `${formatCompactTokens(trackedTokens)} tracked`;
+    this.description = `${children.length} saved · ${usageDescription}`;
     this.contextValue = groupKind === "local" ? "accountGroupLocal" : "accountGroupCloud";
     this.iconPath = new vscode.ThemeIcon(iconId);
     for (const child of children) {
@@ -241,13 +246,27 @@ export class AccountGroupItem extends vscode.TreeItem {
 export class AccountTreeItem extends vscode.TreeItem {
   groupParent?: AccountGroupItem;
 
-  constructor(public readonly account: SavedAccountInfo, public readonly quotaState?: QuotaState) {
-    super(account.name, vscode.TreeItemCollapsibleState.Expanded);
+  constructor(
+    public readonly account: SavedAccountInfo,
+    public readonly quotaState?: QuotaState,
+    public readonly trackedTokens: number | null = null,
+  ) {
+    super(
+      account.name,
+      account.isCurrent ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
+    );
     this.id = `account:${account.id}`;
 
     const email = account.meta?.email ?? account.publicEmail ?? "unknown";
     const plan = account.meta?.plan ?? "unknown";
-    const parts: string[] = [account.source];
+    const parts: string[] = [];
+    if (account.isCurrent) {
+      parts.push("Active");
+    }
+    parts.push(account.source === "cloud" ? "Cloud" : "Local");
+    if (trackedTokens != null) {
+      parts.push(`${formatCompactTokens(trackedTokens)} tracked`);
+    }
     const quotaSummary = formatQuotaSummary(quotaState?.info ?? null);
     const reloginMessage = getQuotaStateReloginMessage(quotaState);
 
@@ -312,6 +331,11 @@ export class AccountTreeItem extends vscode.TreeItem {
       `Email: ${email}`,
       `Plan: ${plan}`,
     ];
+    tooltipLines.push(
+      trackedTokens == null
+        ? "Local token usage: Indexing"
+        : `Tracked local token usage: ${trackedTokens.toLocaleString()} tokens`,
+    );
     if (account.source === "cloud" && (account.syncVersion != null || account.syncUpdatedAt)) {
       tooltipLines.push(`Sync version: ${account.syncVersion ?? "legacy"}`);
       tooltipLines.push(`Updated: ${account.syncUpdatedAt ?? "unknown"}`);
@@ -365,6 +389,8 @@ export class AccountTreeProvider implements vscode.TreeDataProvider<AccountTreeN
   private quotaState = new Map<string, QuotaState>();
   private rootItems: AccountGroupItem[] = [];
   private refreshVersion = 0;
+
+  constructor(private readonly usageService?: UsageService) {}
 
   refresh(snapshot?: SavedEntriesSnapshot): void {
     const perf = startPerformanceLog(LOG_PREFIX, "accountTree.refresh");
@@ -649,7 +675,9 @@ export class AccountTreeProvider implements vscode.TreeDataProvider<AccountTreeN
     return undefined;
   }
 
-  dispose() {}
+  dispose() {
+    this._onDidChangeTreeData.dispose();
+  }
 
   markReloginRequired(accountIds: Iterable<string>, message = RELOGIN_REQUIRED_MESSAGE): void {
     const idSet = new Set([...accountIds].filter((id) => typeof id === "string" && id.length > 0));
@@ -753,9 +781,16 @@ export class AccountTreeProvider implements vscode.TreeDataProvider<AccountTreeN
       });
     const local: AccountTreeItem[] = [];
     const cloud: AccountTreeItem[] = [];
+    const usageSnapshot = this.usageService?.getSnapshot();
+    const usageBySubject = new Map(
+      usageSnapshot?.subjects.map((subject) => [subject.id, subject.tokens.totalTokens]) ?? [],
+    );
+    const usageReady = usageSnapshot?.status === "ready";
 
     for (const account of accounts) {
-      const item = new AccountTreeItem(account, this.quotaState.get(account.id));
+      const subjectId = stableSubjectId("account", account.id);
+      const trackedTokens = usageReady ? usageBySubject.get(subjectId) ?? 0 : null;
+      const item = new AccountTreeItem(account, this.quotaState.get(account.id), trackedTokens);
       if (account.source === "cloud") {
         cloud.push(item);
       } else {
@@ -815,6 +850,17 @@ export class AccountTreeProvider implements vscode.TreeDataProvider<AccountTreeN
     const planItem = new AccountDetailItem("Plan", plan, plan, parent);
     planItem.iconPath = new vscode.ThemeIcon("tag");
     items.push(planItem);
+
+    const usageItem = new AccountDetailItem(
+      "Tracked usage",
+      parent.trackedTokens == null ? "Indexing" : `${formatCompactTokens(parent.trackedTokens)} tokens`,
+      parent.trackedTokens == null
+        ? "Local Codex token records are still being indexed."
+        : `${parent.trackedTokens.toLocaleString()} local tokens attributed since tracking began.`,
+      parent,
+    );
+    usageItem.iconPath = new vscode.ThemeIcon(parent.trackedTokens == null ? "loading~spin" : "pulse");
+    items.push(usageItem);
 
     if (account.storageState !== "ready") {
       const storageItem = new AccountDetailItem(

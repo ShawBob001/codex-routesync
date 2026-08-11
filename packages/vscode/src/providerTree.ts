@@ -1,26 +1,29 @@
 import * as vscode from "vscode";
 import { formatProviderFieldValue } from "./providerProfile";
 import { listSavedProviders, SavedProviderInfo } from "./savedEntries";
+import { formatCompactTokens, stableSubjectId, UsageService } from "./tokenUsage";
 
 export type ProviderTreeNode = ProviderTreeItem | ProviderDetailItem;
 
-function describeProvider(provider: SavedProviderInfo): string {
+function describeProvider(provider: SavedProviderInfo, trackedTokens: number | null): string {
   if (provider.locked) {
-    return `${provider.source} · Storage locked`;
+    return `${provider.source === "cloud" ? "Cloud" : "Local"} · Storage locked`;
   }
   if (provider.pending) {
-    return `${provider.source} · Payload pending`;
+    return `${provider.source === "cloud" ? "Cloud" : "Local"} · Payload pending`;
   }
   if (provider.invalid) {
-    return `${provider.source} · Invalid profile`;
+    return `${provider.source === "cloud" ? "Cloud" : "Local"} · Invalid profile`;
   }
 
-  const parts: string[] = [provider.source];
-  const authKeys = Object.keys(provider.auth).filter((key) => {
-    const value = provider.auth[key];
-    return value != null && String(value).trim() !== "";
-  });
-  parts.push(authKeys.length > 0 ? `${authKeys.length} auth field${authKeys.length === 1 ? "" : "s"}` : "No auth");
+  const parts: string[] = [];
+  if (provider.isCurrent) {
+    parts.push("Active");
+  }
+  parts.push(provider.source === "cloud" ? "Cloud" : "Local");
+  if (trackedTokens != null) {
+    parts.push(`${formatCompactTokens(trackedTokens)} tracked`);
+  }
 
   const wireApi =
     typeof provider.config.wire_api === "string" && provider.config.wire_api.trim()
@@ -29,10 +32,6 @@ function describeProvider(provider: SavedProviderInfo): string {
   if (wireApi) {
     parts.push(wireApi);
   }
-  if (provider.isCurrent) {
-    parts.push("Active");
-  }
-
   return parts.join(" · ");
 }
 
@@ -49,8 +48,12 @@ export class ProviderDetailItem extends vscode.TreeItem {
     tooltip?: string,
     public readonly parent?: ProviderTreeItem,
     public readonly rawValue?: string,
+    idSegment?: string,
   ) {
     super(label, vscode.TreeItemCollapsibleState.None);
+    this.id = parent
+      ? `providerDetail:${parent.provider.id}:${idSegment ?? label}`
+      : `providerDetail:${idSegment ?? label}`;
     this.description = description;
     this.tooltip = tooltip;
     this.contextValue = "providerDetail";
@@ -58,10 +61,17 @@ export class ProviderDetailItem extends vscode.TreeItem {
 }
 
 export class ProviderTreeItem extends vscode.TreeItem {
-  constructor(public readonly provider: SavedProviderInfo) {
-    super(provider.name, vscode.TreeItemCollapsibleState.Expanded);
+  constructor(
+    public readonly provider: SavedProviderInfo,
+    public readonly trackedTokens: number | null = null,
+  ) {
+    super(
+      provider.name,
+      provider.isCurrent ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
+    );
+    this.id = `provider:${provider.id}`;
 
-    this.description = describeProvider(provider);
+    this.description = describeProvider(provider, trackedTokens);
     this.contextValue = provider.source === "cloud" ? "providerCloud" : "providerLocal";
 
     if (provider.locked) {
@@ -77,6 +87,11 @@ export class ProviderTreeItem extends vscode.TreeItem {
     }
 
     const tooltipLines = [`Provider: ${provider.name}`, `Source: ${provider.source}`];
+    tooltipLines.push(
+      trackedTokens == null
+        ? "Local token usage: Indexing"
+        : `Tracked local token usage: ${trackedTokens.toLocaleString()} tokens`,
+    );
     tooltipLines.push(
       provider.locked
         ? "Status: Storage locked"
@@ -127,6 +142,8 @@ export class ProviderTreeProvider implements vscode.TreeDataProvider<ProviderTre
   readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
   private rootItems: ProviderTreeItem[] = [];
 
+  constructor(private readonly usageService?: UsageService) {}
+
   refresh(): void {
     this.rootItems = [];
     this.onDidChangeTreeDataEmitter.fire(undefined);
@@ -155,7 +172,16 @@ export class ProviderTreeProvider implements vscode.TreeDataProvider<ProviderTre
 
   getRootItems(): ProviderTreeItem[] {
     if (this.rootItems.length === 0) {
-      this.rootItems = listSavedProviders().map((provider) => new ProviderTreeItem(provider));
+      const usageSnapshot = this.usageService?.getSnapshot();
+      const usageBySubject = new Map(
+        usageSnapshot?.subjects.map((subject) => [subject.id, subject.tokens.totalTokens]) ?? [],
+      );
+      const usageReady = usageSnapshot?.status === "ready";
+      this.rootItems = listSavedProviders().map((provider) => {
+        const subjectId = stableSubjectId("provider", provider.id);
+        const trackedTokens = usageReady ? usageBySubject.get(subjectId) ?? 0 : null;
+        return new ProviderTreeItem(provider, trackedTokens);
+      });
     }
     return this.rootItems;
   }
@@ -200,6 +226,17 @@ export class ProviderTreeProvider implements vscode.TreeDataProvider<ProviderTre
     const sourceItem = new ProviderDetailItem("Source", provider.source, provider.source, parent);
     sourceItem.iconPath = new vscode.ThemeIcon(provider.source === "cloud" ? "cloud" : "device-desktop");
     items.push(sourceItem);
+
+    const usageItem = new ProviderDetailItem(
+      "Tracked usage",
+      parent.trackedTokens == null ? "Indexing" : `${formatCompactTokens(parent.trackedTokens)} tokens`,
+      parent.trackedTokens == null
+        ? "Local Codex token records are still being indexed."
+        : `${parent.trackedTokens.toLocaleString()} local tokens attributed since tracking began.`,
+      parent,
+    );
+    usageItem.iconPath = new vscode.ThemeIcon(parent.trackedTokens == null ? "loading~spin" : "pulse");
+    items.push(usageItem);
 
     if (provider.source === "cloud" && (provider.syncVersion != null || provider.syncUpdatedAt)) {
       const syncVersionItem = new ProviderDetailItem(
@@ -251,7 +288,14 @@ export class ProviderTreeProvider implements vscode.TreeDataProvider<ProviderTre
     for (const [key, value] of configEntries) {
       const isCopyable = key === "base_url";
       const rawValue = typeof value === "string" ? value : undefined;
-      const item = new ProviderDetailItem(key, formatProviderFieldValue(key, value), undefined, parent, rawValue);
+      const item = new ProviderDetailItem(
+        key,
+        formatProviderFieldValue(key, value),
+        undefined,
+        parent,
+        rawValue,
+        `config:${key}`,
+      );
       if (isCopyable && rawValue) {
         item.contextValue = "providerCopyableField";
       }
@@ -267,10 +311,11 @@ export class ProviderTreeProvider implements vscode.TreeDataProvider<ProviderTre
       const rawValue = typeof value === "string" ? value : undefined;
       const item = new ProviderDetailItem(
         key,
-        formatProviderFieldValue(key, value, { revealSecrets: isCopyable }),
+        formatProviderFieldValue(key, value),
         undefined,
         parent,
         rawValue,
+        `auth:${key}`,
       );
       if (isCopyable && rawValue) {
         item.contextValue = "providerCopyableField";
@@ -281,7 +326,7 @@ export class ProviderTreeProvider implements vscode.TreeDataProvider<ProviderTre
       items.push(item);
     }
 
-    if (items.length === 2) {
+    if (configEntries.length === 0 && authEntries.length === 0) {
       const emptyItem = new ProviderDetailItem(
         "Profile",
         "No saved fields",

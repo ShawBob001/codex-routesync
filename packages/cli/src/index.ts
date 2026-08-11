@@ -25,7 +25,7 @@ program
   .description(
     "Seamlessly switch between Codex accounts and Responses API providers with shared local conversation history"
   )
-  .version("0.2.0");
+  .version("0.3.0");
 
 program
   .option("--auth-dir <path>", "Directory for saving and loading auth_{name}.json files; defaults to the Codex config directory")

@@ -87,12 +87,63 @@ function writeConfigText(text: string): void {
 }
 
 function isTableHeader(line: string): boolean {
-  return /^\[{1,2}.+\]{1,2}(?:\s*#.*)?$/.test(line.trim());
+  return getTableHeader(line) !== null;
 }
 
 function getTableHeader(line: string): string | null {
-  const match = line.trim().match(/^(\[\[.*?\]\]|\[.*?\])(?:\s*#.*)?$/);
-  return match?.[1] ?? null;
+  const trimmed = line.trim();
+  const isArrayTable = trimmed.startsWith("[[");
+  if (!isArrayTable && !trimmed.startsWith("[")) {
+    return null;
+  }
+
+  const openingLength = isArrayTable ? 2 : 1;
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let index = openingLength; index < trimmed.length; index += 1) {
+    const character = trimmed[index];
+    if (quote === '"') {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        quote = null;
+      }
+      continue;
+    }
+    if (quote === "'") {
+      if (character === "'") {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "#" || character === "[") {
+      return null;
+    }
+    if (character !== "]") {
+      continue;
+    }
+
+    const closingLength = isArrayTable ? 2 : 1;
+    if (isArrayTable && trimmed[index + 1] !== "]") {
+      return null;
+    }
+    const end = index + closingLength;
+    const remainder = trimmed.slice(end).trimStart();
+    if (remainder.length === 0 || remainder.startsWith("#")) {
+      return trimmed.slice(0, end);
+    }
+    return null;
+  }
+
+  return null;
 }
 
 function escapeRegExp(value: string): string {
@@ -287,8 +338,9 @@ export function getActiveModelProvider(): string | null {
   let currentTable: string | null = null;
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-      currentTable = trimmed;
+    const tableHeader = getTableHeader(trimmed);
+    if (tableHeader !== null) {
+      currentTable = tableHeader;
       continue;
     }
 

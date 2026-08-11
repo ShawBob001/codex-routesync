@@ -1,7 +1,7 @@
 import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
-import { getNamedAuthDir } from "./paths";
+import { getNamedAuthDir, validateSavedEntryName } from "./paths";
 
 export type SavedStorageKind = "saved_auth" | "saved_provider";
 export type SavedStorageLockReason = "missing_passphrase" | "incorrect_passphrase";
@@ -83,10 +83,12 @@ function isEnvelope(value: unknown): value is SavedStorageEnvelope {
 }
 
 function getSavedFileKindFromName(name: string): SavedStorageKind | null {
-  if (/^auth_.+\.json$/.test(name)) {
+  const authMatch = /^auth_(.+)\.json$/.exec(name);
+  if (authMatch && validateSavedEntryName(authMatch[1]).valid) {
     return "saved_auth";
   }
-  if (/^provider_.+\.json$/.test(name)) {
+  const providerMatch = /^provider_(.+)\.json$/.exec(name);
+  if (providerMatch && validateSavedEntryName(providerMatch[1]).valid) {
     return "saved_provider";
   }
   return null;
@@ -276,13 +278,62 @@ export function getSerializedSavedValueSyncMetadata(value: unknown): SavedStorag
   };
 }
 
+function resolveSavedJsonWriteTarget(filePath: string): string {
+  try {
+    if (fs.lstatSync(filePath).isSymbolicLink()) {
+      return fs.realpathSync(filePath);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+  return filePath;
+}
+
 export function writeSavedJsonFile(
   filePath: string,
   kind: SavedStorageKind,
   value: Record<string, unknown>
 ): void {
   const payload = JSON.stringify(serializeSavedValue(kind, value), null, 2);
-  fs.writeFileSync(filePath, payload, "utf-8");
+  const target = resolveSavedJsonWriteTarget(filePath);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const temporary = `${target}.${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+  let descriptor: number | null = null;
+
+  try {
+    descriptor = fs.openSync(temporary, "wx", 0o600);
+    fs.fchmodSync(descriptor, 0o600);
+    fs.writeFileSync(descriptor, payload, "utf-8");
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptor = null;
+    fs.renameSync(temporary, target);
+    fs.chmodSync(target, 0o600);
+    fsyncDirectoryBestEffort(path.dirname(target));
+  } finally {
+    if (descriptor !== null) {
+      fs.closeSync(descriptor);
+    }
+    if (fs.existsSync(temporary)) {
+      fs.unlinkSync(temporary);
+    }
+  }
+}
+
+function fsyncDirectoryBestEffort(directory: string): void {
+  let descriptor: number | null = null;
+  try {
+    descriptor = fs.openSync(directory, "r");
+    fs.fsyncSync(descriptor);
+  } catch {
+    // Some platforms and filesystems do not support directory fsync.
+  } finally {
+    if (descriptor !== null) {
+      fs.closeSync(descriptor);
+    }
+  }
 }
 
 export function readSavedJsonFile<T>(
@@ -316,11 +367,11 @@ export function hasEncryptedSavedFiles(): boolean {
     return false;
   }
 
-  for (const name of fs.readdirSync(dir)) {
-    if (!getSavedFileKindFromName(name)) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile() || !getSavedFileKindFromName(entry.name)) {
       continue;
     }
-    const envelope = parseSavedStorageEnvelope(fs.readFileSync(path.join(dir, name), "utf-8"));
+    const envelope = parseSavedStorageEnvelope(fs.readFileSync(path.join(dir, entry.name), "utf-8"));
     if (envelope) {
       return true;
     }
@@ -348,13 +399,13 @@ export function changeSavedAuthPassphrase(nextPassphrase: string): { rewritten: 
   const rewrites: Array<{ filePath: string; kind: SavedStorageKind; value: Record<string, unknown> }> = [];
   let skipped = 0;
 
-  for (const name of fs.readdirSync(dir)) {
-    const kind = getSavedFileKindFromName(name);
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const kind = entry.isFile() ? getSavedFileKindFromName(entry.name) : null;
     if (!kind) {
       continue;
     }
 
-    const filePath = path.join(dir, name);
+    const filePath = path.join(dir, entry.name);
     const result = readSavedJsonFile<Record<string, unknown>>(filePath, kind);
     if (result.status === "ok") {
       if (result.encrypted) {

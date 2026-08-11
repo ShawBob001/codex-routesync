@@ -4,11 +4,22 @@ import { AccountTreeProvider } from "./accountTree";
 import { isFiveHourQuotaExhausted } from "./autoSwitch";
 import { logWarn, startPerformanceLog } from "./log";
 import { ProviderTreeProvider } from "./providerTree";
-import { createSavedEntriesSnapshot, querySavedAccountQuota, refreshSavedAccountEntry, SavedAccountInfo, SavedAccountQuotaQueryContext } from "./savedEntries";
+import {
+  createSavedEntriesSnapshot,
+  querySavedAccountQuota,
+  refreshSavedAccountEntry,
+  SavedAccountInfo,
+  SavedAccountQuotaQueryContext,
+} from "./savedEntries";
 import { StatusBarManager } from "./statusBar";
+import { UsageService } from "./tokenUsage";
+import { OverviewTreeProvider } from "./usageTree";
+import { selectionUsageSubject } from "./usageSubjects";
 
 const LOG_PREFIX = "[codex-switchbridge:vscode:refreshCoordinator]";
 const TOKEN_REFRESH_THRESHOLD_MS = 120 * 60 * 60 * 1000;
+const MIN_BACKGROUND_USAGE_REFRESH_MS = 60_000;
+const SELECTION_HEARTBEAT_MS = 60_000;
 let refreshSequence = 0;
 
 export type RefreshReason =
@@ -32,24 +43,32 @@ interface ScheduledQuotaRefresh {
 
 export class RefreshCoordinator implements vscode.Disposable {
   private autoRefreshTimer: ReturnType<typeof setInterval> | undefined;
+  private selectionHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
   private configListener: vscode.Disposable | undefined;
   private scheduledTimer: ReturnType<typeof setTimeout> | undefined;
   private runningRefresh: Promise<void> | null = null;
+  private selectionTail: Promise<void> = Promise.resolve();
   private lastAutoRefreshAccountId: string | null = null;
   private pendingFullRefresh = false;
   private pendingAutoRefresh = false;
   private pendingTargetIds = new Set<string>();
   private pendingReason: RefreshReason = "manual";
+  private pendingUsageRefresh = false;
+  private pendingUsageReason: RefreshReason = "manual";
+  private lastUsageRefreshAt = 0;
   private preparedConfigurationRefresh: PreparedConfigurationRefresh | null = null;
 
   constructor(
     private readonly accountTree: AccountTreeProvider,
     private readonly providerTree: ProviderTreeProvider,
     private readonly statusBar: StatusBarManager,
+    private readonly usageService: UsageService,
+    private readonly overviewTree: OverviewTreeProvider,
   ) {}
 
   startAutoRefresh(context: vscode.ExtensionContext): void {
     this.restartAutoRefreshTimer();
+    this.restartSelectionHeartbeat();
     this.configListener?.dispose();
     this.configListener = vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("codex-switchbridge.quotaRefreshInterval")) {
@@ -59,22 +78,59 @@ export class RefreshCoordinator implements vscode.Disposable {
     context.subscriptions.push(this.configListener);
   }
 
-  refreshViews(reason: RefreshReason = "manual"): void {
+  refreshViews(reason: RefreshReason = "manual"): Promise<void> {
     const perf = startPerformanceLog(LOG_PREFIX, "refreshCoordinator.refreshViews", {
       reason,
     });
     const snapshot = createSavedEntriesSnapshot();
-    this.accountTree.refresh(snapshot);
-    perf.mark("account-tree-refresh");
-    this.providerTree.refresh();
-    perf.mark("provider-tree-refresh");
-    void this.statusBar.refreshNow({ skipQuota: true, snapshot, reason }).catch((error) => {
-      logWarn(LOG_PREFIX, "refresh-views-statusBar-failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      perf.fail(error);
-    });
+    const selectionRecorded = this.recordUsageSelection(snapshot);
+    this.refreshViewProviders(snapshot, reason, perf);
+    this.scheduleUsageRefresh(reason);
     perf.finish();
+    return selectionRecorded;
+  }
+
+  async refreshUsage(reason: RefreshReason = "manual"): Promise<void> {
+    await this.recordUsageSelection(createSavedEntriesSnapshot());
+    this.scheduleUsageRefresh(reason);
+    await this.flushScheduledRefresh();
+  }
+
+  scheduleUsageRefresh(reason: RefreshReason = "manual"): void {
+    if (
+      reason === "timer"
+      && (
+        this.pendingUsageRefresh
+        || Date.now() - this.lastUsageRefreshAt < MIN_BACKGROUND_USAGE_REFRESH_MS
+      )
+    ) {
+      return;
+    }
+    this.pendingUsageRefresh = true;
+    this.pendingUsageReason = reason;
+    this.ensureScheduled();
+  }
+
+  private refreshViewProviders(
+    snapshot: ReturnType<typeof createSavedEntriesSnapshot>,
+    reason: RefreshReason,
+    perf?: ReturnType<typeof startPerformanceLog>,
+    refreshStatusBar = true,
+  ): void {
+    this.accountTree.refresh(snapshot);
+    perf?.mark("account-tree-refresh");
+    this.providerTree.refresh();
+    perf?.mark("provider-tree-refresh");
+    this.overviewTree.refresh();
+    perf?.mark("overview-tree-refresh");
+    if (refreshStatusBar) {
+      void this.statusBar.refreshNow({ skipQuota: true, snapshot, reason }).catch((error) => {
+        logWarn(LOG_PREFIX, "refresh-views-statusBar-failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        perf?.fail(error);
+      });
+    }
   }
 
   scheduleQuotaRefresh(options?: { targetIds?: Iterable<string>; reason?: RefreshReason; fullRefresh?: boolean }): void {
@@ -126,17 +182,27 @@ export class RefreshCoordinator implements vscode.Disposable {
       clearInterval(this.autoRefreshTimer);
       this.autoRefreshTimer = undefined;
     }
+    if (this.selectionHeartbeatTimer) {
+      clearInterval(this.selectionHeartbeatTimer);
+      this.selectionHeartbeatTimer = undefined;
+    }
     if (this.scheduledTimer) {
       clearTimeout(this.scheduledTimer);
       this.scheduledTimer = undefined;
     }
     this.clearPendingQuotaRefresh();
+    this.pendingUsageRefresh = false;
     this.configListener?.dispose();
     this.configListener = undefined;
   }
 
   async flushScheduledRefresh(): Promise<void> {
-    while (this.scheduledTimer || this.runningRefresh || this.hasPendingQuotaRefresh()) {
+    while (
+      this.scheduledTimer
+      || this.runningRefresh
+      || this.pendingUsageRefresh
+      || this.hasPendingQuotaRefresh()
+    ) {
       if (this.scheduledTimer) {
         clearTimeout(this.scheduledTimer);
         this.scheduledTimer = undefined;
@@ -147,17 +213,19 @@ export class RefreshCoordinator implements vscode.Disposable {
         continue;
       }
 
-      if (!this.hasPendingQuotaRefresh()) {
+      if (!this.pendingUsageRefresh && !this.hasPendingQuotaRefresh()) {
         return;
       }
 
-      const refreshPromise = this.flushQuotaRefresh();
+      const refreshPromise = this.hasPendingQuotaRefresh()
+        ? this.flushQuotaRefresh()
+        : this.flushUsageRefresh();
       this.runningRefresh = refreshPromise;
       try {
         await refreshPromise;
       } finally {
         this.runningRefresh = null;
-        if (this.hasPendingQuotaRefresh()) {
+        if (this.pendingUsageRefresh || this.hasPendingQuotaRefresh()) {
           this.ensureScheduled();
         }
       }
@@ -166,6 +234,7 @@ export class RefreshCoordinator implements vscode.Disposable {
 
   async whenIdle(): Promise<void> {
     await this.flushScheduledRefresh();
+    await this.selectionTail;
   }
 
   private restartAutoRefreshTimer(): void {
@@ -184,7 +253,16 @@ export class RefreshCoordinator implements vscode.Disposable {
       this.scheduleQuotaRefresh({
         reason: "timer",
       });
+      this.scheduleUsageRefresh("timer");
     }, effectiveIntervalSec * 1000);
+  }
+
+  private restartSelectionHeartbeat(): void {
+    if (this.selectionHeartbeatTimer) clearInterval(this.selectionHeartbeatTimer);
+    this.selectionHeartbeatTimer = setInterval(() => {
+      const snapshot = createSavedEntriesSnapshot();
+      void this.recordUsageSelection(snapshot);
+    }, SELECTION_HEARTBEAT_MS);
   }
 
   private isAutoSwitchEnabled(): boolean {
@@ -405,6 +483,57 @@ export class RefreshCoordinator implements vscode.Disposable {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  private async flushUsageRefresh(): Promise<void> {
+    const reason = this.pendingUsageReason;
+    this.pendingUsageRefresh = false;
+    this.lastUsageRefreshAt = Date.now();
+    const perf = startPerformanceLog(LOG_PREFIX, "refreshCoordinator.flushUsageRefresh", {
+      reason,
+    });
+    try {
+      let snapshot = createSavedEntriesSnapshot();
+      await this.recordUsageSelection(snapshot);
+      perf.mark("record-selection", {
+        selectionKind: snapshot.selection.kind,
+      });
+      const usage = await this.usageService.refresh();
+      perf.mark("refresh-local-usage", {
+        sessionCount: usage.sessionCount,
+        totalTokens: usage.total.totalTokens,
+        coverage: usage.coverage,
+      });
+      snapshot = createSavedEntriesSnapshot();
+      this.refreshViewProviders(snapshot, reason, undefined, false);
+      this.statusBar.refreshUsagePresentation(snapshot);
+      perf.finish({
+        sessionCount: usage.sessionCount,
+        totalTokens: usage.total.totalTokens,
+      });
+    } catch (error) {
+      logWarn(LOG_PREFIX, "usage-refresh-failed", {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      perf.fail(error);
+    }
+  }
+
+  private recordUsageSelection(
+    snapshot: ReturnType<typeof createSavedEntriesSnapshot>,
+  ): Promise<void> {
+    const subject = selectionUsageSubject(snapshot.selection);
+    const operation = this.selectionTail
+      .then(() => this.usageService.recordSelection(subject))
+      .catch((error) => {
+        logWarn(LOG_PREFIX, "record-selection-failed", {
+          selectionKind: snapshot.selection.kind,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    this.selectionTail = operation;
+    return operation;
   }
 
   private getCurrentSelectionAccountId(snapshot: ReturnType<typeof createSavedEntriesSnapshot>): string | null {

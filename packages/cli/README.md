@@ -9,7 +9,7 @@ The npm package is `codex-switchbridge-cli`. It installs the `codex-switchbridge
 Install a tarball from [GitHub Releases](https://github.com/baoshichao001-dev/codex-switchbridge/releases):
 
 ```bash
-npm install --global ./codex-switchbridge-cli-0.2.0.tgz
+npm install --global ./codex-switchbridge-cli-0.3.0.tgz
 codex-switchbridge --version
 ```
 
