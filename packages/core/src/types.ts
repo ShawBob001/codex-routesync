@@ -54,6 +54,7 @@ export interface ProviderProfile {
 
 export interface SharedHistorySwitchOptions {
   shareHistoryAcrossProviders?: boolean;
+  syncCurrentAccountAuth?: boolean;
   syncCurrentProviderAuth?: boolean;
   source: string;
   target: string;

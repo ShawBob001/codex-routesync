@@ -5,7 +5,7 @@
 | Target | Package | Trigger | Credentials | Notes |
 | --- | --- | --- | --- | --- |
 | npm | `packages/cli` | Local `npm run publish:cli` | Local npm login or token | `packages/cli/package.json` version must match the intended publish version. Stable versions default to `latest`; pre-release versions default to `next`. |
-| Visual Studio Marketplace | `packages/vscode` | Local `npm run publish:vscode` | `VSCE_PAT` | Publishes the VS Code extension directly. |
+| Visual Studio Marketplace | `packages/vscode` | Local `npm run publish:vscode` | `VSCE_PAT` | Rebuilds the extension, packages the current version, then publishes that exact VSIX. |
 | Open VSX | `packages/vscode` | Local `npm run publish:vscode:openvsx` | `OVSX_PAT` or `OPEN_VSX_TOKEN` | Publishes the prebuilt VSIX. |
 
 ## npm Local Publish Flow
@@ -41,6 +41,18 @@ Verify registry connectivity with:
 ```bash
 npm ping
 ```
+
+## Visual Studio Marketplace Procedure
+
+Create or confirm the manifest publisher in the [Visual Studio Marketplace publisher manager](https://marketplace.visualstudio.com/manage/publishers/) before the first release. The publisher ID must match `packages/vscode/package.json`.
+
+Set `VSCE_PAT` in the publishing shell without passing it as a command-line argument, then run:
+
+```bash
+npm run publish:vscode
+```
+
+The pre-publish hook runs the full extension package command. The publisher script reads the current package version and passes only `codex-switchbridge-<version>.vsix` to `vsce`, so older VSIX files in the working directory cannot be selected accidentally.
 
 ## CLI Release Procedure
 

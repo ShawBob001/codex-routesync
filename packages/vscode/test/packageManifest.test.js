@@ -9,16 +9,49 @@ const manifest = JSON.parse(
 
 const commands = manifest.contributes.commands;
 
-test("extension identity is Codex SwitchBridge 0.2.0", () => {
+test("extension identity is Codex SwitchBridge 0.3.0", () => {
   assert.equal(manifest.name, "codex-switchbridge");
   assert.equal(manifest.displayName, "Codex SwitchBridge");
   assert.equal(manifest.publisher, "baoshichao001-dev");
-  assert.equal(manifest.version, "0.2.0");
+  assert.equal(manifest.version, "0.3.0");
   assert.match(manifest.description, /accounts and API providers/i);
   assert.match(manifest.description, /shared local conversation history/i);
+  assert.match(manifest.description, /token usage/i);
   assert.ok(manifest.keywords.includes("api-provider"));
   assert.ok(manifest.keywords.includes("conversation-history"));
   assert.ok(manifest.keywords.includes("responses-api"));
+});
+
+test("activity view starts with an Overview and exposes local usage refresh", () => {
+  const views = manifest.contributes.views["codex-switchbridge"] ?? [];
+  assert.deepEqual(
+    views.map((view) => view.id),
+    [
+      "codexSwitchBridgeOverview",
+      "codexSwitchBridgeAccounts",
+      "codexSwitchBridgeProviders",
+    ],
+  );
+
+  const refreshUsage = commands.find(
+    (command) => command.command === "codex-switchbridge.refreshUsage"
+  );
+  assert.equal(refreshUsage?.title, "Refresh Local Token Usage");
+
+  const titleItem = (manifest.contributes.menus["view/title"] ?? []).find(
+    (item) =>
+      item.command === "codex-switchbridge.refreshUsage"
+      && item.when === "view == codexSwitchBridgeOverview"
+  );
+  assert.equal(titleItem?.group, "navigation@1");
+});
+
+test("Marketplace publishing rebuilds and publishes the exact versioned VSIX", () => {
+  assert.equal(manifest.scripts["prepublish:marketplace"], "npm run package");
+  assert.equal(
+    manifest.scripts["publish:marketplace"],
+    "node ./scripts/publish-marketplace.mjs",
+  );
 });
 
 test("production build includes the history migration helper", () => {

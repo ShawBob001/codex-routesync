@@ -59,6 +59,17 @@ function runNodeWorker(script, args, timeoutMs = 10_000) {
   });
 }
 
+async function waitForFile(filePath, timeoutMs = 5_000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (fs.existsSync(filePath)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return fs.existsSync(filePath);
+}
+
 test("activateProviderThroughOpenAI keeps one OpenAI history bucket", (t) => {
   const root = withCodexHome(t, [
     '# Keep this comment',
@@ -152,6 +163,63 @@ test("activateProviderConfig updates an existing provider table when trailing co
   const config = readConfig(root);
   assert.equal(config.match(/\[model_providers\.pro20\]/g)?.length, 1);
   assert.match(config, /\[model_providers\.pro20\]\nname = "New Pro"\nbase_url = "https:\/\/proxy\.example\/v1"\nwire_api = "responses"/);
+});
+
+test("activateProviderConfig scans quoted table names containing a bracket and hash", (t) => {
+  const root = withCodexHome(t, [
+    '[model_providers."foo] # bar"] # keep provider comment',
+    'name = "Old Name"',
+    'base_url = "https://old.example/v1"',
+    'wire_api = "chat"',
+    "",
+  ].join("\n"));
+
+  core.activateProviderConfig("foo] # bar", {
+    name: "New Name",
+    base_url: "https://new.example/v1",
+    wire_api: "responses",
+  });
+
+  const config = readConfig(root);
+  assert.equal(
+    config.split(/\r?\n/).filter((line) => line.startsWith('[model_providers."foo] # bar"]')).length,
+    1,
+  );
+  assert.match(config, /name = "New Name"/);
+  assert.match(config, /base_url = "https:\/\/new\.example\/v1"/);
+});
+
+test("activateProviderConfig honors escaped quotes while scanning table endings", (t) => {
+  const providerName = 'foo"] # bar';
+  const renderedHeader = `[model_providers.${JSON.stringify(providerName)}]`;
+  const root = withCodexHome(t, [
+    `${renderedHeader} # keep provider comment`,
+    'name = "Old Name"',
+    'base_url = "https://old.example/v1"',
+    'wire_api = "chat"',
+    "",
+  ].join("\n"));
+
+  core.activateProviderConfig(providerName, {
+    name: "Escaped Name",
+    base_url: "https://escaped.example/v1",
+    wire_api: "responses",
+  });
+
+  const config = readConfig(root);
+  assert.equal(config.split(/\r?\n/).filter((line) => line.startsWith(renderedHeader)).length, 1);
+  assert.match(config, /name = "Escaped Name"/);
+  assert.match(config, /base_url = "https:\/\/escaped\.example\/v1"/);
+});
+
+test("getActiveModelProvider ignores assignments inside a quoted bracket table", (t) => {
+  withCodexHome(t, [
+    '[model_providers."foo]bar"] # provider comment',
+    'model_provider = "nested-value"',
+    'base_url = "https://relay.example/v1"',
+  ].join("\n"));
+
+  assert.equal(core.getActiveModelProvider(), null);
 });
 
 test("getOpenAIBaseUrlSnapshot returns the top-level string", (t) => {
@@ -449,6 +517,172 @@ test("successful switches create completed redacted backups", (t) => {
   assert.equal(manifest.target, "provider:pro20");
   assert.match(manifestText, /auth\.json/);
   assert.doesNotMatch(manifestText, /before-secret|after-secret/);
+});
+
+test("withLiveSwitchLock is re-entrant across nested activation transactions", (t) => {
+  const root = withCodexHome(t, 'personality = "pragmatic"\n');
+  const lockDir = path.join(root, ".switchbridge-live-switch.lock");
+  fs.writeFileSync(path.join(root, "auth.json"), '{"OPENAI_API_KEY":"before"}\n', { mode: 0o600 });
+
+  const result = core.withLiveSwitchLock(
+    { source: "account:outer", target: "account:final" },
+    () => {
+      const outerOwner = JSON.parse(fs.readFileSync(path.join(lockDir, "owner.json"), "utf8"));
+      return core.withLiveSwitchLock(
+        { source: "account:nested", target: "account:final" },
+        () => {
+          const nestedOwner = JSON.parse(fs.readFileSync(path.join(lockDir, "owner.json"), "utf8"));
+          assert.equal(nestedOwner.token, outerOwner.token);
+          core.activateAccountAuth(
+            { auth_mode: "chatgpt", tokens: { access_token: "after" } },
+            { source: "account:nested", target: "account:final" },
+          );
+          const ownerAfterActivation = JSON.parse(
+            fs.readFileSync(path.join(lockDir, "owner.json"), "utf8"),
+          );
+          assert.equal(ownerAfterActivation.token, outerOwner.token);
+          return "nested-complete";
+        },
+      );
+    },
+  );
+
+  assert.equal(result, "nested-complete");
+  assert.equal(fs.existsSync(lockDir), false);
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(root, "auth.json"), "utf8")).tokens.access_token,
+    "after",
+  );
+
+  assert.throws(
+    () => core.withLiveSwitchLock(
+      { source: "account:error", target: "account:error" },
+      () => core.withLiveSwitchLock(
+        { source: "account:nested-error", target: "account:error" },
+        () => {
+          throw new Error("nested failure");
+        },
+      ),
+    ),
+    /nested failure/,
+  );
+  assert.equal(fs.existsSync(lockDir), false);
+});
+
+test("high-level switches serialize provider auth sync with account activation", async (t) => {
+  const root = withCodexHome(t, [
+    'model_provider = "alpha"',
+    "",
+    "[model_providers.alpha]",
+    'name = "alpha"',
+    'base_url = "https://alpha.example/v1"',
+    'wire_api = "responses"',
+    "",
+    "[model_providers.beta]",
+    'name = "beta"',
+    'base_url = "https://beta.example/v1"',
+    'wire_api = "responses"',
+    "",
+  ].join("\n"));
+  const previousNamedAuthDir = process.env[core.NAMED_AUTH_DIR_ENV_VAR];
+  core.setNamedAuthDir(root);
+  t.after(() => core.setNamedAuthDir(previousNamedAuthDir));
+  core.writeProviderProfile({
+    kind: "provider",
+    name: "alpha",
+    auth: { OPENAI_API_KEY: "key-alpha" },
+    config: { name: "alpha", base_url: "https://alpha.example/v1", wire_api: "responses" },
+  });
+  core.writeProviderProfile({
+    kind: "provider",
+    name: "beta",
+    auth: { OPENAI_API_KEY: "key-beta" },
+    config: { name: "beta", base_url: "https://beta.example/v1", wire_api: "responses" },
+  });
+  core.writeSavedAuthFile(path.join(root, "auth_work.json"), {
+    auth_mode: "chatgpt",
+    OPENAI_API_KEY: null,
+    tokens: {
+      account_id: "work",
+      access_token: "access-work",
+      refresh_token: "refresh-work",
+    },
+  });
+  fs.writeFileSync(path.join(root, "auth.json"), '{"OPENAI_API_KEY":"key-alpha"}\n', { mode: 0o600 });
+
+  const readyPath = path.join(root, "alpha-read-ready");
+  const releasePath = path.join(root, "alpha-read-release");
+  const betaDonePath = path.join(root, "beta-switch-done");
+  const accountWorker = String.raw`
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const core = require(process.argv[1]);
+    const root = process.argv[2];
+    const readyPath = process.argv[3];
+    const releasePath = process.argv[4];
+    process.env.CODEX_HOME = root;
+    core.setNamedAuthDir(root);
+    const providerPath = path.join(root, "provider_alpha.json");
+    const originalReadFileSync = fs.readFileSync;
+    let paused = false;
+    fs.readFileSync = function patchedReadFileSync(filePath) {
+      if (!paused && path.resolve(String(filePath)) === path.resolve(providerPath)) {
+        paused = true;
+        fs.writeFileSync(readyPath, "ready", "utf8");
+        const signal = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+        const deadline = Date.now() + 5000;
+        while (!fs.existsSync(releasePath) && Date.now() < deadline) {
+          Atomics.wait(signal, 0, 0, 10);
+        }
+        if (!fs.existsSync(releasePath)) {
+          throw new Error("Timed out waiting to release the forced provider read.");
+        }
+      }
+      return originalReadFileSync.apply(this, arguments);
+    };
+    const result = core.useAccount("work");
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+    process.stdout.write("account-done\n");
+  `;
+  const providerWorker = String.raw`
+    const fs = require("node:fs");
+    const core = require(process.argv[1]);
+    const root = process.argv[2];
+    const donePath = process.argv[3];
+    process.env.CODEX_HOME = root;
+    core.setNamedAuthDir(root);
+    const result = core.switchMode("beta");
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+    fs.writeFileSync(donePath, "done", "utf8");
+    process.stdout.write("provider-done\n");
+  `;
+  const corePath = path.resolve(__dirname, "..", "dist");
+  const accountPromise = runNodeWorker(
+    accountWorker,
+    [corePath, root, readyPath, releasePath],
+    15_000,
+  );
+  assert.equal(await waitForFile(readyPath), true, "account worker did not reach the forced read");
+  const providerPromise = runNodeWorker(
+    providerWorker,
+    [corePath, root, betaDonePath],
+    15_000,
+  );
+  const providerFinishedBeforeRelease = await waitForFile(betaDonePath, 500);
+  fs.writeFileSync(releasePath, "release", "utf8");
+  await Promise.all([accountPromise, providerPromise]);
+
+  assert.equal(providerFinishedBeforeRelease, false, "provider switch bypassed the held source-sync lock");
+  assert.equal(core.readProviderProfile("alpha").auth.OPENAI_API_KEY, "key-alpha");
+  assert.equal(core.readProviderProfile("beta").auth.OPENAI_API_KEY, "key-beta");
+  assert.equal(core.readNamedAuth("work").tokens.access_token, "access-work");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, "auth.json"), "utf8")).OPENAI_API_KEY, "key-beta");
+  assert.equal(core.getActiveModelProvider(), "beta");
+  assert.equal(fs.existsSync(path.join(root, ".switchbridge-live-switch.lock")), false);
 });
 
 test("concurrent provider switches from separate processes leave one coherent transaction", async (t) => {

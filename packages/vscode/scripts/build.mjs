@@ -14,6 +14,7 @@ const options = {
     extension: path.join(packageDir, "src", "extension.ts"),
     historyReconciliation: path.join(packageDir, "src", "historyReconciliation.ts"),
     providerProfile: path.join(packageDir, "src", "providerProfile.ts"),
+    tokenUsage: path.join(packageDir, "src", "tokenUsage.ts"),
   },
   bundle: true,
   format: "cjs",

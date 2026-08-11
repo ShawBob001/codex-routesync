@@ -1,8 +1,8 @@
 {
   "name": "codex-switchbridge",
   "displayName": "Codex SwitchBridge",
-  "description": "Switch Codex accounts and API providers with shared local conversation history across modes",
-  "version": "0.2.0",
+  "description": "Switch Codex accounts and API providers with shared local conversation history and per-selection local token usage",
+  "version": "0.3.0",
   "publisher": "baoshichao001-dev",
   "repository": {
     "type": "git",
@@ -29,6 +29,7 @@
     "chatgpt",
     "openai",
     "api-provider",
+    "token-usage",
     "conversation-history",
     "responses-api"
   ],
@@ -50,6 +51,12 @@
     },
     "views": {
       "codex-switchbridge": [
+        {
+          "id": "codexSwitchBridgeOverview",
+          "name": "Overview",
+          "icon": "resources/icon.svg",
+          "showCollapseAll": true
+        },
         {
           "id": "codexSwitchBridgeAccounts",
           "name": "Accounts",
@@ -140,6 +147,12 @@
         "title": "Refresh Quota",
         "category": "Codex SwitchBridge",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "codex-switchbridge.refreshUsage",
+        "title": "Refresh Local Token Usage",
+        "category": "Codex SwitchBridge",
+        "icon": "$(pulse)"
       },
       {
         "command": "codex-switchbridge.exportAccounts",
@@ -276,6 +289,16 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "codex-switchbridge.refreshUsage",
+          "when": "view == codexSwitchBridgeOverview",
+          "group": "navigation@1"
+        },
+        {
+          "command": "codex-switchbridge.switchMode",
+          "when": "view == codexSwitchBridgeOverview",
+          "group": "navigation@2"
+        },
         {
           "command": "codex-switchbridge.refresh",
           "when": "view == codexSwitchBridgeAccounts",
@@ -536,7 +559,8 @@
     "test": "npm run build && node --test test/**/*.test.js",
     "package": "npm --prefix ../.. run build:core && npm run build && npx @vscode/vsce package --no-dependencies --allow-missing-repository",
     "publish:openvsx": "npm run package && node ./scripts/publish-openvsx.mjs",
-    "publish:marketplace": "npx @vscode/vsce publish --no-dependencies",
+    "prepublish:marketplace": "npm run package",
+    "publish:marketplace": "node ./scripts/publish-marketplace.mjs",
     "publish:preview": "npx @vscode/vsce publish --no-dependencies --pre-release"
   },
   "dependencies": {},

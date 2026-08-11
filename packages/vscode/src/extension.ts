@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import {
   DiagnosticLogLevel,
+  getCodexConfigDir,
   setDiagnosticLogger,
   setDiagnosticLogOptions,
   setNamedAuthDir,
@@ -13,9 +14,16 @@ import { registerCommands } from "./commands";
 import { disposeLogging, initializeLogging, logInfo, writeRawLog } from "./log";
 import { restoreSavedAuthPassphrase } from "./storagePassword";
 import {
+  createSavedEntriesSnapshot,
+  getSavedCurrentSelection,
   hasEncryptedSyncedEntries,
   initializeSavedEntries,
+  listSavedProviders,
 } from "./savedEntries";
+import { shareHistoryAcrossProviders } from "./sharedHistory";
+import { UsageService } from "./tokenUsage";
+import { OverviewTreeNode, OverviewTreeProvider } from "./usageTree";
+import { knownUsageSubjects } from "./usageSubjects";
 
 const LOG_PREFIX = "[codex-switchbridge:vscode:extension]";
 
@@ -48,10 +56,32 @@ export async function activate(context: vscode.ExtensionContext) {
     promptForLockedStorage: hasEncryptedSyncedEntries(),
   });
 
-  const accountTree = new AccountTreeProvider();
-  const providerTree = new ProviderTreeProvider();
-  const statusBarManager = new StatusBarManager();
-  const refreshCoordinator = new RefreshCoordinator(accountTree, providerTree, statusBarManager);
+  const initialSnapshot = createSavedEntriesSnapshot();
+  const usageService = new UsageService({
+    codexHome: getCodexConfigDir(),
+    memento: context.globalState,
+    knownSubjects: knownUsageSubjects(initialSnapshot.accounts, listSavedProviders()),
+    heartbeatIntervalMs: 0,
+  });
+  const accountTree = new AccountTreeProvider(usageService);
+  const providerTree = new ProviderTreeProvider(usageService);
+  const overviewTree = new OverviewTreeProvider(
+    usageService,
+    () => getSavedCurrentSelection(),
+    shareHistoryAcrossProviders,
+  );
+  const statusBarManager = new StatusBarManager(usageService);
+  const refreshCoordinator = new RefreshCoordinator(
+    accountTree,
+    providerTree,
+    statusBarManager,
+    usageService,
+    overviewTree,
+  );
+  const overviewTreeView = vscode.window.createTreeView<OverviewTreeNode>("codexSwitchBridgeOverview", {
+    treeDataProvider: overviewTree,
+    showCollapseAll: true,
+  });
   const accountTreeView = vscode.window.createTreeView<AccountTreeNode>("codexSwitchBridgeAccounts", {
     treeDataProvider: accountTree,
     showCollapseAll: true,
@@ -66,11 +96,13 @@ export async function activate(context: vscode.ExtensionContext) {
       e.affectsConfiguration("codex-switchbridge.authDirectory")
       || e.affectsConfiguration("codex-switchbridge.defaultSaveTarget")
       || e.affectsConfiguration("codex-switchbridge.detailedPerformanceLogging")
+      || e.affectsConfiguration("codex-switchbridge.shareHistoryAcrossProviders")
     ) {
       logInfo(LOG_PREFIX, "configuration-changed", {
         authDirectory: e.affectsConfiguration("codex-switchbridge.authDirectory"),
         defaultSaveTarget: e.affectsConfiguration("codex-switchbridge.defaultSaveTarget"),
         detailedPerformanceLogging: e.affectsConfiguration("codex-switchbridge.detailedPerformanceLogging"),
+        shareHistoryAcrossProviders: e.affectsConfiguration("codex-switchbridge.shareHistoryAcrossProviders"),
       });
       applyNamedAuthDirSetting();
       applyDiagnosticLogSettings();
@@ -78,7 +110,7 @@ export async function activate(context: vscode.ExtensionContext) {
         promptIfMissing: true,
         promptForLockedStorage: hasEncryptedSyncedEntries(),
       });
-      refreshCoordinator.refreshViews("config-change");
+      void refreshCoordinator.refreshViews("config-change");
 
       refreshCoordinator.scheduleQuotaRefresh({
         reason: "config-change",
@@ -87,20 +119,31 @@ export async function activate(context: vscode.ExtensionContext) {
   });
 
   context.subscriptions.push(
+    overviewTreeView,
     accountTreeView,
     providerTreeView,
+    usageService,
     accountTree,
     providerTree,
+    overviewTree,
     statusBarManager,
     refreshCoordinator,
     configListener,
   );
 
-  registerCommands(context, accountTree, providerTree, statusBarManager, accountTreeView, refreshCoordinator);
+  registerCommands(
+    context,
+    accountTree,
+    providerTree,
+    statusBarManager,
+    accountTreeView,
+    refreshCoordinator,
+    usageService,
+  );
 
   statusBarManager.startConfigurationSync(context);
   refreshCoordinator.startAutoRefresh(context);
-  refreshCoordinator.refreshViews("activate");
+  await refreshCoordinator.refreshViews("activate");
   refreshCoordinator.scheduleQuotaRefresh({
     reason: "activate",
   });

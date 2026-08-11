@@ -11,8 +11,14 @@ import {
   deactivateProviderRoute,
   getSharedHistoryActiveProvider,
   getSharedHistoryRouteState,
+  withLiveSwitchLock,
 } from "./liveSwitch";
-import { getNamedAuthDir, getNamedProviderPath, listNamedProviderFiles } from "./paths";
+import {
+  getNamedAuthDir,
+  getNamedProviderPath,
+  listNamedProviderFiles,
+  validateSavedEntryName,
+} from "./paths";
 import { ProviderProfile, SharedHistorySwitchOptions } from "./types";
 import { readSavedJsonFile, SavedStorageReadResult, writeSavedJsonFile } from "./savedStorage";
 
@@ -53,11 +59,45 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function getInvalidProviderNameMessage(name: string): string | null {
+  if (name === "account") {
+    return 'Invalid provider name: "account" is reserved for account mode.';
+  }
+  const validation = validateSavedEntryName(name);
+  return validation.valid ? null : `Invalid provider name: ${validation.message}`;
+}
+
+function assertValidProviderName(name: string): void {
+  const invalidName = getInvalidProviderNameMessage(name);
+  if (invalidName) {
+    throw new Error(invalidName);
+  }
+}
+
+function resolveProviderPath(name: string):
+  | { success: true; path: string }
+  | { success: false; message: string } {
+  const invalidName = getInvalidProviderNameMessage(name);
+  if (invalidName) {
+    return { success: false, message: invalidName };
+  }
+
+  try {
+    return { success: true, path: getNamedProviderPath(name) };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Invalid provider path: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 export function getModeDisplayName(name: string): string {
   return name;
 }
 
 export function getDefaultProviderProfile(name: string): ProviderProfile {
+  assertValidProviderName(name);
   return {
     kind: "provider",
     name,
@@ -73,8 +113,12 @@ export function getDefaultProviderProfile(name: string): ProviderProfile {
 }
 
 export function readProviderProfileResult(name: string): SavedStorageReadResult<ProviderProfile> {
-  const providerPath = getNamedProviderPath(name);
-  const result = readSavedJsonFile<ProviderProfile>(providerPath, "saved_provider");
+  const resolved = resolveProviderPath(name);
+  if (!resolved.success) {
+    return { status: "invalid", encrypted: false, message: resolved.message };
+  }
+
+  const result = readSavedJsonFile<ProviderProfile>(resolved.path, "saved_provider");
   if (result.status !== "ok") {
     return result;
   }
@@ -123,8 +167,13 @@ export function readProviderProfile(name: string): ProviderProfile | null {
 }
 
 export function writeProviderProfile(profile: ProviderProfile): void {
+  assertValidProviderName(profile.name);
   fs.mkdirSync(getNamedAuthDir(), { recursive: true });
-  writeSavedJsonFile(getNamedProviderPath(profile.name), "saved_provider", profile as unknown as Record<string, unknown>);
+  const resolved = resolveProviderPath(profile.name);
+  if (!resolved.success) {
+    throw new Error(resolved.message);
+  }
+  writeSavedJsonFile(resolved.path, "saved_provider", profile as unknown as Record<string, unknown>);
 }
 
 export type SyncCurrentProviderAuthResult =
@@ -209,7 +258,16 @@ export function deleteProviderProfile(name: string): DeleteProviderResult {
     };
   }
 
-  const providerPath = getNamedProviderPath(name);
+  const resolved = resolveProviderPath(name);
+  if (!resolved.success) {
+    return {
+      success: false,
+      message: resolved.message,
+      deactivated: false,
+    };
+  }
+
+  const providerPath = resolved.path;
   if (!fs.existsSync(providerPath)) {
     return {
       success: false,
@@ -247,7 +305,9 @@ export function deleteProviderProfile(name: string): DeleteProviderResult {
 }
 
 export function listProviderModes(): string[] {
-  return listNamedProviderFiles().sort();
+  return listNamedProviderFiles()
+    .filter((name) => getInvalidProviderNameMessage(name) === null)
+    .sort();
 }
 
 export function listModes(): string[] {
@@ -256,66 +316,75 @@ export function listModes(): string[] {
 
 export function switchMode(
   name: string,
-  options: SharedHistorySwitchOptions = {
-    shareHistoryAcrossProviders: false,
-    source: `provider:${getEffectiveActiveProvider() ?? "account"}`,
-    target: `provider:${name}`,
-  }
+  options?: SharedHistorySwitchOptions,
 ): SwitchModeResult {
-  if (name === "account") {
-    try {
-      if (options.syncCurrentProviderAuth !== false) {
+  try {
+    return withLiveSwitchLock({
+      source: options?.source ?? "current-selection",
+      target: options?.target ?? (name === "account" ? "account" : `provider:${name}`),
+    }, () => {
+      const activeProvider = getEffectiveActiveProvider();
+      const switchOptions: SharedHistorySwitchOptions = options ?? {
+        shareHistoryAcrossProviders: false,
+        source: `provider:${activeProvider ?? "account"}`,
+        target: `provider:${name}`,
+      };
+
+      if (name === "account") {
+        if (switchOptions.syncCurrentProviderAuth !== false) {
+          const providerSync = syncCurrentAuthToSavedProvider();
+          if (!providerSync.success) {
+            return { success: false, message: providerSync.message };
+          }
+        }
+        deactivateProviderRoute({
+          source: switchOptions.source,
+          target: "account",
+        });
+        return { success: true, message: "Switched to account mode" };
+      }
+
+      const resolved = resolveProviderPath(name);
+      if (!resolved.success) {
+        return { success: false, message: resolved.message };
+      }
+
+      const initialProfile = readProviderProfileResult(name);
+      if (initialProfile.status !== "ok") {
+        return {
+          success: false,
+          message:
+            initialProfile.status === "missing"
+              ? `Provider "${name}" does not exist or is invalid. Create ${resolved.path} first or run the mode command to configure it.`
+              : initialProfile.message,
+        };
+      }
+
+      fs.mkdirSync(getNamedAuthDir(), { recursive: true });
+      if (switchOptions.syncCurrentProviderAuth !== false) {
         const providerSync = syncCurrentAuthToSavedProvider();
         if (!providerSync.success) {
           return { success: false, message: providerSync.message };
         }
       }
-      deactivateProviderRoute({
-        source: `provider:${getEffectiveActiveProvider() ?? "unknown"}`,
-        target: "account",
-      });
-      return { success: true, message: "Switched to account mode" };
-    } catch (error) {
-      return { success: false, message: error instanceof Error ? error.message : String(error) };
-    }
-  }
+      if (switchOptions.syncCurrentAccountAuth !== false) {
+        syncCurrentAuthToSavedAccount();
+      }
 
-  const profileResult = readProviderProfileResult(name);
-  if (profileResult.status !== "ok") {
-    const providerPath = getNamedProviderPath(name);
-    return {
-      success: false,
-      message:
-        profileResult.status === "missing"
-          ? `Provider "${name}" does not exist or is invalid. Create ${providerPath} first or run the mode command to configure it.`
-          : profileResult.message,
-    };
-  }
-  try {
-    fs.mkdirSync(getNamedAuthDir(), { recursive: true });
-    let profileToActivate = profileResult.value;
-    if (options.syncCurrentProviderAuth !== false) {
-      const providerSync = syncCurrentAuthToSavedProvider();
-      if (!providerSync.success) {
-        return { success: false, message: providerSync.message };
+      const targetProfile = readProviderProfileResult(name);
+      if (targetProfile.status !== "ok") {
+        return {
+          success: false,
+          message:
+            targetProfile.status === "missing"
+              ? `Provider "${name}" disappeared before it could be activated.`
+              : targetProfile.message,
+        };
       }
-      if (providerSync.changed && providerSync.provider === name) {
-        const synchronizedProfile = readProviderProfileResult(name);
-        if (synchronizedProfile.status !== "ok") {
-          return {
-            success: false,
-            message:
-              synchronizedProfile.status === "missing"
-                ? `Provider "${name}" disappeared after its current auth was synchronized.`
-                : synchronizedProfile.message,
-          };
-        }
-        profileToActivate = synchronizedProfile.value;
-      }
-    }
-    syncCurrentAuthToSavedAccount();
-    activateProviderProfile(profileToActivate, options);
-    return { success: true, message: `Switched to mode "${getModeDisplayName(name)}"` };
+
+      activateProviderProfile(targetProfile.value, switchOptions);
+      return { success: true, message: `Switched to mode "${getModeDisplayName(name)}"` };
+    });
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : String(error) };
   }

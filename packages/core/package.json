@@ -1,6 +1,6 @@
 {
   "name": "@codex-switchbridge/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Core auth, provider routing, safe switching, and shared local history for Codex SwitchBridge",
   "repository": {
     "type": "git",

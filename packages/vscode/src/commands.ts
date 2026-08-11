@@ -11,6 +11,7 @@ import {
   readAuthFile,
   getModeDisplayName,
   switchMode,
+  validateSavedEntryName,
 } from "@codex-switchbridge/core";
 import { AccountDetailItem, AccountGroupItem, AccountTreeProvider, AccountTreeItem, AccountTreeNode } from "./accountTree";
 import { getRemainingQuotaPercent, isFiveHourQuotaExhausted, rankAutoSwitchCandidates } from "./autoSwitch";
@@ -60,11 +61,31 @@ import {
   switchToSavedProviderEntry,
   useSavedAccountEntry,
 } from "./savedEntries";
+import { stableSubjectId, UsageService, UsageSubjectKind } from "./tokenUsage";
+import { savedEntryUsageSubject } from "./usageSubjects";
 const LOG_PREFIX = "[codex-switchbridge:vscode:commands]";
 const AUTO_SWITCH_ENABLED_CONTEXT_KEY = "codexSwitchBridge.autoSwitchEnabled";
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function validateAccountNameInput(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "Name is required";
+  }
+  const validation = validateSavedEntryName(trimmed);
+  return validation.valid ? null : validation.message;
+}
+
+function validateProviderNameInput(value: string): string | null {
+  const trimmed = value.trim();
+  const validationMessage = validateAccountNameInput(trimmed);
+  if (validationMessage) {
+    return validationMessage;
+  }
+  return trimmed === "account" ? '"account" is reserved' : null;
 }
 
 function logCommandInfo(command: string, event: string, details: Record<string, unknown> = {}): void {
@@ -117,9 +138,12 @@ function getCodexLoginCommand(useDeviceAuth = getUseDeviceAuthForLogin()): strin
   return useDeviceAuth ? "codex login --device-auth" : "codex login";
 }
 
-function refreshViews(refreshCoordinator: RefreshCoordinator, reason: "manual" | "provider-switch" | "account-switch" | "config-change" = "manual") {
+async function refreshViews(
+  refreshCoordinator: RefreshCoordinator,
+  reason: "manual" | "provider-switch" | "account-switch" | "config-change" = "manual",
+): Promise<void> {
   const perf = startPerformanceLog(LOG_PREFIX, "command-support:refreshViews");
-  refreshCoordinator.refreshViews(reason);
+  await refreshCoordinator.refreshViews(reason);
   perf.finish();
 }
 
@@ -138,13 +162,13 @@ function refreshAll(
   refreshCoordinator: RefreshCoordinator,
   targetIds?: Iterable<string>,
   options: { reason?: "manual" | "provider-switch" | "account-switch"; fullRefresh?: boolean } = {},
-) {
+): Promise<void> {
   const normalizedTargetIds = targetIds ? [...targetIds] : undefined;
   const perf = startPerformanceLog(LOG_PREFIX, "command-support:refreshAll", {
     targetCount: normalizedTargetIds?.length ?? null,
     reason: options.reason ?? "manual",
   });
-  refreshCoordinator.refreshViews(options.reason ?? "manual");
+  const viewsRefreshed = refreshCoordinator.refreshViews(options.reason ?? "manual");
   perf.mark("refresh-views");
   refreshCoordinator.scheduleQuotaRefresh({
     targetIds: normalizedTargetIds,
@@ -152,6 +176,48 @@ function refreshAll(
     fullRefresh: options.fullRefresh ?? (!normalizedTargetIds || normalizedTargetIds.length === 0),
   });
   perf.finish();
+  return viewsRefreshed;
+}
+
+async function remapTrackedUsage(
+  usageService: UsageService,
+  kind: UsageSubjectKind,
+  previous: { id: string; name: string; source: StorageSource },
+  next: { name: string; source: StorageSource },
+): Promise<void> {
+  try {
+    await usageService.remapSubject(
+      stableSubjectId(kind, previous.id),
+      savedEntryUsageSubject(kind, {
+        id: `${next.source}:${next.name}`,
+        name: next.name,
+        source: next.source,
+      }),
+    );
+  } catch (error) {
+    logCommandWarn("usage", "remap-failed", {
+      kind,
+      from: previous.id,
+      to: `${next.source}:${next.name}`,
+      error: toErrorMessage(error),
+    });
+  }
+}
+
+async function retireTrackedUsage(
+  usageService: UsageService,
+  kind: UsageSubjectKind,
+  entryId: string,
+): Promise<void> {
+  try {
+    await usageService.retireSubject(stableSubjectId(kind, entryId));
+  } catch (error) {
+    logCommandWarn("usage", "retire-failed", {
+      kind,
+      entryId,
+      error: toErrorMessage(error),
+    });
+  }
 }
 
 async function refreshTokenAndQuota(
@@ -281,7 +347,9 @@ async function performAutomaticAccountSwitch(
     return false;
   }
 
-  if (result.selectionChanged === false) {
+  const selectionChanged = result.selectionChanged !== false;
+  const runtimeChanged = result.runtimeChanged !== false;
+  if (!selectionChanged && !runtimeChanged) {
     logCommandInfo("auto-switch", "already-active", {
       account: account.name,
       source: account.source,
@@ -300,12 +368,16 @@ async function performAutomaticAccountSwitch(
   void vscode.window.showInformationMessage(
     `Automatically switched from "${options.exhaustedAccountName}" to "${account.name}" because the active 5h quota hit 0%. "${account.name}" has ${options.remainingPercent}% remaining.`
   );
-  refreshViews(refreshCoordinator, "account-switch");
-  refreshCoordinator.scheduleQuotaRefresh({
-    targetIds: [account.id],
-    reason: "account-switch",
-  });
-  await maybeReloadWindowAfterSwitch(statusBarManager, account.name, "account");
+  if (selectionChanged) {
+    await refreshViews(refreshCoordinator, "account-switch");
+    refreshCoordinator.scheduleQuotaRefresh({
+      targetIds: [account.id],
+      reason: "account-switch",
+    });
+  }
+  if (runtimeChanged) {
+    await maybeReloadWindowAfterSwitch(statusBarManager, account.name, "account");
+  }
   return true;
 }
 
@@ -909,26 +981,32 @@ async function switchSavedAccountForCommand(
   vscode.window.showInformationMessage(
     `✓ ${result.message} (${result.meta?.email ?? "unknown"})`
   );
-  if (result.selectionChanged === false) {
+  const selectionChanged = result.selectionChanged !== false;
+  const runtimeChanged = result.runtimeChanged !== false;
+  if (!selectionChanged && !runtimeChanged) {
     logCommandInfo(options.logScope, "already-active", {
       account: account.name,
       source: account.source,
     });
     return true;
   }
-  logCommandInfo(options.logScope, "switched", {
-    account: account.name,
-    source: account.source,
-    email: result.meta?.email ?? null,
-  });
-  refreshViews(refreshCoordinator, "account-switch");
-  options.perf?.mark("refresh-views");
-  refreshCoordinator.scheduleQuotaRefresh({
-    targetIds: [account.id],
-    reason: "account-switch",
-  });
-  options.perf?.mark("schedule-quota-refresh");
-  await maybeReloadWindowAfterSwitch(statusBarManager, account.name, "account");
+  if (selectionChanged) {
+    logCommandInfo(options.logScope, "switched", {
+      account: account.name,
+      source: account.source,
+      email: result.meta?.email ?? null,
+    });
+    await refreshViews(refreshCoordinator, "account-switch");
+    options.perf?.mark("refresh-views");
+    refreshCoordinator.scheduleQuotaRefresh({
+      targetIds: [account.id],
+      reason: "account-switch",
+    });
+    options.perf?.mark("schedule-quota-refresh");
+  }
+  if (runtimeChanged) {
+    await maybeReloadWindowAfterSwitch(statusBarManager, account.name, "account");
+  }
   return true;
 }
 
@@ -993,22 +1071,28 @@ async function switchSavedProviderForCommand(
     vscode.window.showInformationMessage(formatHealedMarkerMessage(result.healedMarker));
   }
   vscode.window.showInformationMessage(`✓ ${result.message}`);
-  if (result.selectionChanged === false) {
+  const selectionChanged = result.selectionChanged !== false;
+  const runtimeChanged = result.runtimeChanged !== false;
+  if (!selectionChanged && !runtimeChanged) {
     logCommandInfo(logScope, "provider-already-active", {
       provider: savedProvider.name,
       source: savedProvider.source,
     });
     return true;
   }
-  logCommandInfo(logScope, "provider-switched", {
-    provider: savedProvider.name,
-    source: savedProvider.source,
-  });
-  refreshAll(refreshCoordinator, undefined, {
-    reason: "provider-switch",
-    fullRefresh: false,
-  });
-  await maybeReloadWindowAfterSwitch(statusBarManager, savedProvider.name, "mode");
+  if (selectionChanged) {
+    logCommandInfo(logScope, "provider-switched", {
+      provider: savedProvider.name,
+      source: savedProvider.source,
+    });
+    await refreshAll(refreshCoordinator, undefined, {
+      reason: "provider-switch",
+      fullRefresh: false,
+    });
+  }
+  if (runtimeChanged) {
+    await maybeReloadWindowAfterSwitch(statusBarManager, savedProvider.name, "mode");
+  }
   return true;
 }
 
@@ -1071,15 +1155,16 @@ function refreshFailureSupportsRelogin(message: string): boolean {
 }
 
 async function promptForAccountRename(account: SavedAccountInfo): Promise<string | undefined> {
-  return vscode.window.showInputBox({
+  const value = await vscode.window.showInputBox({
     prompt: `Rename account "${account.name}"`,
     placeHolder: "Enter a new account name",
     value: account.name,
     validateInput: (value) => {
-      const trimmed = value.trim();
-      if (!trimmed) {
-        return "Name is required";
+      const validationMessage = validateAccountNameInput(value);
+      if (validationMessage) {
+        return validationMessage;
       }
+      const trimmed = value.trim();
       if (trimmed === account.name) {
         return "Enter a different name";
       }
@@ -1089,6 +1174,15 @@ async function promptForAccountRename(account: SavedAccountInfo): Promise<string
       return null;
     },
   });
+  if (value === undefined) {
+    return undefined;
+  }
+  const validationMessage = validateAccountNameInput(value);
+  if (validationMessage) {
+    void vscode.window.showErrorMessage(validationMessage);
+    return undefined;
+  }
+  return value.trim();
 }
 
 async function askRequiredValue(options: {
@@ -1116,15 +1210,17 @@ async function promptForProviderName(): Promise<string | undefined> {
     ignoreFocusOut: true,
     prompt: "Enter a name for the new provider",
     placeHolder: "e.g. my-proxy, local-api",
-    validateInput: (v) => {
-      const trimmed = v.trim();
-      if (!trimmed) return "Name is required";
-      if (trimmed === "account") return '"account" is reserved';
-      if (!/^[a-zA-Z0-9_\-]+$/.test(trimmed)) return "Only letters, numbers, hyphens and underscores are allowed";
-      return null;
-    },
+    validateInput: validateProviderNameInput,
   });
-  return name?.trim() || undefined;
+  if (name === undefined) {
+    return undefined;
+  }
+  const validationMessage = validateProviderNameInput(name);
+  if (validationMessage) {
+    void vscode.window.showErrorMessage(validationMessage);
+    return undefined;
+  }
+  return name.trim();
 }
 
 async function ensureProviderProfileWithExpectedVersion(
@@ -1205,6 +1301,7 @@ export function registerCommands(
   statusBar: StatusBarManager,
   accountTreeView: vscode.TreeView<AccountTreeNode>,
   refreshCoordinator: RefreshCoordinator,
+  usageService: UsageService,
 ) {
   let autoSwitchInFlight: Promise<void> | null = null;
   let lastAutoSwitchState: AutoSwitchState | null = null;
@@ -1373,11 +1470,16 @@ export function registerCommands(
         const name = await vscode.window.showInputBox({
           prompt: "Enter an account name",
           placeHolder: "For example: work, personal",
-          validateInput: (v) => (v.trim() ? null : "Name is required"),
+          validateInput: validateAccountNameInput,
         });
-        if (!name) return;
+        if (name === undefined) return;
 
         const trimmedName = name.trim();
+        const validationMessage = validateAccountNameInput(trimmedName);
+        if (validationMessage) {
+          vscode.window.showErrorMessage(validationMessage);
+          return;
+        }
         const target: StorageSource = vscode.workspace
           .getConfiguration("codex-switchbridge")
           .get<StorageSource>("defaultSaveTarget", "local");
@@ -1619,7 +1721,7 @@ export function registerCommands(
           provider: targetName,
           target,
         });
-        refreshViews(refreshCoordinator);
+        await refreshViews(refreshCoordinator);
       });
     }),
 
@@ -1750,6 +1852,12 @@ export function registerCommands(
             conflict: result.conflict ?? false,
           });
           if (result.success) {
+            await remapTrackedUsage(
+              usageService,
+              "account",
+              account,
+              { name: newName, source: account.source },
+            );
             vscode.window.showInformationMessage(`✓ ${result.message}`);
             refreshAll(refreshCoordinator);
           } else if (result.conflict) {
@@ -1786,6 +1894,7 @@ export function registerCommands(
             conflict: result.conflict ?? false,
           });
           if (result.success) {
+            await retireTrackedUsage(usageService, "account", account.id);
             vscode.window.showInformationMessage(`✓ ${result.message}`);
             refreshAll(refreshCoordinator);
           } else if (result.conflict) {
@@ -1885,14 +1994,15 @@ export function registerCommands(
           vscode.window.showInformationMessage(formatHealedMarkerMessage(result.healedMarker));
         }
         vscode.window.showInformationMessage(`✓ ${result.message}`);
-        if (result.selectionChanged === false) {
-          return;
+        if (result.selectionChanged !== false) {
+          await refreshAll(refreshCoordinator, undefined, {
+            reason: "provider-switch",
+            fullRefresh: false,
+          });
         }
-        refreshAll(refreshCoordinator, undefined, {
-          reason: "provider-switch",
-          fullRefresh: false,
-        });
-        await maybeReloadWindowAfterSwitch(statusBar, targetName, "mode");
+        if (result.runtimeChanged !== false) {
+          await maybeReloadWindowAfterSwitch(statusBar, targetName, "mode");
+        }
         return;
       }
 
@@ -2208,6 +2318,11 @@ export function registerCommands(
               command: "codex-switchbridge.refreshQuota",
             },
             {
+              label: "Refresh Local Token Usage",
+              description: "Reindex local Codex rollout counters",
+              command: "codex-switchbridge.refreshUsage",
+            },
+            {
               label: "Auto-Switch Settings",
               description: isAutoSwitchOnZeroQuotaEnabled()
                 ? `Auto-switch enabled · cooldown ${getAutoSwitchCooldownSeconds()}s`
@@ -2279,6 +2394,12 @@ export function registerCommands(
         logCommandInfo("move-account-to-cloud", "succeeded", {
           account: account.name,
         });
+        await remapTrackedUsage(
+          usageService,
+          "account",
+          account,
+          { name: account.name, source: "cloud" },
+        );
         vscode.window.showInformationMessage(`✓ ${result.message}`);
         refreshAll(refreshCoordinator, [`cloud:${account.name}`]);
       });
@@ -2382,6 +2503,12 @@ export function registerCommands(
         logCommandInfo("move-account-to-local", "succeeded", {
           account: account.name,
         });
+        await remapTrackedUsage(
+          usageService,
+          "account",
+          account,
+          { name: account.name, source: "local" },
+        );
         vscode.window.showInformationMessage(`✓ ${result.message}`);
         refreshAll(refreshCoordinator, [`local:${account.name}`]);
       });
@@ -2422,8 +2549,14 @@ export function registerCommands(
       logCommandInfo("move-provider-to-cloud", "succeeded", {
         provider: provider.name,
       });
+      await remapTrackedUsage(
+        usageService,
+        "provider",
+        provider,
+        { name: provider.name, source: "cloud" },
+      );
       vscode.window.showInformationMessage(`✓ ${result.message}`);
-      refreshViews(refreshCoordinator);
+      await refreshViews(refreshCoordinator);
     }),
 
     vscode.commands.registerCommand("codex-switchbridge.moveProviderToLocal", async (item?: ProviderTreeItem) => {
@@ -2454,8 +2587,14 @@ export function registerCommands(
       logCommandInfo("move-provider-to-local", "succeeded", {
         provider: provider.name,
       });
+      await remapTrackedUsage(
+        usageService,
+        "provider",
+        provider,
+        { name: provider.name, source: "local" },
+      );
       vscode.window.showInformationMessage(`✓ ${result.message}`);
-      refreshViews(refreshCoordinator);
+      await refreshViews(refreshCoordinator);
     }),
 
     vscode.commands.registerCommand("codex-switchbridge.removeProvider", async (item?: ProviderTreeItem) => {
@@ -2481,8 +2620,9 @@ export function registerCommands(
           conflict: result.conflict ?? false,
         });
         if (result.success) {
+          await retireTrackedUsage(usageService, "provider", provider.id);
           vscode.window.showInformationMessage(`✓ ${result.message}`);
-          refreshViews(refreshCoordinator);
+          await refreshViews(refreshCoordinator);
         } else if (result.conflict) {
           await showSyncConflictWarning(result.message);
         } else {
@@ -2663,6 +2803,12 @@ export function registerCommands(
           reason: "manual",
           fullRefresh: !item?.account?.id,
         });
+      });
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.refreshUsage", async () => {
+      await runTimedCommand("refreshUsage", async () => {
+        await refreshCoordinator.refreshUsage("manual");
       });
     }),
 

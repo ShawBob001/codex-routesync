@@ -7,6 +7,7 @@ import {
   getNamedAuthPath,
   listNamedAuthFiles,
   getNamedAuthDir,
+  validateSavedEntryName,
 } from "./paths";
 import {
   readCurrentAuth,
@@ -27,6 +28,7 @@ import {
   activateAccountAuth,
   captureCurrentAuthWriteGuard,
   getSharedHistoryActiveProvider,
+  withLiveSwitchLock,
   writeCurrentAuthIfUnchanged,
 } from "./liveSwitch";
 import { getModeDisplayName, syncCurrentAuthToSavedProvider } from "./providers";
@@ -89,8 +91,35 @@ function getEffectiveActiveProvider(): string | null {
   return getActiveModelProvider() ?? getSharedHistoryActiveProvider();
 }
 
+function getInvalidAccountNameMessage(name: string): string | null {
+  const validation = validateSavedEntryName(name);
+  return validation.valid ? null : `Invalid account name: ${validation.message}`;
+}
+
+function resolveAccountPath(name: string):
+  | { success: true; path: string }
+  | { success: false; message: string } {
+  const invalidName = getInvalidAccountNameMessage(name);
+  if (invalidName) {
+    return { success: false, message: invalidName };
+  }
+
+  try {
+    return { success: true, path: getNamedAuthPath(name) };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Invalid account path: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 function readNamedAuthResult(name: string): SavedStorageReadResult<AuthFile> {
-  return readSavedAuthFileResult(getNamedAuthPath(name));
+  const resolved = resolveAccountPath(name);
+  if (!resolved.success) {
+    return { status: "invalid", encrypted: false, message: resolved.message };
+  }
+  return readSavedAuthFileResult(resolved.path);
 }
 
 function resolveSavedAccountAuth(
@@ -351,8 +380,12 @@ function resolveQuotaTarget(
       message: string;
       modeName: string;
     } {
-  if (name) {
-    const authPath = getNamedAuthPath(name);
+  if (name !== undefined) {
+    const resolved = resolveAccountPath(name);
+    if (!resolved.success) {
+      return { kind: "not_found", message: resolved.message };
+    }
+    const authPath = resolved.path;
     if (!fs.existsSync(authPath)) {
       return { kind: "not_found", message: `Account "${name}" does not exist.` };
     }
@@ -383,7 +416,11 @@ function resolveQuotaTarget(
   }
 
   if (selection.kind === "account") {
-    const authPath = getNamedAuthPath(selection.name);
+    const resolved = resolveAccountPath(selection.name);
+    if (!resolved.success) {
+      return { kind: "not_found", message: resolved.message };
+    }
+    const authPath = resolved.path;
     const { auth, savedResult } = resolveSavedAccountAuth(selection.name, true, options);
     if (!auth) {
       return {
@@ -431,8 +468,12 @@ function resolveRefreshTarget(
       message: string;
       unsupported?: boolean;
     } {
-  if (name) {
-    const authPath = getNamedAuthPath(name);
+  if (name !== undefined) {
+    const resolved = resolveAccountPath(name);
+    if (!resolved.success) {
+      return { kind: "error", success: false, message: resolved.message };
+    }
+    const authPath = resolved.path;
     if (!fs.existsSync(authPath)) {
       return { kind: "error", success: false, message: `Account "${name}" does not exist.` };
     }
@@ -465,7 +506,11 @@ function resolveRefreshTarget(
   }
 
   if (selection.kind === "account") {
-    const authPath = getNamedAuthPath(selection.name);
+    const resolved = resolveAccountPath(selection.name);
+    if (!resolved.success) {
+      return { kind: "error", success: false, message: resolved.message };
+    }
+    const authPath = resolved.path;
     const { auth, savedResult } = resolveSavedAccountAuth(selection.name, true, options);
     if (!auth) {
       return {
@@ -561,6 +606,11 @@ export function listAccounts(): AccountInfo[] {
 }
 
 export function addAccountAuth(name: string, auth: AuthFile): { success: boolean; message: string; meta?: AccountMeta } {
+  const resolved = resolveAccountPath(name);
+  if (!resolved.success) {
+    return { success: false, message: resolved.message };
+  }
+
   if (!hasAccountAuthTokens(auth)) {
     return {
       success: false,
@@ -571,7 +621,7 @@ export function addAccountAuth(name: string, auth: AuthFile): { success: boolean
 
   const meta = extractMeta(auth);
   const identity = getAccountIdentity(auth);
-  const dest = getNamedAuthPath(name);
+  const dest = resolved.path;
   if (fs.existsSync(dest)) {
     const existingResult = readNamedAuthResult(name);
     if (existingResult.status !== "ok") {
@@ -639,7 +689,12 @@ export function addAccountFromAuth(name: string): { success: boolean; message: s
 }
 
 export function removeAccount(name: string): { success: boolean; message: string } {
-  const p = getNamedAuthPath(name);
+  const resolved = resolveAccountPath(name);
+  if (!resolved.success) {
+    return { success: false, message: resolved.message };
+  }
+
+  const p = resolved.path;
   if (!fs.existsSync(p)) {
     return { success: false, message: `Account "${name}" does not exist.` };
   }
@@ -659,64 +714,87 @@ export function renameAccount(
   oldName: string,
   newName: string
 ): { success: boolean; message: string } {
-  const trimmedNewName = newName.trim();
-  if (!trimmedNewName) {
+  if (!newName) {
     return { success: false, message: "New account name is required." };
   }
 
-  const src = getNamedAuthPath(oldName);
+  const resolvedSource = resolveAccountPath(oldName);
+  if (!resolvedSource.success) {
+    return { success: false, message: resolvedSource.message };
+  }
+  const resolvedDestination = resolveAccountPath(newName);
+  if (!resolvedDestination.success) {
+    return { success: false, message: resolvedDestination.message };
+  }
+
+  const src = resolvedSource.path;
   if (!fs.existsSync(src)) {
     return { success: false, message: `Account "${oldName}" does not exist.` };
   }
 
-  if (oldName === trimmedNewName) {
-    return { success: true, message: `Account name is already "${trimmedNewName}".` };
+  if (oldName === newName) {
+    return { success: true, message: `Account name is already "${newName}".` };
   }
 
-  const dest = getNamedAuthPath(trimmedNewName);
+  const dest = resolvedDestination.path;
   if (fs.existsSync(dest)) {
-    return { success: false, message: `Account "${trimmedNewName}" already exists.` };
+    return { success: false, message: `Account "${newName}" already exists.` };
   }
 
   fs.renameSync(src, dest);
   return {
     success: true,
-    message: `Renamed account "${oldName}" to "${trimmedNewName}"`,
+    message: `Renamed account "${oldName}" to "${newName}"`,
   };
 }
 
 export function useAccount(
   name: string,
-  options?: Pick<SharedHistorySwitchOptions, "source" | "target" | "syncCurrentProviderAuth">
+  options?: Pick<
+    SharedHistorySwitchOptions,
+    "source" | "target" | "syncCurrentAccountAuth" | "syncCurrentProviderAuth"
+  >
 ): { success: boolean; message: string; meta?: AccountMeta } {
-  const src = getNamedAuthPath(name);
-  if (!fs.existsSync(src)) {
-    return { success: false, message: `Account "${name}" does not exist.` };
-  }
-
-  if (options?.syncCurrentProviderAuth !== false) {
-    const providerSync = syncCurrentAuthToSavedProvider();
-    if (!providerSync.success) {
-      return { success: false, message: providerSync.message };
-    }
-  }
-  syncCurrentAuthToSavedAccount();
-  const result = readNamedAuthResult(name);
-  if (result.status !== "ok") {
-    return { success: false, message: getSavedAuthReadErrorMessage(result, name) };
-  }
   try {
-    activateAccountAuth(result.value, {
-      source: options?.source ?? `provider:${getEffectiveActiveProvider() ?? "account"}`,
+    return withLiveSwitchLock({
+      source: options?.source ?? "current-selection",
       target: options?.target ?? `account:${name}`,
+    }, () => {
+      const resolved = resolveAccountPath(name);
+      if (!resolved.success) {
+        return { success: false, message: resolved.message };
+      }
+
+      if (!fs.existsSync(resolved.path)) {
+        return { success: false, message: `Account "${name}" does not exist.` };
+      }
+
+      const source = options?.source ?? `provider:${getEffectiveActiveProvider() ?? "account"}`;
+      if (options?.syncCurrentProviderAuth !== false) {
+        const providerSync = syncCurrentAuthToSavedProvider();
+        if (!providerSync.success) {
+          return { success: false, message: providerSync.message };
+        }
+      }
+      if (options?.syncCurrentAccountAuth !== false) {
+        syncCurrentAuthToSavedAccount();
+      }
+
+      const result = readNamedAuthResult(name);
+      if (result.status !== "ok") {
+        return { success: false, message: getSavedAuthReadErrorMessage(result, name) };
+      }
+
+      activateAccountAuth(result.value, {
+        source,
+        target: options?.target ?? `account:${name}`,
+      });
+      const meta = extractMeta(result.value);
+      return { success: true, message: `Switched to account "${name}"`, meta };
     });
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : String(error) };
   }
-
-  const meta = extractMeta(result.value);
-
-  return { success: true, message: `Switched to account "${name}"`, meta };
 }
 
 export function getCurrentAccount(): { name: string | null; meta: AccountMeta | null } {
@@ -914,7 +992,12 @@ export function importAccounts(
 
   for (const account of data.accounts) {
     try {
-      const dest = getNamedAuthPath(account.name);
+      const resolved = resolveAccountPath(account.name);
+      if (!resolved.success) {
+        errors.push(`${String(account.name)}: ${resolved.message}`);
+        continue;
+      }
+      const dest = resolved.path;
       if (fs.existsSync(dest) && !overwrite) {
         skipped.push(account.name);
         continue;

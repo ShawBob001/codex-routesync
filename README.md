@@ -1,8 +1,10 @@
 # Codex SwitchBridge
 
-**Seamlessly switch between saved Codex accounts and Responses-compatible API providers while keeping local Codex conversation history available in both modes.**
+**Seamlessly switch between saved Codex accounts and Responses-compatible API providers, keep local conversation history available in both modes, and see local token usage by selection.**
 
 Codex SwitchBridge updates credentials and provider routing as one guarded switch. Account mode and compatible API-provider mode use the same local history bucket, so changing how Codex authenticates does not split new conversations into separate timelines.
+
+The VS Code extension adds a compact Overview for the active mode, shared-history state, total local token usage, and the amount attributed to each saved account or API provider.
 
 Codex SwitchBridge runs on Windows, macOS, and Linux. Use it from VS Code or from the command line.
 
@@ -21,6 +23,7 @@ Codex account mode  <->  Codex SwitchBridge  <->  Responses API-provider mode
 | --- | --- |
 | Account and API switching | Applies the selected account credentials or API-provider profile together with the matching Codex configuration |
 | Shared conversation history | Keeps new local threads visible in both modes by using one Codex history bucket |
+| Local token usage | Indexes Codex rollout counters locally and breaks tracked usage down by saved account or API provider |
 | State preservation | Saves the outgoing account or provider credentials before applying the next mode |
 | Safe transitions | Serializes concurrent switches, writes authentication atomically, and keeps rollback backups |
 | Reload handling | Shows a non-blocking reload action by default when the Codex extension needs to read the new authentication state |
@@ -31,20 +34,20 @@ Codex account mode  <->  Codex SwitchBridge  <->  Responses API-provider mode
 
 ### VS Code extension
 
-Download `codex-switchbridge-0.2.0.vsix` from [GitHub Releases](https://github.com/baoshichao001-dev/codex-switchbridge/releases), then run **Extensions: Install from VSIX...** or:
+Download `codex-switchbridge-0.3.0.vsix` from [GitHub Releases](https://github.com/baoshichao001-dev/codex-switchbridge/releases), then run **Extensions: Install from VSIX...** or:
 
 ```bash
-code --install-extension codex-switchbridge-0.2.0.vsix
+code --install-extension codex-switchbridge-0.3.0.vsix
 ```
 
-Open the **Codex SwitchBridge** Activity Bar view. Save at least one Codex account and one API provider, then switch either entry with one click.
+Open the **Codex SwitchBridge** Activity Bar view. The Overview shows the current mode and local token totals; the Accounts and API Providers views handle one-click switching.
 
 ### CLI
 
 Install the CLI tarball from a GitHub release:
 
 ```bash
-npm install --global ./codex-switchbridge-cli-0.2.0.tgz
+npm install --global ./codex-switchbridge-cli-0.3.0.tgz
 codex-switchbridge --version
 ```
 
@@ -75,6 +78,21 @@ codex-switchbridge mode team-api --separate-history
 Returning to a named account uses `codex-switchbridge use <name>`. If `mode account` can identify exactly one saved account, it restores that account. With multiple saved accounts, the CLI asks you to choose one with `use <name>` instead of guessing.
 
 An API-provider profile stores the authentication payload for `auth.json` and the provider configuration for `config.toml`. Shared history requires `wire_api = "responses"` and a valid provider `base_url`.
+
+## Local token usage dashboard
+
+The VS Code Overview reads cumulative `token_count` events from local Codex rollout files under the current `CODEX_HOME`. It shows:
+
+- recorded total, input, output, cached input, and reasoning output tokens;
+- attributed and unattributed totals;
+- per-account and per-API-provider usage and session counts;
+- index coverage, session count, tracking start, and last refresh time.
+
+Input and output make up the recorded total. Cached input is already part of input, and reasoning output is already part of output, so those two values are not added again.
+
+Per-selection attribution starts when SwitchBridge begins local tracking. The index assigns each subsequent token increment to the account or API provider active when Codex recorded it, including when one conversation continues across a mode switch. Older shared `openai` sessions cannot be assigned to a specific saved entry safely and remain under **Earlier or unattributed**. Older provider-tagged sessions are attributed only when their provider ID maps to exactly one saved profile.
+
+These figures are local activity counters, not billing or cost data. SwitchBridge does not upload rollout content, and its local index stores counters, timestamps, file fingerprints, and opaque IDs rather than conversation text, paths, account labels, provider names, or credentials. Use **Refresh Local Token Usage** to reindex immediately; otherwise the extension refreshes it during normal background maintenance.
 
 ## How conversation history stays available
 
@@ -107,6 +125,7 @@ See [Conversation history across modes](./docs/shared-history.md) for the exact 
 - One-click switching between local or synced Codex accounts and API providers in VS Code
 - One-command account and API-provider switching from the CLI
 - Shared local conversation history for Responses-compatible provider routes
+- Overview dashboard with total and per-selection local token usage
 - Account quota display, token refresh, and rotating background maintenance
 - Local or VS Code Settings Sync storage for saved accounts and providers
 - Optional encryption for saved authentication data
@@ -140,7 +159,7 @@ Use `--auth-dir <path>` or `CODEX_SWITCHBRIDGE_AUTH_DIR` to place saved entries 
 | `codex-switchbridge.reloadWindowAfterSwitch` | `statusBar` | Show a reload action, never notify, or reload automatically after a switch |
 | `codex-switchbridge.quotaRefreshInterval` | `30` | Check one saved account per interval for token maintenance and quota refresh |
 | `codex-switchbridge.tokenAutoUpdate` | `true` | Refresh saved account tokens during background maintenance when they are expired or near expiry |
-| `codex-switchbridge.showStatusBar` | `true` | Show current account quota in the status bar |
+| `codex-switchbridge.showStatusBar` | `true` | Show current selection, quota, token usage, and reload recommendations in the status bar |
 | `codex-switchbridge.authDirectory` | `""` | Store local saved entries in this directory; empty uses the default Codex directory |
 
 ## Data and switch safety
@@ -149,7 +168,7 @@ Local accounts use `auth_{name}.json`. Local API providers use `provider_{name}.
 
 Before a switch overwrites the active `auth.json`, SwitchBridge writes the latest outgoing credentials back to the matching saved account or provider. The switch then updates authentication, provider routing, and shared-history route state under one cross-process lock. Authentication files use atomic replacement, and failed transitions restore their snapshots.
 
-Quota lookup is read-only. It does not rotate tokens or rewrite saved authentication. Token maintenance is a separate operation.
+Quota lookup and local token indexing are read-only. They do not rotate tokens, rewrite saved authentication, or modify conversation files. Token maintenance is a separate operation.
 
 Some Codex tools cache authentication when they start. SwitchBridge cannot force another extension process to discard that cache, so a VS Code window reload may still be required after a successful file switch. The default behavior keeps this recommendation in the status bar instead of showing repeated popups.
 

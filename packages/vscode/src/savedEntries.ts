@@ -151,6 +151,7 @@ interface SyncCurrentSelectionResult {
   message?: string;
   conflict?: CloudSyncConflict;
   healedMarker?: HealedCloudMarker;
+  selectionBaselineChanged?: boolean;
 }
 
 interface ProtectedCloudAccountBackup {
@@ -258,6 +259,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function withoutAuthSyncTimestamp(auth: AuthFile): AuthFile {
+  const normalized = clone(auth);
+  delete normalized[AUTH_UPDATED_AT_FIELD];
+  return normalized;
+}
+
+function isSameRuntimeAuth(left: AuthFile | null | undefined, right: AuthFile | null | undefined): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return isDeepStrictEqual(withoutAuthSyncTimestamp(left), withoutAuthSyncTimestamp(right));
+}
+
+function isSameRuntimeProvider(
+  left: ProviderProfile | null | undefined,
+  right: ProviderProfile | null | undefined,
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return left.name === right.name
+    && isDeepStrictEqual(left.config, right.config)
+    && isSameRuntimeAuth(left.auth, right.auth);
 }
 
 function getPublicEmail(value: unknown): string | null {
@@ -1555,15 +1581,41 @@ function selectCurrentAccount(accounts: SavedAccountInfo[]): SavedAccountInfo[] 
   const identity = getAccountIdentity(currentAuth);
   const marker = getMarker();
   const matches = accounts.filter((account) => account.auth && getAccountIdentity(account.auth) === identity);
-  const current =
-    marker?.kind === "account"
-      ? matches.find((account) => account.source === marker.source && account.name === marker.name) ?? matches[0]
-      : matches[0];
+  const marked = marker?.kind === "account"
+    ? matches.find((account) => account.source === marker.source && account.name === marker.name)
+    : undefined;
+  const current = marked ?? (matches.length === 1 ? matches[0] : undefined);
 
   return accounts.map((account) => ({
     ...account,
     isCurrent: current ? account.id === current.id : false,
   }));
+}
+
+function resolveActiveProviderSource(
+  activeProvider: string,
+  providers: SavedProviderInfo[],
+): StorageSource | null {
+  const marker = getMarker();
+  if (
+    marker?.kind === "provider"
+    && marker.name === activeProvider
+    && providers.some(
+      (provider) => provider.name === activeProvider && provider.source === marker.source,
+    )
+  ) {
+    return marker.source;
+  }
+
+  const matches = providers.filter((provider) => provider.name === activeProvider);
+  if (matches.length === 1) return matches[0].source;
+  if (matches.length < 2) return null;
+
+  const currentAuth = readCurrentAuth();
+  const runtimeMatches = matches.filter(
+    (provider) => provider.profile && isSameRuntimeAuth(currentAuth, provider.profile.auth),
+  );
+  return runtimeMatches.length === 1 ? runtimeMatches[0].source : null;
 }
 
 function selectCurrentProvider(providers: SavedProviderInfo[]): SavedProviderInfo[] {
@@ -1572,16 +1624,12 @@ function selectCurrentProvider(providers: SavedProviderInfo[]): SavedProviderInf
     return providers;
   }
 
-  const marker = getMarker();
+  const source = resolveActiveProviderSource(activeProvider, providers);
   return providers.map((provider) => ({
     ...provider,
     isCurrent:
       provider.name === activeProvider
-      && (
-        marker?.kind === "provider"
-          ? marker.source === provider.source && marker.name === provider.name
-          : provider.source === "local"
-      ),
+      && source === provider.source,
   }));
 }
 
@@ -1591,11 +1639,13 @@ function buildSavedSelection(accounts: SavedAccountInfo[], perf?: ReturnType<typ
     hasActiveProvider: Boolean(activeProvider),
   });
   if (activeProvider) {
-    const marker = getMarker();
+    const providers = [...getLocalProviders(), ...getCloudProviders()];
+    const source = resolveActiveProviderSource(activeProvider, providers);
+    if (!source) return { kind: "unknown", meta: null };
     return {
       kind: "provider",
       name: activeProvider,
-      source: marker?.kind === "provider" && marker.name === activeProvider ? marker.source : "local",
+      source,
     };
   }
 
@@ -1620,10 +1670,13 @@ function buildSavedSelection(accounts: SavedAccountInfo[], perf?: ReturnType<typ
       : { kind: "unknown", meta: extractMeta(currentAuth) };
   }
 
-  const current =
-    marker?.kind === "account"
-      ? matches.find((account) => account.source === marker.source && account.name === marker.name) ?? matches[0]
-      : matches[0];
+  const marked = marker?.kind === "account"
+    ? matches.find((account) => account.source === marker.source && account.name === marker.name)
+    : undefined;
+  const current = marked ?? (matches.length === 1 ? matches[0] : undefined);
+  if (!current) {
+    return { kind: "unknown", meta: extractMeta(currentAuth) };
+  }
 
   return {
     kind: "account",
@@ -2053,6 +2106,52 @@ function verifyCloudProviderWrite(
   };
 }
 
+async function adoptMissingActiveProviderMarker(activeProvider: string): Promise<CurrentSelectionMarker | null> {
+  const local = getSavedProviderEntry(activeProvider, "local");
+  const cloud = getSavedProviderEntry(activeProvider, "cloud");
+  let source: StorageSource | null = null;
+
+  if (cloud && !local) {
+    source = "cloud";
+  } else if (local && !cloud) {
+    source = "local";
+  } else if (local?.profile && cloud?.profile) {
+    const currentAuth = readCurrentAuth();
+    const matchesCloud = isSameRuntimeAuth(currentAuth, cloud.profile.auth);
+    const matchesLocal = isSameRuntimeAuth(currentAuth, local.profile.auth);
+    if (matchesCloud !== matchesLocal) {
+      source = matchesCloud ? "cloud" : "local";
+    }
+  }
+
+  if (!source) {
+    logWarn(LOG_PREFIX, "skip-provider-sync-missing-source-marker", {
+      provider: activeProvider,
+      hasLocalEntry: Boolean(local),
+      hasCloudEntry: Boolean(cloud),
+      reason: local && cloud ? "ambiguous-duplicate-name" : "saved-entry-not-found",
+    });
+    return null;
+  }
+
+  const selected = source === "cloud" ? cloud : local;
+  const marker: CurrentSelectionMarker = {
+    kind: "provider",
+    name: activeProvider,
+    source,
+    entryVersion: source === "cloud" ? selected?.syncVersion : undefined,
+    updatedAt: source === "cloud" ? selected?.syncUpdatedAt : undefined,
+  };
+  await setMarker(marker);
+  logInfo(LOG_PREFIX, "adopt-missing-provider-source-marker", {
+    provider: activeProvider,
+    source,
+    entryVersion: marker.entryVersion ?? null,
+    updatedAt: marker.updatedAt ?? null,
+  });
+  return marker;
+}
+
 async function renameCloudAccountEntry(
   account: SavedAccountInfo,
   newName: string,
@@ -2169,7 +2268,40 @@ async function removeCloudProviderEntry(
 
 export async function syncCurrentAuthToSavedSelection(): Promise<SyncCurrentSelectionResult> {
   const healedMarker = await reconcileCurrentCloudMarker();
-  const marker = getMarker();
+  if (healedMarker) {
+    logInfo(LOG_PREFIX, "skip-current-auth-sync-after-cloud-marker-heal", {
+      kind: healedMarker.kind,
+      name: healedMarker.name,
+      previousEntryVersion: healedMarker.previousEntryVersion,
+      currentEntryVersion: healedMarker.currentEntryVersion,
+    });
+    return { success: true, healedMarker, selectionBaselineChanged: true };
+  }
+
+  let marker = getMarker();
+  const activeProvider = getEffectiveActiveProvider();
+  if (
+    marker?.kind === "provider"
+    && activeProvider === marker.name
+    && !getSavedProviderEntry(marker.name, marker.source)
+  ) {
+    marker = await adoptMissingActiveProviderMarker(activeProvider);
+    logInfo(LOG_PREFIX, "skip-current-provider-auth-sync-after-stale-marker-adoption", {
+      provider: activeProvider,
+      adoptedSource: marker?.source ?? null,
+    });
+    return { success: true, selectionBaselineChanged: true };
+  }
+  const activeProviderWithoutMarker = marker ? null : activeProvider;
+  if (activeProviderWithoutMarker) {
+    marker = await adoptMissingActiveProviderMarker(activeProviderWithoutMarker);
+    logInfo(LOG_PREFIX, "skip-current-provider-auth-sync-after-marker-adoption", {
+      provider: activeProviderWithoutMarker,
+      adoptedSource: marker?.source ?? null,
+    });
+    return { success: true, selectionBaselineChanged: true };
+  }
+
   if (!marker || marker.source === "local") {
     if (marker?.kind === "provider" || getEffectiveActiveProvider()) {
       const providerSync = syncCurrentAuthToSavedProvider();
@@ -2181,7 +2313,21 @@ export async function syncCurrentAuthToSavedSelection(): Promise<SyncCurrentSele
         };
       }
     } else {
-      syncCurrentAuthToSavedAccount();
+      const currentAuth = readCurrentAuth();
+      const identity = currentAuth ? getAccountIdentity(currentAuth) : null;
+      const matches = identity
+        ? [...getLocalAccounts(), ...getCloudAccounts()].filter(
+          (account) => account.auth && getAccountIdentity(account.auth) === identity,
+        )
+        : [];
+      if (!marker && matches.length > 1) {
+        logWarn(LOG_PREFIX, "skip-current-account-auth-sync-ambiguous", {
+          matchCount: matches.length,
+          sources: [...new Set(matches.map((account) => account.source))],
+        });
+      } else {
+        syncCurrentAuthToSavedAccount();
+      }
     }
     return healedMarker ? { success: true, healedMarker } : { success: true };
   }
@@ -2225,7 +2371,6 @@ export async function syncCurrentAuthToSavedSelection(): Promise<SyncCurrentSele
     return healedMarker ? { success: true, healedMarker } : { success: true };
   }
 
-  const activeProvider = getEffectiveActiveProvider();
   if (marker.kind === "provider" && activeProvider === marker.name) {
     const provider = getSavedProviderEntry(marker.name, "cloud");
     const currentAuth = readCurrentAuth();
@@ -2393,6 +2538,7 @@ export async function useSavedAccountEntry(
   conflict?: CloudSyncConflict;
   healedMarker?: HealedCloudMarker;
   selectionChanged?: boolean;
+  runtimeChanged?: boolean;
 }> {
   const syncResult = await syncCurrentAuthToSavedSelection();
   if (!syncResult.success) {
@@ -2419,6 +2565,7 @@ export async function useSavedAccountEntry(
     currentSelection.kind === "account"
     && currentSelection.name === account.name
     && currentSelection.source === account.source
+    && !syncResult.selectionBaselineChanged
   ) {
     const currentAuth = readCurrentAuth();
     return {
@@ -2427,13 +2574,18 @@ export async function useSavedAccountEntry(
       meta: currentAuth ? extractMeta(currentAuth) : account.meta ?? undefined,
       healedMarker: syncResult.healedMarker,
       selectionChanged: false,
+      runtimeChanged: false,
     };
   }
+
+  const runtimeChanged = currentSelection.kind !== "account"
+    || !isSameRuntimeAuth(readCurrentAuth(), account.auth);
 
   if (account.source === "local") {
     const result = useAccount(account.name, {
       source: selectionSwitchLabel(currentSelection),
       target: `account:local:${account.name}`,
+      syncCurrentAccountAuth: false,
       syncCurrentProviderAuth: false,
     });
     if (result.success) {
@@ -2443,6 +2595,7 @@ export async function useSavedAccountEntry(
       ...result,
       ...(result.success && syncResult.healedMarker ? { healedMarker: syncResult.healedMarker } : {}),
       selectionChanged: result.success,
+      runtimeChanged: result.success ? runtimeChanged : undefined,
     };
   }
 
@@ -2471,6 +2624,7 @@ export async function useSavedAccountEntry(
     meta: account.meta ?? extractMeta(account.auth),
     healedMarker: syncResult.healedMarker,
     selectionChanged: true,
+    runtimeChanged,
   };
 }
 
@@ -2816,6 +2970,12 @@ export async function moveSavedAccountEntry(
   if (account.storageState !== "ready" || !account.auth) {
     return { success: false, message: account.storageMessage ?? `Saved account "${account.name}" is unavailable.` };
   }
+  if (getSavedAccountEntry(account.name, target)) {
+    return {
+      success: false,
+      message: `Account "${account.name}" already exists in ${getSourceLabel(target)} storage. Remove or rename the destination entry first.`,
+    };
+  }
   const currentBeforeMove = getSavedCurrentSelection();
   const wasCurrent =
     currentBeforeMove.kind === "account"
@@ -2962,6 +3122,7 @@ export async function switchToSavedProviderEntry(
   conflict?: CloudSyncConflict;
   healedMarker?: HealedCloudMarker;
   selectionChanged?: boolean;
+  runtimeChanged?: boolean;
 }> {
   const syncResult = await syncCurrentAuthToSavedSelection();
   if (!syncResult.success) {
@@ -2988,20 +3149,30 @@ export async function switchToSavedProviderEntry(
     currentSelection.kind === "provider"
     && currentSelection.name === provider.name
     && currentSelection.source === provider.source
+    && !syncResult.selectionBaselineChanged
   ) {
     return {
       success: true,
       message: `Mode "${getModeDisplayName(provider.name)}" is already active`,
       healedMarker: syncResult.healedMarker,
       selectionChanged: false,
+      runtimeChanged: false,
     };
   }
+
+  const currentProvider = currentSelection.kind === "provider"
+    ? getSavedProviderEntry(currentSelection.name, currentSelection.source)
+    : null;
+  const runtimeChanged = currentSelection.kind !== "provider"
+    || !isSameRuntimeProvider(currentProvider?.profile, provider.profile)
+    || !isSameRuntimeAuth(readCurrentAuth(), provider.profile?.auth);
 
   if (provider.source === "local") {
     const result = switchMode(
       provider.name,
       {
         ...providerSwitchOptions(selectionSwitchLabel(currentSelection), `provider:local:${provider.name}`),
+        syncCurrentAccountAuth: false,
         syncCurrentProviderAuth: false,
       },
     );
@@ -3012,6 +3183,7 @@ export async function switchToSavedProviderEntry(
       ...result,
       ...(result.success && syncResult.healedMarker ? { healedMarker: syncResult.healedMarker } : {}),
       selectionChanged: result.success,
+      runtimeChanged: result.success ? runtimeChanged : undefined,
     };
   }
 
@@ -3043,6 +3215,7 @@ export async function switchToSavedProviderEntry(
     message: `Switched to mode "${getModeDisplayName(provider.name)}"`,
     healedMarker: syncResult.healedMarker,
     selectionChanged: true,
+    runtimeChanged,
   };
 }
 
@@ -3085,6 +3258,12 @@ export async function moveSavedProviderEntry(
   }
   if (!provider.profile || provider.locked || provider.invalid) {
     return { success: false, message: provider.storageMessage ?? `Provider "${provider.name}" is unavailable.` };
+  }
+  if (getSavedProviderEntry(provider.name, target)) {
+    return {
+      success: false,
+      message: `Provider "${provider.name}" already exists in ${getSourceLabel(target)} storage. Remove or rename the destination entry first.`,
+    };
   }
 
   let nextCloudMetadata: SavedStorageSyncMetadata = EMPTY_SYNC_METADATA;

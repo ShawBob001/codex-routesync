@@ -54,11 +54,18 @@ interface SwitchLock {
   release(): void;
 }
 
+interface HeldSwitchLock {
+  lock: SwitchLock;
+  depth: number;
+}
+
 export interface CurrentAuthWriteGuard {
   authPath: string;
   sha256: string;
   accountIdentity: string;
 }
+
+const heldSwitchLocks = new Map<string, HeldSwitchLock>();
 
 function routeStatePath(): string {
   return path.join(getCodexConfigDir(), ROUTE_STATE_FILE);
@@ -263,6 +270,33 @@ function acquireSwitchLock(
   }
 }
 
+export function withLiveSwitchLock<T>(
+  options: Pick<SharedHistorySwitchOptions, "source" | "target">,
+  callback: () => T,
+): T {
+  const lockKey = path.resolve(switchLockPath());
+  const held = heldSwitchLocks.get(lockKey);
+  if (held) {
+    held.depth += 1;
+    try {
+      return callback();
+    } finally {
+      held.depth -= 1;
+    }
+  }
+
+  const lock = acquireSwitchLock(options);
+  const acquired: HeldSwitchLock = { lock, depth: 1 };
+  heldSwitchLocks.set(lockKey, acquired);
+  try {
+    return callback();
+  } finally {
+    acquired.depth -= 1;
+    heldSwitchLocks.delete(lockKey);
+    lock.release();
+  }
+}
+
 export function captureCurrentAuthWriteGuard(expectedAuth: AuthFile): CurrentAuthWriteGuard | null {
   const accountIdentity = getAccountIdentity(expectedAuth);
   if (!accountIdentity) {
@@ -295,8 +329,7 @@ export function writeCurrentAuthIfUnchanged(
   guard: CurrentAuthWriteGuard,
   auth: AuthFile,
 ): boolean {
-  const lock = acquireSwitchLock({ source: "account-refresh", target: "current-auth" });
-  try {
+  return withLiveSwitchLock({ source: "account-refresh", target: "current-auth" }, () => {
     let sharedRouteActive = false;
     try {
       sharedRouteActive = getSharedHistoryRouteState() !== null;
@@ -323,9 +356,7 @@ export function writeCurrentAuthIfUnchanged(
 
     writeCurrentAuth(auth);
     return true;
-  } finally {
-    lock.release();
-  }
+  });
 }
 
 function isOptionalTopLevelString(value: unknown): value is SharedHistoryRouteState["originalOpenAIBaseUrl"] {
@@ -548,8 +579,7 @@ function runLiveSwitchTransaction(
   validate: (() => void) | null,
   mutate: () => void
 ): void {
-  const lock = acquireSwitchLock(options);
-  try {
+  withLiveSwitchLock(options, () => {
     validate?.();
     const backup = createBackup(options);
     try {
@@ -558,9 +588,7 @@ function runLiveSwitchTransaction(
     } catch (error) {
       rollbackFailedSwitch(backup, error);
     }
-  } finally {
-    lock.release();
-  }
+  });
 }
 
 export function activateProviderProfile(profile: ProviderProfile, options: SharedHistorySwitchOptions): void {

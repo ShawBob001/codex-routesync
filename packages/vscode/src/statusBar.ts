@@ -9,6 +9,7 @@ import {
   SavedAccountQuotaQueryContext,
   SavedEntriesSnapshot,
 } from "./savedEntries";
+import { formatCompactTokens, stableSubjectId, UsageService } from "./tokenUsage";
 const LOG_PREFIX = "[codex-switchbridge:vscode:statusBar]";
 
 interface StatusBarRefreshOptions {
@@ -47,8 +48,9 @@ export class StatusBarManager implements vscode.Disposable {
   private reloadStatusBarItem: vscode.StatusBarItem;
   private configListener: vscode.Disposable | undefined;
   private reloadRecommended = false;
+  private refreshGeneration = 0;
 
-  constructor() {
+  constructor(private readonly usageService?: UsageService) {
     this.statusBarItem = vscode.window.createStatusBarItem(
       vscode.StatusBarAlignment.Right,
       100
@@ -77,7 +79,7 @@ export class StatusBarManager implements vscode.Disposable {
       this.statusBarItem.hide();
     }
 
-    if (this.reloadRecommended) {
+    if (this.isVisibleEnabled() && this.reloadRecommended) {
       this.reloadStatusBarItem.show();
     } else {
       this.reloadStatusBarItem.hide();
@@ -94,12 +96,23 @@ export class StatusBarManager implements vscode.Disposable {
 
   clearReloadRecommendation(): void {
     this.reloadRecommended = false;
-    this.reloadStatusBarItem.hide();
+    this.updateVisibility();
   }
 
   startConfigurationSync(context: vscode.ExtensionContext) {
     this.configListener = vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("codex-switchbridge.showStatusBar")) {
+      if (
+        e.affectsConfiguration("codex-switchbridge.showStatusBar")
+        || e.affectsConfiguration("codex-switchbridge.reloadWindowAfterSwitch")
+      ) {
+        if (
+          e.affectsConfiguration("codex-switchbridge.reloadWindowAfterSwitch")
+          && vscode.workspace
+            .getConfiguration("codex-switchbridge")
+            .get<string>("reloadWindowAfterSwitch", "statusBar") !== "statusBar"
+        ) {
+          this.reloadRecommended = false;
+        }
         this.updateVisibility();
         if (this.isVisibleEnabled()) {
           void this.refreshNow({
@@ -117,6 +130,7 @@ export class StatusBarManager implements vscode.Disposable {
   }
 
   async refreshNow(options: StatusBarRefreshOptions = {}) {
+    const generation = ++this.refreshGeneration;
     const perf = startPerformanceLog(LOG_PREFIX, "statusBar.refreshNow", {
       skipQuota: options?.skipQuota ?? false,
       reason: options.reason ?? null,
@@ -142,10 +156,21 @@ export class StatusBarManager implements vscode.Disposable {
       });
 
       if (selection.kind === "provider") {
+        this.statusBarItem.command = "codex-switchbridge.refreshUsage";
         const modeLabel = getModeDisplayName(selection.name);
         const sourceLabel = selection.source === "cloud" ? "cloud" : "local";
-        this.statusBarItem.text = `$(plug) ${modeLabel} [${sourceLabel}]`;
-        this.statusBarItem.tooltip = `Mode: ${modeLabel}\nSource: ${sourceLabel}\nQuota is unavailable in provider mode`;
+        const usage = this.getTrackedUsage("provider", selection.source, selection.name);
+        const usageLabel = usage == null ? "indexing" : `${formatCompactTokens(usage)} tokens`;
+        this.statusBarItem.text = `$(plug) ${modeLabel} · ${usageLabel}`;
+        this.statusBarItem.tooltip = [
+          `Mode: ${modeLabel}`,
+          `Source: ${sourceLabel}`,
+          usage == null
+            ? "Tracked local token usage: Indexing"
+            : `Tracked local token usage: ${usage.toLocaleString()} tokens`,
+          this.getOverallUsageTooltip(),
+          "Quota is unavailable in API Provider mode",
+        ].join("\n");
         perf.finish({
           result: "provider",
           name: selection.name,
@@ -155,6 +180,7 @@ export class StatusBarManager implements vscode.Disposable {
       }
 
       if (selection.kind !== "account") {
+        this.statusBarItem.command = "codex-switchbridge.switchMode";
         this.statusBarItem.text = "$(account) Codex: No account";
         this.statusBarItem.tooltip = "No active Codex account detected";
         perf.finish({
@@ -164,9 +190,20 @@ export class StatusBarManager implements vscode.Disposable {
       }
 
       const name = selection.name;
+      this.statusBarItem.command = "codex-switchbridge.refreshQuota";
       if (options?.skipQuota) {
-        this.statusBarItem.text = `$(account) ${name} [${selection.source}]`;
-        this.statusBarItem.tooltip = `Account: ${name}\nSource: ${selection.source}\nQuota refresh pending`;
+        const usage = this.getTrackedUsage("account", selection.source, selection.name);
+        const usageLabel = usage == null ? "indexing" : `${formatCompactTokens(usage)} tokens`;
+        this.statusBarItem.text = `$(account) ${name} · ${usageLabel}`;
+        this.statusBarItem.tooltip = [
+          `Account: ${name}`,
+          `Source: ${selection.source}`,
+          usage == null
+            ? "Tracked local token usage: Indexing"
+            : `Tracked local token usage: ${usage.toLocaleString()} tokens`,
+          this.getOverallUsageTooltip(),
+          "Quota refresh pending",
+        ].join("\n");
         perf.finish({
           result: "skip-quota",
           name,
@@ -182,8 +219,18 @@ export class StatusBarManager implements vscode.Disposable {
         source: selection.source,
       });
       if (!account) {
-        this.statusBarItem.text = `$(account) ${name}`;
-        this.statusBarItem.tooltip = `Account: ${name}\nSource: ${selection.source}\nSaved entry is unavailable`;
+        const usage = this.getTrackedUsage("account", selection.source, selection.name);
+        const usageLabel = usage == null ? "indexing" : `${formatCompactTokens(usage)} tokens`;
+        this.statusBarItem.text = `$(warning) ${name} · ${usageLabel}`;
+        this.statusBarItem.tooltip = [
+          `Account: ${name}`,
+          `Source: ${selection.source}`,
+          usage == null
+            ? "Tracked local token usage: Indexing"
+            : `Tracked local token usage: ${usage.toLocaleString()} tokens`,
+          this.getOverallUsageTooltip(),
+          "Saved entry is unavailable",
+        ].join("\n");
         perf.finish({
           result: "missing-account",
           name,
@@ -192,10 +239,31 @@ export class StatusBarManager implements vscode.Disposable {
         return;
       }
 
-      this.statusBarItem.text = `$(loading~spin) ${name} [${selection.source}]`;
+      const loadingUsage = this.getTrackedUsage("account", selection.source, selection.name);
+      const loadingUsageLabel = loadingUsage == null
+        ? "indexing"
+        : `${formatCompactTokens(loadingUsage)} tokens`;
+      this.statusBarItem.text = `$(loading~spin) ${name} · ${loadingUsageLabel}`;
+      this.statusBarItem.tooltip = [
+        `Account: ${name}`,
+        `Source: ${selection.source}`,
+        loadingUsage == null
+          ? "Tracked local token usage: Indexing"
+          : `Tracked local token usage: ${loadingUsage.toLocaleString()} tokens`,
+        this.getOverallUsageTooltip(),
+        "Refreshing quota",
+      ].join("\n");
       const result = await querySavedAccountQuota(account, options.queryContext, {
         reason: options.reason,
       });
+      if (generation !== this.refreshGeneration) {
+        perf.finish({
+          result: "stale",
+          name,
+          source: selection.source,
+        });
+        return;
+      }
       perf.mark("query-saved-account-quota", {
         resultKind: result.kind,
       });
@@ -205,8 +273,18 @@ export class StatusBarManager implements vscode.Disposable {
           message: result.message,
           account: account.id,
         });
-        this.statusBarItem.text = `$(account) ${name} [${selection.source}]`;
-        this.statusBarItem.tooltip = result.message;
+        const usage = this.getTrackedUsage("account", selection.source, selection.name);
+        const usageLabel = usage == null ? "indexing" : `${formatCompactTokens(usage)} tokens`;
+        this.statusBarItem.text = `$(warning) ${name} · ${usageLabel}`;
+        this.statusBarItem.tooltip = [
+          `Account: ${name}`,
+          `Source: ${selection.source}`,
+          usage == null
+            ? "Tracked local token usage: Indexing"
+            : `Tracked local token usage: ${usage.toLocaleString()} tokens`,
+          this.getOverallUsageTooltip(),
+          `Quota: ${result.message}`,
+        ].join("\n");
         perf.finish({
           resultKind: result.kind,
           name,
@@ -223,7 +301,9 @@ export class StatusBarManager implements vscode.Disposable {
         const remaining = Math.max(0, 100 - used);
         const icon =
           remaining === 0 ? "$(error)" : remaining <= 30 ? "$(warning)" : remaining <= 50 ? "$(info)" : "$(check)";
-        this.statusBarItem.text = `${icon} ${name} [${selection.source}]: ${remaining}%`;
+        const usage = this.getTrackedUsage("account", selection.source, selection.name);
+        const usageLabel = usage == null ? "indexing" : `${formatCompactTokens(usage)} tokens`;
+        this.statusBarItem.text = `${icon} ${name}: ${remaining}% · ${usageLabel}`;
 
         let tip = `Account: ${name}\nSource: ${selection.source}\nEmail: ${info.email}\nPlan: ${info.plan}\n`;
         tip += `\n${windowLabel(preferredWindow)} quota: ${remaining}% remaining`;
@@ -232,13 +312,25 @@ export class StatusBarManager implements vscode.Disposable {
         if (otherWindow) {
           tip += `\n${windowLabel(otherWindow)} quota: ${Math.max(0, 100 - Math.round(otherWindow.usedPercent))}% remaining`;
         }
+        tip += `\n${usage == null ? "Tracked local token usage: Indexing" : `Tracked local token usage: ${usage.toLocaleString()} tokens`}`;
+        tip += `\n${this.getOverallUsageTooltip()}`;
         this.statusBarItem.tooltip = tip;
       } else {
         const reason = info.unavailableReason?.message;
-        this.statusBarItem.text = `${reason ? "$(warning)" : "$(account)"} ${name} [${selection.source}]`;
-        this.statusBarItem.tooltip = reason
-          ? `Account: ${name}\nSource: ${selection.source}\nEmail: ${info.email}\nPlan: ${info.plan}\nQuota: ${reason}`
-          : `Account: ${name}\nSource: ${selection.source}\nEmail: ${info.email}\nPlan: ${info.plan}`;
+        const usage = this.getTrackedUsage("account", selection.source, selection.name);
+        const usageLabel = usage == null ? "indexing" : `${formatCompactTokens(usage)} tokens`;
+        this.statusBarItem.text = `${reason ? "$(warning)" : "$(account)"} ${name} · ${usageLabel}`;
+        this.statusBarItem.tooltip = [
+          `Account: ${name}`,
+          `Source: ${selection.source}`,
+          `Email: ${info.email}`,
+          `Plan: ${info.plan}`,
+          usage == null
+            ? "Tracked local token usage: Indexing"
+            : `Tracked local token usage: ${usage.toLocaleString()} tokens`,
+          this.getOverallUsageTooltip(),
+          ...(reason ? [`Quota: ${reason}`] : []),
+        ].join("\n");
       }
       logInfo(LOG_PREFIX, "refresh-finish", { account: name });
       perf.finish({
@@ -252,15 +344,83 @@ export class StatusBarManager implements vscode.Disposable {
         account: this.statusBarItem.text,
         error: error instanceof Error ? error.message : String(error),
       });
-      this.statusBarItem.text = this.statusBarItem.text || "$(account) Codex";
-      this.statusBarItem.tooltip = "Quota lookup failed";
+      if (generation === this.refreshGeneration) {
+        this.statusBarItem.text = "$(warning) Codex SwitchBridge";
+        this.statusBarItem.tooltip = "Quota lookup failed";
+      }
       perf.fail(error);
     }
+  }
+
+  refreshUsagePresentation(snapshot?: SavedEntriesSnapshot): void {
+    if (!this.isVisibleEnabled()) return;
+    const savedSnapshot = snapshot ?? createSavedEntriesSnapshot();
+    const selection = getSavedCurrentSelection(savedSnapshot);
+    if (selection.kind === "provider") {
+      void this.refreshNow({
+        skipQuota: true,
+        snapshot: savedSnapshot,
+        reason: "usage-refresh",
+      });
+      return;
+    }
+    if (selection.kind !== "account") return;
+
+    this.statusBarItem.command = "codex-switchbridge.refreshQuota";
+    const usage = this.getTrackedUsage("account", selection.source, selection.name);
+    const usageLabel = usage == null ? "indexing" : `${formatCompactTokens(usage)} tokens`;
+    if (!this.statusBarItem.text.includes(selection.name)) {
+      void this.refreshNow({
+        skipQuota: true,
+        snapshot: savedSnapshot,
+        reason: "usage-refresh",
+      });
+      return;
+    }
+
+    this.statusBarItem.text = this.statusBarItem.text.replace(
+      / · (?:indexing|[0-9.]+[KMB]? tokens)$/,
+      ` · ${usageLabel}`,
+    );
+    const lines = String(this.statusBarItem.tooltip ?? "").split("\n");
+    const trackedLine = usage == null
+      ? "Tracked local token usage: Indexing"
+      : `Tracked local token usage: ${usage.toLocaleString()} tokens`;
+    const overallLine = this.getOverallUsageTooltip();
+    replaceOrAppendTooltipLine(lines, "Tracked local token usage:", trackedLine);
+    replaceOrAppendTooltipLine(lines, "Overall local token usage:", overallLine);
+    this.statusBarItem.tooltip = lines.join("\n");
   }
 
   dispose() {
     this.configListener?.dispose();
     this.statusBarItem.dispose();
     this.reloadStatusBarItem.dispose();
+  }
+
+  private getTrackedUsage(
+    kind: "account" | "provider",
+    source: "local" | "cloud",
+    name: string,
+  ): number | null {
+    const snapshot = this.usageService?.getSnapshot();
+    if (!snapshot || snapshot.status !== "ready") return null;
+    const subjectId = stableSubjectId(kind, `${source}:${name}`);
+    return snapshot.subjects.find((subject) => subject.id === subjectId)?.tokens.totalTokens ?? 0;
+  }
+
+  private getOverallUsageTooltip(): string {
+    const snapshot = this.usageService?.getSnapshot();
+    if (!snapshot || snapshot.status !== "ready") return "Overall local token usage: Indexing";
+    return `Overall local token usage: ${snapshot.total.totalTokens.toLocaleString()} tokens`;
+  }
+}
+
+function replaceOrAppendTooltipLine(lines: string[], prefix: string, value: string): void {
+  const index = lines.findIndex((line) => line.startsWith(prefix));
+  if (index >= 0) {
+    lines[index] = value;
+  } else {
+    lines.push(value);
   }
 }
