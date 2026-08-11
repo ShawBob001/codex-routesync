@@ -1,7 +1,7 @@
 {
   "name": "codex-switchbridge-cli",
-  "version": "0.1.0",
-  "description": "Codex SwitchBridge CLI for managing multiple Codex accounts",
+  "version": "0.2.0",
+  "description": "CLI for Codex account and API-provider switching with shared local conversation history",
   "main": "dist/index.js",
   "repository": {
     "type": "git",
@@ -35,6 +35,9 @@
     "codex",
     "cli",
     "account",
+    "api-provider",
+    "conversation-history",
+    "responses-api",
     "switch"
   ],
   "dependencies": {

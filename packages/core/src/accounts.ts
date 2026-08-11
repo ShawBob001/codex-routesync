@@ -29,7 +29,7 @@ import {
   getSharedHistoryActiveProvider,
   writeCurrentAuthIfUnchanged,
 } from "./liveSwitch";
-import { getModeDisplayName } from "./providers";
+import { getModeDisplayName, syncCurrentAuthToSavedProvider } from "./providers";
 import { createDiagnosticPerformanceTimer, writeDiagnosticLog } from "./log";
 import { SavedStorageReadResult } from "./savedStorage";
 
@@ -687,13 +687,19 @@ export function renameAccount(
 
 export function useAccount(
   name: string,
-  options?: Pick<SharedHistorySwitchOptions, "source" | "target">
+  options?: Pick<SharedHistorySwitchOptions, "source" | "target" | "syncCurrentProviderAuth">
 ): { success: boolean; message: string; meta?: AccountMeta } {
   const src = getNamedAuthPath(name);
   if (!fs.existsSync(src)) {
     return { success: false, message: `Account "${name}" does not exist.` };
   }
 
+  if (options?.syncCurrentProviderAuth !== false) {
+    const providerSync = syncCurrentAuthToSavedProvider();
+    if (!providerSync.success) {
+      return { success: false, message: providerSync.message };
+    }
+  }
   syncCurrentAuthToSavedAccount();
   const result = readNamedAuthResult(name);
   if (result.status !== "ok") {

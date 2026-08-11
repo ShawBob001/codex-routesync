@@ -1,8 +1,8 @@
 {
   "name": "codex-switchbridge-monorepo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Codex SwitchBridge multi-account management - monorepo",
+  "description": "Seamless Codex account and API-provider switching with shared local conversation history",
   "repository": {
     "type": "git",
     "url": "https://github.com/baoshichao001-dev/codex-switchbridge"

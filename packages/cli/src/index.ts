@@ -22,8 +22,10 @@ initializeCliDiagnosticLogging();
 
 program
   .name("codex-switchbridge")
-  .description("Quickly switch between multiple Codex accounts")
-  .version("0.1.0");
+  .description(
+    "Seamlessly switch between Codex accounts and Responses API providers with shared local conversation history"
+  )
+  .version("0.2.0");
 
 program
   .option("--auth-dir <path>", "Directory for saving and loading auth_{name}.json files; defaults to the Codex config directory")
@@ -61,13 +63,18 @@ program
 program
   .command("use <name>")
   .aliases(["switch"])
-  .description("Switch to a saved account")
+  .description("Switch to a saved Codex account")
   .action((name: string) => cmdUse(name));
 
 program
   .command("mode [name]")
-  .description("Show or switch the active mode")
-  .action(async (name?: string) => cmdMode(name));
+  .description("Show or switch between Codex account and API provider modes")
+  .option(
+    "--separate-history",
+    "Use a separate local conversation history for this provider instead of the shared account/API history",
+    false
+  )
+  .action(async (name?: string, opts?: { separateHistory?: boolean }) => cmdMode(name, opts));
 
 program
   .command("quota [name]")

@@ -9,11 +9,16 @@ const manifest = JSON.parse(
 
 const commands = manifest.contributes.commands;
 
-test("extension identity is Codex SwitchBridge 0.1.0", () => {
+test("extension identity is Codex SwitchBridge 0.2.0", () => {
   assert.equal(manifest.name, "codex-switchbridge");
   assert.equal(manifest.displayName, "Codex SwitchBridge");
   assert.equal(manifest.publisher, "baoshichao001-dev");
-  assert.equal(manifest.version, "0.1.0");
+  assert.equal(manifest.version, "0.2.0");
+  assert.match(manifest.description, /accounts and API providers/i);
+  assert.match(manifest.description, /shared local conversation history/i);
+  assert.ok(manifest.keywords.includes("api-provider"));
+  assert.ok(manifest.keywords.includes("conversation-history"));
+  assert.ok(manifest.keywords.includes("responses-api"));
 });
 
 test("production build includes the history migration helper", () => {
@@ -178,13 +183,13 @@ test("shared history is enabled by default for account and provider continuity",
 
   assert.equal(setting?.type, "boolean");
   assert.equal(setting?.default, true);
-  assert.match(setting?.description ?? "", /new local Codex history/i);
-  assert.match(setting?.description ?? "", /Repair Local Shared History/i);
+  assert.match(setting?.description ?? "", /new local Codex conversation history/i);
+  assert.match(setting?.description ?? "", /Repair Shared Conversation History/i);
 
   const repairCommand = commands.find(
     (command) => command.command === "codex-switchbridge.repairSharedHistory"
   );
-  assert.equal(repairCommand?.title, "Repair Local Shared History");
+  assert.equal(repairCommand?.title, "Repair Shared Conversation History");
 });
 
 test("reload behavior defaults to a non-blocking status-bar recommendation", () => {
@@ -215,15 +220,15 @@ test("storage migration commands are contributed", () => {
   );
   assert.equal(
     byId.get("codex-switchbridge.moveProviderToCloud")?.title,
-    "Move Provider To Cloud"
+    "Move API Provider To Cloud"
   );
   assert.equal(
     byId.get("codex-switchbridge.moveProviderToLocal")?.title,
-    "Move Provider To Local"
+    "Move API Provider To Local"
   );
   assert.equal(
     byId.get("codex-switchbridge.removeProvider")?.title,
-    "Remove Provider"
+    "Remove API Provider"
   );
   assert.equal(
     byId.get("codex-switchbridge.enableAutoSwitch")?.title,
@@ -368,7 +373,7 @@ test("provider context menu exposes switch provider inline action", () => {
 
   assert.equal(
     byId.get("codex-switchbridge.switchProvider")?.title,
-    "Switch Provider"
+    "Switch API Provider"
   );
   assert.equal(switchProvider?.group, "inline@1");
 });
@@ -387,7 +392,7 @@ test("providers view title menu exposes add provider", () => {
 
   assert.equal(
     byId.get("codex-switchbridge.addProvider")?.title,
-    "Add Provider"
+    "Add API Provider"
   );
   assert.equal(addProvider?.group, "navigation@3");
   assert.equal(

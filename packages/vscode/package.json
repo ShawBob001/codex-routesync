@@ -1,8 +1,8 @@
 {
   "name": "codex-switchbridge",
   "displayName": "Codex SwitchBridge",
-  "description": "Codex SwitchBridge - VS Code extension",
-  "version": "0.1.0",
+  "description": "Switch Codex accounts and API providers with shared local conversation history across modes",
+  "version": "0.2.0",
   "publisher": "baoshichao001-dev",
   "repository": {
     "type": "git",
@@ -27,7 +27,10 @@
     "auth",
     "quota",
     "chatgpt",
-    "openai"
+    "openai",
+    "api-provider",
+    "conversation-history",
+    "responses-api"
   ],
   "markdown": "github",
   "icon": "resources/icon.png",
@@ -55,7 +58,7 @@
         },
         {
           "id": "codexSwitchBridgeProviders",
-          "name": "Providers",
+          "name": "API Providers",
           "icon": "resources/icon.svg",
           "showCollapseAll": true
         }
@@ -68,7 +71,7 @@
       },
       {
         "view": "codexSwitchBridgeProviders",
-        "contents": "No provider profiles to display yet.\n[Add provider](command:codex-switchbridge.addProvider)"
+        "contents": "No API provider profiles to display yet.\n[Add API provider](command:codex-switchbridge.addProvider)"
       }
     ],
     "commands": [
@@ -86,7 +89,7 @@
       },
       {
         "command": "codex-switchbridge.addProvider",
-        "title": "Add Provider",
+        "title": "Add API Provider",
         "category": "Codex SwitchBridge",
         "icon": "$(add)"
       },
@@ -122,7 +125,7 @@
       },
       {
         "command": "codex-switchbridge.switchProvider",
-        "title": "Switch Provider",
+        "title": "Switch API Provider",
         "category": "Codex SwitchBridge",
         "icon": "$(arrow-swap)"
       },
@@ -182,7 +185,7 @@
       },
       {
         "command": "codex-switchbridge.repairSharedHistory",
-        "title": "Repair Local Shared History",
+        "title": "Repair Shared Conversation History",
         "category": "Codex SwitchBridge",
         "icon": "$(history)"
       },
@@ -218,7 +221,7 @@
       },
       {
         "command": "codex-switchbridge.copyProviderField",
-        "title": "Copy Provider Value",
+        "title": "Copy API Provider Value",
         "category": "Codex SwitchBridge",
         "icon": "$(copy)"
       },
@@ -248,19 +251,19 @@
       },
       {
         "command": "codex-switchbridge.moveProviderToCloud",
-        "title": "Move Provider To Cloud",
+        "title": "Move API Provider To Cloud",
         "category": "Codex SwitchBridge",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "codex-switchbridge.moveProviderToLocal",
-        "title": "Move Provider To Local",
+        "title": "Move API Provider To Local",
         "category": "Codex SwitchBridge",
         "icon": "$(cloud-download)"
       },
       {
         "command": "codex-switchbridge.removeProvider",
-        "title": "Remove Provider",
+        "title": "Remove API Provider",
         "category": "Codex SwitchBridge",
         "icon": "$(trash)"
       },
@@ -460,7 +463,7 @@
         "codex-switchbridge.shareHistoryAcrossProviders": {
           "type": "boolean",
           "default": true,
-          "description": "Route saved relay profiles through the built-in openai provider so new local Codex history remains visible across account and provider switches. Use Repair Local Shared History once for older provider-tagged threads."
+          "description": "Keep new local Codex conversation history available across account mode and Responses-compatible API-provider modes. Enabled by default; run Repair Shared Conversation History once for older provider-tagged threads."
         },
         "codex-switchbridge.showStatusBar": {
           "type": "boolean",
@@ -485,7 +488,7 @@
             "Show a clickable Reload recommended item in the status bar without interrupting your work",
             "Always reload the window after switching so the Codex extension can re-read auth"
           ],
-          "description": "How VS Code window reload should be handled after switching accounts or providers"
+          "description": "How VS Code window reload should be handled after switching accounts or API providers"
         },
         "codex-switchbridge.authDirectory": {
           "type": "string",
@@ -505,10 +508,10 @@
             "cloud"
           ],
           "enumDescriptions": [
-            "Save new accounts and providers to local files by default",
-            "Save new accounts and providers to synced extension storage by default"
+            "Save new accounts and API providers to local files by default",
+            "Save new accounts and API providers to synced extension storage by default"
           ],
-          "description": "Default storage target used when saving accounts or provider profiles."
+          "description": "Default storage target used when saving accounts or API-provider profiles."
         },
         "codex-switchbridge.syncedStorage": {
           "type": "object",
@@ -520,7 +523,7 @@
             "providerNames": []
           },
           "markdownDeprecationMessage": "Legacy migration-only setting. Cloud data now lives in synced extension storage managed by the extension.",
-          "description": "Legacy migration-only backup of encrypted cloud accounts and providers. Managed internally by the extension."
+          "description": "Legacy migration-only backup of encrypted cloud accounts and API providers. Managed internally by the extension."
         }
       }
     }
