@@ -9,17 +9,61 @@ const manifest = JSON.parse(
 
 const commands = manifest.contributes.commands;
 
-test("extension identity is Codex SwitchBridge 0.3.0", () => {
+test("extension identity is Codex SwitchBridge 0.3.1", () => {
   assert.equal(manifest.name, "codex-switchbridge");
   assert.equal(manifest.displayName, "Codex SwitchBridge");
   assert.equal(manifest.publisher, "baoshichao001-dev");
-  assert.equal(manifest.version, "0.3.0");
+  assert.equal(manifest.version, "0.3.1");
   assert.match(manifest.description, /accounts and API providers/i);
   assert.match(manifest.description, /shared local conversation history/i);
   assert.match(manifest.description, /token usage/i);
   assert.ok(manifest.keywords.includes("api-provider"));
   assert.ok(manifest.keywords.includes("conversation-history"));
   assert.ok(manifest.keywords.includes("responses-api"));
+});
+
+test("S-Bridge brand assets are self-contained and Marketplace-ready", () => {
+  const resources = path.join(__dirname, "..", "resources");
+  const colorSvg = fs.readFileSync(
+    path.join(resources, "icon-color.svg"),
+    "utf-8",
+  );
+  const activitySvg = fs.readFileSync(
+    path.join(resources, "icon.svg"),
+    "utf-8",
+  );
+  const png = fs.readFileSync(path.join(resources, "icon.png"));
+
+  assert.deepEqual(
+    png.subarray(0, 8),
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  );
+  assert.equal(png.readUInt32BE(16), 256);
+  assert.equal(png.readUInt32BE(20), 256);
+
+  for (const svg of [colorSvg, activitySvg]) {
+    assert.doesNotMatch(svg, /<(?:text|image)\b/i);
+    assert.doesNotMatch(svg, /<(?:style|font)\b/i);
+    assert.doesNotMatch(svg, /\b(?:href|xlink:href)=/i);
+    assert.doesNotMatch(svg, /\bstyle\s*=/i);
+    assert.doesNotMatch(svg, /font-family|@import|xml-stylesheet/i);
+    assert.doesNotMatch(svg, /url\(/i);
+  }
+
+  assert.match(colorSvg, /#111827/i);
+  assert.match(colorSvg, /#2f66e8/i);
+  assert.match(colorSvg, /#58d4e8/i);
+  assert.match(colorSvg, /#ffffff/i);
+  assert.match(activitySvg, /currentColor/);
+  assert.doesNotMatch(activitySvg, /#[0-9a-f]{3,8}/i);
+
+  const activityPaints = [
+    ...activitySvg.matchAll(/\b(?:fill|stroke)\s*=\s*["']([^"']+)["']/gi),
+  ].map((match) => match[1]);
+  assert.deepEqual(
+    new Set(activityPaints),
+    new Set(["currentColor", "none"]),
+  );
 });
 
 test("activity view starts with an Overview and exposes local usage refresh", () => {

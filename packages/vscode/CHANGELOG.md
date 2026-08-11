@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 - 2026-08-12
+
+- Replaced the generic lightning icon with the S-Bridge identity across the Marketplace and VS Code Activity Bar.
+- Added a self-contained editable color master and small-size brand asset validation.
+
 ## 0.3.0 - 2026-08-11
 
 - Added an Overview with active mode, shared-history state, total local token usage, and per-account/API attribution.
