@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 - 2026-08-12
+
+- Replaced the Overview tree with a graphical quota-first sidebar dashboard.
+- Added direct auto-switch controls, comparable account quota bars, token-use visualization, and stable reload guidance.
+- Unified live quota presentation state across the dashboard and native account view without duplicate requests.
+
 ## 0.3.1 - 2026-08-12
 
 - Replaced the generic lightning icon with the S-Bridge identity across the Marketplace and VS Code Activity Bar.

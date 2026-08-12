@@ -151,7 +151,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const account = createSavedEntriesSnapshot().byId.get(targetId);
         if (account) return vscode.commands.executeCommand("codex-switchbridge.reloginAccount", { account });
       },
-      unlockStorage: () => vscode.commands.executeCommand("codex-switchbridge.unlockStorage"),
+      unlockStorage: (_targetId) => vscode.commands.executeCommand("codex-switchbridge.unlockStorage"),
       reloadWindow: () => vscode.commands.executeCommand("codex-switchbridge.reloadWindow"),
     },
     onActionError: (action) => logInfo(LOG_PREFIX, "dashboard-action-failed", { action }),

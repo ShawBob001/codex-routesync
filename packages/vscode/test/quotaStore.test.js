@@ -268,6 +268,27 @@ test("keeps completions for different accounts", async () => {
   assert.equal(store.get(accountB.id).info.primaryWindow.usedPercent, 30);
 });
 
+test("coalesces same-turn account completions into one change event", async () => {
+  const accountB = { ...accountA, id: "local:b", name: "b" };
+  const pending = new Map([[accountA.id, deferred()], [accountB.id, deferred()]]);
+  const store = new QuotaStore({
+    getCachedQuota: () => null,
+    queryQuota: async (account) => pending.get(account.id).promise,
+  });
+  const revisions = [];
+  const subscription = store.onDidChange((state) => revisions.push(state.revision));
+
+  const refresh = store.refreshQuota(undefined, { snapshot: snapshot([accountA, accountB]) });
+  assert.deepEqual(revisions, [1]);
+  pending.get(accountA.id).resolve({ kind: "ok", displayName: "a", info: quotaInfo(10) });
+  pending.get(accountB.id).resolve({ kind: "ok", displayName: "b", info: quotaInfo(30) });
+  await refresh;
+
+  assert.deepEqual(revisions, [1, 2]);
+  subscription.dispose();
+  store.dispose();
+});
+
 test("reconciles cache state synchronously", () => {
   const store = new QuotaStore({ getCachedQuota: () => cachedQuota });
   const result = store.reconcileAccounts([accountA]);

@@ -79,4 +79,3 @@ test("rejects arrays and objects with non-standard prototypes", () => {
   assert.equal(parseDashboardClientMessage(customPrototype), null);
   assert.equal(parseDashboardClientMessage(Object.create(null)), null);
 });
-

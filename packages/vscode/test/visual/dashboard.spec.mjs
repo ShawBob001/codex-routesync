@@ -259,6 +259,19 @@ const fixtures = {
     },
     autoSwitch: { ...baseModel().autoSwitch, appliesToCurrentRoute: false },
   }),
+  providerLocked: baseModel({
+    route: {
+      kind: "provider",
+      providerId: "cloud:proxy",
+      name: "Locked API Proxy",
+      source: "cloud",
+      disambiguator: null,
+      wireApi: null,
+      storageState: "locked",
+      localTokens: null,
+    },
+    autoSwitch: { ...baseModel().autoSwitch, appliesToCurrentRoute: false },
+  }),
   unknown: baseModel({
     savedEntryCounts: { accounts: 0, providers: 0 },
     route: { kind: "unknown", label: "No active saved route", plan: null },
@@ -372,18 +385,26 @@ test("provider, unknown quota, current actions, and reload semantics", async ({ 
   await expect(page.locator(".quota-ring")).toHaveCount(0);
   await expect(page.getByText("account quota unavailable", { exact: false })).toBeVisible();
 
-  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 2, state } })), fixtures.failed);
+  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 2, state } })), fixtures.providerLocked);
+  await page.getByRole("button", { name: "Unlock", exact: true }).click();
+  expect(await page.evaluate(() => window.__dashboardHarness.outbound.at(-1))).toMatchObject({
+    type: "dashboard.action",
+    action: "unlockStorage",
+    targetId: "cloud:proxy",
+  });
+
+  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 3, state } })), fixtures.failed);
   const failedRow = page.locator(".account-row").filter({ hasText: "Exhausted" });
   await expect(failedRow.locator('[role="progressbar"]')).toHaveCount(1);
   await expect(page.locator(".quota-ring")).toHaveAttribute("role", "status");
 
-  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 3, state } })), fixtures.relogin);
+  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 4, state } })), fixtures.relogin);
   await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
 
-  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 4, state } })), fixtures.locked);
+  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 5, state } })), fixtures.locked);
   await expect(page.getByRole("button", { name: "Unlock" }).first()).toBeVisible();
 
-  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 5, state } })), fixtures.reload);
+  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 6, state } })), fixtures.reload);
   await expect(page.locator(".reload-strip")).toBeVisible();
   await expect(page.getByRole("button", { name: "Reload", exact: true })).toBeVisible();
   await assertLayout(page);

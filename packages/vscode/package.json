@@ -2,7 +2,7 @@
   "name": "codex-switchbridge",
   "displayName": "Codex SwitchBridge",
   "description": "Switch Codex accounts and API providers with shared local conversation history and per-selection local token usage",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "publisher": "baoshichao001-dev",
   "repository": {
     "type": "git",

@@ -105,6 +105,9 @@ function renderRoute(model: DashboardModel): HTMLElement {
       ]),
       stateLine(providerStatusLabel(route.storageState), route.storageState === "ready" ? "ok" : "warning"),
     );
+    if (route.providerId && route.storageState === "locked") {
+      identity.append(commandButton("Unlock", "unlockStorage", "link compact", { targetId: route.providerId }));
+    }
     body.append(identity);
   } else {
     const unknown = element("div", "unknown-signal", "?");

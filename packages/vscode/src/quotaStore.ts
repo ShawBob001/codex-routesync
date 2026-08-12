@@ -71,6 +71,7 @@ export class QuotaStore implements vscode.Disposable {
   private readonly emitter = new vscode.EventEmitter<QuotaStoreSnapshot>();
   private readonly dependencies: QuotaStoreDependencies;
   private revision = 0;
+  private publishQueued = false;
   private disposed = false;
 
   readonly onDidChange = this.emitter.event;
@@ -303,6 +304,7 @@ export class QuotaStore implements vscode.Disposable {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.publishQueued = false;
     this.states.clear();
     this.generations.clear();
     this.emitter.dispose();
@@ -326,7 +328,7 @@ export class QuotaStore implements vscode.Disposable {
         reloginRequired,
         reloginMessage: reloginRequired ? RELOGIN_REQUIRED_MESSAGE : previous.reloginMessage,
       });
-      this.publish();
+      this.queuePublish();
       return;
     }
 
@@ -361,7 +363,7 @@ export class QuotaStore implements vscode.Disposable {
       reloginRequired,
       reloginMessage: reloginRequired ? RELOGIN_REQUIRED_MESSAGE : null,
     });
-    this.publish();
+    this.queuePublish();
   }
 
   private applyError(accountId: string, error: unknown, attemptedAt: number): void {
@@ -376,7 +378,7 @@ export class QuotaStore implements vscode.Disposable {
       reloginRequired,
       reloginMessage: reloginRequired ? RELOGIN_REQUIRED_MESSAGE : previous.reloginMessage,
     });
-    this.publish();
+    this.queuePublish();
   }
 
   private isCurrent(accountId: string, generation: number): boolean {
@@ -384,8 +386,19 @@ export class QuotaStore implements vscode.Disposable {
   }
 
   private publish(): void {
+    this.publishQueued = false;
     this.revision += 1;
     this.emitter.fire(this.getSnapshot());
+  }
+
+  private queuePublish(): void {
+    if (this.disposed || this.publishQueued) return;
+    this.publishQueued = true;
+    queueMicrotask(() => {
+      if (!this.publishQueued) return;
+      this.publishQueued = false;
+      if (!this.disposed) this.publish();
+    });
   }
 
   private assertActive(): void {
