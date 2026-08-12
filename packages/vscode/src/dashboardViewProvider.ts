@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import type { DashboardModel } from "./dashboardModel";
 import {
   DashboardAction,
+  DashboardActionMessage,
   DashboardClientMessage,
   parseDashboardClientMessage,
 } from "./dashboardProtocol";
@@ -108,10 +109,10 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
       if (this.view.visible) this.queuePost();
       return;
     }
-    this.dispatch(message);
+    if (message.type === "dashboard.action") this.dispatch(message);
   }
 
-  private dispatch(message: Exclude<DashboardClientMessage, { type: "dashboard.ready" }>): void {
+  private dispatch(message: DashboardActionMessage): void {
     const { handlers } = this.options;
     try {
       let result: MaybePromise;

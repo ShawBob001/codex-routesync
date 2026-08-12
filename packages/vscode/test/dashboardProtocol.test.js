@@ -33,6 +33,42 @@ test("accepts the exact dashboard ready and action message shapes", () => {
   }
 });
 
+test("accepts exact dashboard locale preference messages", () => {
+  for (const preference of ["auto", "en", "zh-cn"]) {
+    const message = {
+      type: "dashboard.locale.set",
+      requestId: "request-1",
+      preference,
+    };
+    assert.deepEqual(parseDashboardClientMessage(message), message);
+  }
+});
+
+test("rejects malformed dashboard locale preference messages", () => {
+  const valid = {
+    type: "dashboard.locale.set",
+    requestId: "request-1",
+    preference: "auto",
+  };
+  const customPrototype = Object.assign(Object.create({ inherited: true }), valid);
+  const messages = [
+    { ...valid, preference: "fr" },
+    { ...valid, extra: true },
+    { type: valid.type, requestId: valid.requestId },
+    { type: valid.type, preference: valid.preference },
+    { ...valid, requestId: 1 },
+    { ...valid, requestId: "x".repeat(129) },
+    [],
+    null,
+    customPrototype,
+    Object.assign(Object.create(null), valid),
+  ];
+
+  for (const message of messages) {
+    assert.equal(parseDashboardClientMessage(message), null);
+  }
+});
+
 test("rejects missing, extra, and unknown discriminants", () => {
   const messages = [
     {},

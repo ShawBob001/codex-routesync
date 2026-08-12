@@ -1,3 +1,5 @@
+import type { LanguagePreference } from "./dashboardI18n";
+
 export type DashboardAction =
   | "refreshDashboard"
   | "switchMode"
@@ -9,8 +11,15 @@ export type DashboardAction =
   | "unlockStorage"
   | "reloadWindow";
 
+export type DashboardLocaleSetMessage = {
+  type: "dashboard.locale.set";
+  requestId: string;
+  preference: LanguagePreference;
+};
+
 export type DashboardClientMessage =
   | { type: "dashboard.ready" }
+  | DashboardLocaleSetMessage
   | { type: "dashboard.action"; requestId: string; action: "refreshDashboard" }
   | { type: "dashboard.action"; requestId: string; action: "switchMode" }
   | { type: "dashboard.action"; requestId: string; action: "setAutoSwitch"; enabled: boolean }
@@ -20,6 +29,8 @@ export type DashboardClientMessage =
   | { type: "dashboard.action"; requestId: string; action: "reloginAccount"; targetId: string }
   | { type: "dashboard.action"; requestId: string; action: "unlockStorage"; targetId: string }
   | { type: "dashboard.action"; requestId: string; action: "reloadWindow" };
+
+export type DashboardActionMessage = Extract<DashboardClientMessage, { type: "dashboard.action" }>;
 
 const ACTIONS = new Set<DashboardAction>([
   "refreshDashboard",
@@ -44,6 +55,16 @@ export function parseDashboardClientMessage(value: unknown): DashboardClientMess
     return hasExactKeys(value, ["type"])
       ? { type: "dashboard.ready" }
       : null;
+  }
+  if (value.type === "dashboard.locale.set") {
+    if (!hasExactKeys(value, ["type", "requestId", "preference"])) return null;
+    if (!isBoundedString(value.requestId, 1, 128)) return null;
+    if (value.preference !== "auto" && value.preference !== "en" && value.preference !== "zh-cn") return null;
+    return {
+      type: "dashboard.locale.set",
+      requestId: value.requestId,
+      preference: value.preference,
+    };
   }
   if (value.type !== "dashboard.action") return null;
   if (!isBoundedString(value.requestId, 1, 128)) return null;

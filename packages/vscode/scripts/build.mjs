@@ -12,6 +12,7 @@ const watch = process.argv.includes("--watch");
 const options = {
   entryPoints: {
     extension: path.join(packageDir, "src", "extension.ts"),
+    dashboardI18n: path.join(packageDir, "src", "dashboardI18n.ts"),
     dashboardModel: path.join(packageDir, "src", "dashboardModel.ts"),
     dashboardProtocol: path.join(packageDir, "src", "dashboardProtocol.ts"),
     dashboardViewProvider: path.join(packageDir, "src", "dashboardViewProvider.ts"),
