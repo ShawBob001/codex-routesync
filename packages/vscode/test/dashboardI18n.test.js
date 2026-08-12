@@ -70,6 +70,17 @@ test("known quota windows have semantic English and Chinese labels", () => {
   assert.equal(translate("zh-cn", "quota.window.sevenDay"), "7 天");
 });
 
+test("cached fallback copy is fixed and localized", () => {
+  assert.equal(
+    translate("en", "model.quotaRefreshFailedCached"),
+    "Quota refresh failed. Showing the cached value.",
+  );
+  assert.equal(
+    translate("zh-cn", "model.quotaRefreshFailedCached"),
+    "配额刷新失败，正在显示缓存值。",
+  );
+});
+
 test("dynamic quota windows and reset-credit counts remain explicit in both languages", () => {
   assert.equal(translate("en", "quota.window.hours", { count: 3 }), "3 hours");
   assert.equal(

@@ -49,6 +49,7 @@
   "configuration.language.enum.auto": "跟随 VS Code 的显示语言",
   "configuration.language.enum.en": "使用英语",
   "configuration.language.enum.zhCn": "使用简体中文",
+  "configuration.proxy.description": "用于 ChatGPT 用量限额请求的机器级 HTTP 或 HTTPS 代理。此设置不会参与设置同步。留空时依次使用 VS Code 的 http.proxy 设置和扩展宿主的代理环境变量。",
   "configuration.quotaRefreshInterval.description": "后台维护间隔（秒）。每个间隔会在启用时检查一个已保存账号的令牌是否需要刷新，并轮流刷新一个已保存账号的用量限额。",
   "configuration.tokenAutoUpdate.description": "在后台定时维护期间，当令牌已过期或即将过期时，自动刷新已保存账号的令牌。",
   "configuration.autoSwitchOnZeroQuota.description": "当前所选账号的 5 小时用量限额降至 0% 时自动切换，但仅在另一个已保存账号拥有经最新确认的剩余 5 小时限额时执行。",

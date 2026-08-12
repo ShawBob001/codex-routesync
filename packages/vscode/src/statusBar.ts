@@ -10,6 +10,7 @@ import {
   SavedEntriesSnapshot,
 } from "./savedEntries";
 import { formatCompactTokens, stableSubjectId, UsageService } from "./tokenUsage";
+import { createQuotaQueryContext } from "./quotaProxy";
 const LOG_PREFIX = "[codex-switchbridge:vscode:statusBar]";
 
 interface StatusBarRefreshOptions {
@@ -276,9 +277,13 @@ export class StatusBarManager implements vscode.Disposable {
         this.getOverallUsageTooltip(),
         "Refreshing quota",
       ].join("\n");
-      const result = await querySavedAccountQuota(account, options.queryContext, {
+      const result = await querySavedAccountQuota(
+        account,
+        options.queryContext ?? createQuotaQueryContext(snapshot),
+        {
         reason: options.reason,
-      });
+        },
+      );
       if (generation !== this.refreshGeneration) {
         perf.finish({
           result: "stale",

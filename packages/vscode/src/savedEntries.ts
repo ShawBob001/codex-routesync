@@ -181,6 +181,7 @@ export interface SavedEntriesSnapshot {
 export interface SavedAccountQuotaQueryContext {
   snapshot?: SavedEntriesSnapshot;
   sharedQueries?: Map<string, Promise<QuotaQueryResult>>;
+  proxyUrl?: string | null;
 }
 
 function selectionSwitchLabel(selection: SavedSelection): string {
@@ -2635,6 +2636,7 @@ export async function querySavedAccountQuota(
         fetch: async () => queryQuota(account.name, {
           performanceMode: "adaptive",
           slowThresholdMs: 3000,
+          proxyUrl: context?.proxyUrl,
           syncCurrentAuthBeforeRead: false,
         }),
       });
@@ -2689,6 +2691,7 @@ export async function querySavedAccountQuota(
         const info = await getQuotaInfo(auth, {
           performanceMode: "adaptive",
           slowThresholdMs: 3000,
+          proxyUrl: context?.proxyUrl,
         });
         perf.mark("get-quota-info", {
           unavailableReason: info.unavailableReason?.code ?? null,

@@ -4,6 +4,10 @@ const https = require("node:https");
 const { EventEmitter } = require("node:events");
 
 const { getQuotaInfo } = require("../dist/quota.js");
+const {
+  setDiagnosticLogger,
+  setDiagnosticLogOptions,
+} = require("../dist/log.js");
 
 const PROXY_ENV_NAMES = [
   "http_proxy",
@@ -361,4 +365,92 @@ test("getQuotaInfo sanitizes invalid proxy configuration errors", async () => {
   assert.equal(info.unavailableReason?.code, "request_failed");
   assert.equal(info.unavailableReason?.message, "Quota unavailable");
   assert.doesNotMatch(JSON.stringify(info), new RegExp(secret));
+});
+
+test("getQuotaInfo prefers an explicit proxy over the extension-host environment", async () => {
+  let requestOptions;
+  await withProxyEnvironment(
+    { HTTPS_PROXY: "http://environment-proxy.example:8080" },
+    () => withMockedHttpsRequest(
+      (options, handler) => {
+        requestOptions = options;
+        return createMockRequest(200, "{}")(options, handler);
+      },
+      () => getQuotaInfo(
+        { tokens: { access_token: "header.payload.signature" } },
+        { proxyUrl: "http://explicit-proxy.example:3128" },
+      ),
+    ),
+  );
+
+  assert.equal(requestOptions.agent?.proxy?.hostname, "explicit-proxy.example");
+  assert.equal(requestOptions.agent?.proxy?.port, "3128");
+});
+
+test("getQuotaInfo accepts explicit direct mode even when the environment has a proxy", async () => {
+  let requestOptions;
+  await withProxyEnvironment(
+    { HTTPS_PROXY: "http://environment-proxy.example:8080" },
+    () => withMockedHttpsRequest(
+      (options, handler) => {
+        requestOptions = options;
+        return createMockRequest(200, "{}")(options, handler);
+      },
+      () => getQuotaInfo(
+        { tokens: { access_token: "header.payload.signature" } },
+        { proxyUrl: null },
+      ),
+    ),
+  );
+
+  assert.equal(requestOptions.agent, undefined);
+});
+
+test("getQuotaInfo rejects an invalid explicit proxy without exposing credentials", async () => {
+  const secret = "explicit-proxy-secret";
+  const info = await withProxyEnvironment(
+    { HTTPS_PROXY: "http://environment-proxy.example:8080" },
+    () => getQuotaInfo(
+      { tokens: { access_token: "header.payload.signature" } },
+      { proxyUrl: `socks5://alice:${secret}@proxy.example:1080` },
+    ),
+  );
+
+  assert.equal(info.unavailableReason?.code, "request_failed");
+  assert.equal(info.unavailableReason?.message, "Quota unavailable");
+  assert.doesNotMatch(JSON.stringify(info), new RegExp(secret));
+});
+
+test("getQuotaInfo redacts proxy connection failures from detailed diagnostics", async () => {
+  const secret = "diagnostic-proxy-secret";
+  const lines = [];
+  setDiagnosticLogger((_level, line) => lines.push(line));
+  setDiagnosticLogOptions({ detailedPerformanceLogging: true });
+  try {
+    await withMockedHttpsRequest(
+      () => {
+        const request = new EventEmitter();
+        request.setTimeout = () => request;
+        request.destroy = () => {};
+        request.end = () => {
+          request.emit("error", new Error(
+            `connect failed through http://alice:${secret}@proxy.example:3128`,
+          ));
+        };
+        return request;
+      },
+      async () => {
+        const info = await getQuotaInfo({
+          tokens: { access_token: "header.payload.signature" },
+        });
+        assert.equal(info.unavailableReason?.code, "request_failed");
+      },
+    );
+  } finally {
+    setDiagnosticLogger(null);
+    setDiagnosticLogOptions({ detailedPerformanceLogging: false });
+  }
+
+  assert.ok(lines.some((line) => line.includes("perf-fail")));
+  assert.doesNotMatch(lines.join("\n"), new RegExp(`${secret}|proxy\\.example|alice`));
 });

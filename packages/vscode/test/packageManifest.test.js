@@ -106,11 +106,11 @@ test("VS Code-owned user-visible contributions use complete English and Chinese 
   }
 });
 
-test("extension identity is Codex SwitchBridge 0.5.1", () => {
+test("extension identity is Codex SwitchBridge 0.6.0", () => {
   assert.equal(manifest.name, "codex-switchbridge");
   assert.equal(manifest.displayName, "Codex SwitchBridge");
   assert.equal(manifest.publisher, "baoshichao001-dev");
-  assert.equal(manifest.version, "0.5.1");
+  assert.equal(manifest.version, "0.6.0");
   assert.match(manifest.description, /accounts and API providers/i);
   assert.match(manifest.description, /shared local conversation history/i);
   assert.match(manifest.description, /token usage/i);
@@ -278,6 +278,18 @@ test("device auth login setting is opt-in", () => {
   assert.equal(setting?.type, "boolean");
   assert.equal(setting?.default, false);
   assert.match(setting?.description ?? "", /device code authorization/i);
+});
+
+test("quota proxy setting is machine scoped, excluded from sync, and defaults to automatic resolution", () => {
+  const setting = manifest.contributes.configuration.properties[
+    "codex-switchbridge.proxy"
+  ];
+
+  assert.equal(setting?.type, "string");
+  assert.equal(setting?.default, "");
+  assert.equal(setting?.scope, "machine");
+  assert.equal(setting?.ignoreSync, true);
+  assert.match(setting?.description ?? "", /VS Code.*environment/i);
 });
 
 test("dashboard language setting supports automatic, English, and Simplified Chinese", () => {

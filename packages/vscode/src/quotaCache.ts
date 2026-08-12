@@ -1,11 +1,12 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import {
   AuthFile,
   QuotaInfo,
   QuotaQueryResult,
+  QuotaUnavailableCode,
   WindowInfo,
   getCodexConfigDir,
   getNamedAuthDir,
@@ -18,7 +19,6 @@ const CACHE_VERSION = 1;
 const CACHE_DIR_ENV_VAR = "CODEX_SWITCHBRIDGE_QUOTA_CACHE_DIR";
 const PRODUCTION_CACHE_DIR_NAME = "codex-switchbridge";
 const TEST_CACHE_DIR_NAME = "codex-switchbridge-tests";
-const ABNORMAL_CACHE_ENTRY_COUNT = 512;
 const MAX_FUTURE_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 function resolveCacheDir(): string {
@@ -40,10 +40,15 @@ function resolveCacheDir(): string {
 const CACHE_DIR = resolveCacheDir();
 const CACHE_FILE = path.join(CACHE_DIR, "quota-cache-v1.json");
 const LOCK_DIR = path.join(CACHE_DIR, "quota-cache-locks");
+const CACHE_FILE_LOCK_DIR = path.join(CACHE_DIR, "quota-cache-file.lock");
 const LOCK_STALE_MS = 30 * 1000;
 const LOCK_WAIT_TIMEOUT_MS = 2 * 1000;
 const LOCK_WAIT_INTERVAL_MS = 100;
+const CACHE_FILE_LOCK_WAIT_INTERVAL_MS = 20;
 const CACHE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const CACHE_SCOPE_HASH_PATTERN = /^[a-f0-9]{64}$/;
+const LOCK_OWNER_TOKEN_PATTERN = /^[a-f0-9]{32}$/;
+const LOCK_WAIT_ARRAY = new Int32Array(new SharedArrayBuffer(4));
 
 interface QuotaCacheAccountLike {
   id: string;
@@ -89,6 +94,7 @@ interface QuotaCacheEntry {
   accountId: string;
   accountName: string;
   source: "local" | "cloud";
+  scopeHash?: string;
   queriedAt: string;
   info: SerializedQuotaInfo;
 }
@@ -105,6 +111,8 @@ export interface CachedQuotaSnapshot {
 
 export interface CachedQuotaFallbackMetadata {
   fallbackErrorMessage?: string;
+  fallbackRefreshFailed?: boolean;
+  fallbackReasonCode?: QuotaUnavailableCode;
   fallbackStatusCode?: number | null;
   fallbackReloginRequired?: boolean;
   usedCachedQuota?: boolean;
@@ -117,9 +125,16 @@ interface QuotaCacheLock {
   path: string;
 }
 
+interface CacheFileLock {
+  ownerToken: string;
+  ownerFile: string;
+}
+
 function ensureCacheDirs(): void {
-  fs.mkdirSync(CACHE_DIR, { recursive: true });
-  fs.mkdirSync(LOCK_DIR, { recursive: true });
+  fs.mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
+  fs.chmodSync(CACHE_DIR, 0o700);
+  fs.mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 });
+  fs.chmodSync(LOCK_DIR, 0o700);
 }
 
 function createEmptyCacheFile(): QuotaCacheFile {
@@ -266,6 +281,11 @@ function getCacheKey(account: QuotaCacheAccountLike): string {
   return createHash("sha1").update(basis).digest("hex");
 }
 
+function getCacheScopeHash(): string {
+  const basis = [getNamedAuthDir(), getCodexConfigDir()].join("\0");
+  return createHash("sha256").update(basis).digest("hex");
+}
+
 function getLockPath(key: string): string {
   return path.join(LOCK_DIR, `${key}.lock`);
 }
@@ -283,27 +303,41 @@ function normalizeCacheFile(raw: unknown): QuotaCacheFile {
     if (!/^[a-f0-9]{40}$/i.test(key) || typeof entry !== "object" || entry == null) {
       return false;
     }
+    if (
+      entry.version !== CACHE_VERSION
+      || (entry.source !== "local" && entry.source !== "cloud")
+      || typeof entry.accountId !== "string"
+      || entry.accountId.length === 0
+      || typeof entry.accountName !== "string"
+      || entry.accountName.length === 0
+      || (entry.scopeHash !== undefined && !CACHE_SCOPE_HASH_PATTERN.test(entry.scopeHash))
+      || typeof entry.info !== "object"
+      || entry.info == null
+    ) {
+      return false;
+    }
     const queriedAtMs = Date.parse(entry?.queriedAt ?? "");
     return Number.isFinite(queriedAtMs)
       && queriedAtMs <= now + MAX_FUTURE_CLOCK_SKEW_MS
       && now - queriedAtMs <= CACHE_RETENTION_MS;
   });
 
-  let normalizedEntries = retainedEntries;
-  if (retainedEntries.length > ABNORMAL_CACHE_ENTRY_COUNT) {
-    const newestByIdentity = new Map<string, [string, QuotaCacheEntry]>();
-    for (const candidate of retainedEntries) {
-      const [, entry] = candidate;
-      const identity = [entry.source, entry.accountId, entry.accountName].join("\0");
-      const previous = newestByIdentity.get(identity);
-      if (!previous || Date.parse(entry.queriedAt) > Date.parse(previous[1].queriedAt)) {
-        newestByIdentity.set(identity, candidate);
-      }
+  const newestByIdentity = new Map<string, [string, QuotaCacheEntry]>();
+  for (const candidate of retainedEntries) {
+    const [key, entry] = candidate;
+    // A pre-scope entry may belong to any VS Code window/CODEX_HOME. Its key is
+    // deliberately part of the identity so maintenance never merges legacy
+    // entries across an unknowable scope.
+    const identity = entry.scopeHash
+      ? ["scoped", entry.scopeHash, entry.source, entry.accountId, entry.accountName].join("\0")
+      : ["legacy", key].join("\0");
+    const previous = newestByIdentity.get(identity);
+    if (!previous || Date.parse(entry.queriedAt) > Date.parse(previous[1].queriedAt)) {
+      newestByIdentity.set(identity, candidate);
     }
-    normalizedEntries = [...newestByIdentity.values()];
   }
 
-  const entries = Object.fromEntries(normalizedEntries);
+  const entries = Object.fromEntries(newestByIdentity.values());
   return {
     version: CACHE_VERSION,
     entries,
@@ -324,16 +358,197 @@ function readCacheFile(): QuotaCacheFile {
   }
 }
 
-function writeCacheFile(cache: QuotaCacheFile): void {
+function writeCacheFileUnlocked(cache: QuotaCacheFile): boolean {
+  let tempFile: string | null = null;
   try {
     ensureCacheDirs();
-    const tempFile = `${CACHE_FILE}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(tempFile, JSON.stringify(cache, null, 2), "utf-8");
+    tempFile = `${CACHE_FILE}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
+    fs.writeFileSync(tempFile, JSON.stringify(cache, null, 2), {
+      encoding: "utf-8",
+      flag: "wx",
+      mode: 0o600,
+    });
     fs.renameSync(tempFile, CACHE_FILE);
+    tempFile = null;
+    fs.chmodSync(CACHE_FILE, 0o600);
+    return true;
   } catch (error) {
+    if (tempFile) {
+      try {
+        fs.unlinkSync(tempFile);
+      } catch {
+        // The atomic rename may already have consumed the temporary file.
+      }
+    }
     logWarn(LOG_PREFIX, "write-cache-file-failed", {
       error: error instanceof Error ? error.message : String(error),
     });
+    return false;
+  }
+}
+
+function sleepForLock(milliseconds: number): void {
+  Atomics.wait(LOCK_WAIT_ARRAY, 0, 0, milliseconds);
+}
+
+function readCacheFileLockOwner(lockDirectory = CACHE_FILE_LOCK_DIR): string | null {
+  try {
+    const entries = fs.readdirSync(lockDirectory);
+    const ownerFiles = entries.filter((entry) => /^owner-[a-f0-9]{32}$/.test(entry));
+    if (ownerFiles.length !== 1) return null;
+    const ownerToken = fs.readFileSync(path.join(lockDirectory, ownerFiles[0]), "utf-8").trim();
+    if (!LOCK_OWNER_TOKEN_PATTERN.test(ownerToken)) return null;
+    return ownerFiles[0] === `owner-${ownerToken}` ? ownerToken : null;
+  } catch {
+    return null;
+  }
+}
+
+function quarantineStaleCacheFileLock(expectedOwner: string | null): void {
+  const quarantine = `${CACHE_FILE_LOCK_DIR}.stale-${randomBytes(8).toString("hex")}`;
+  try {
+    fs.renameSync(CACHE_FILE_LOCK_DIR, quarantine);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return;
+    throw error;
+  }
+
+  let stillStale = false;
+  try {
+    stillStale = Date.now() - fs.statSync(quarantine).mtimeMs >= LOCK_STALE_MS;
+  } catch {
+    return;
+  }
+  if (readCacheFileLockOwner(quarantine) === expectedOwner && stillStale) {
+    fs.rmSync(quarantine, { recursive: true, force: true });
+    return;
+  }
+
+  try {
+    fs.renameSync(quarantine, CACHE_FILE_LOCK_DIR);
+  } catch {
+    // A new owner already holds the canonical path. Keep the mismatched lock
+    // quarantined rather than deleting a lock we do not own.
+  }
+}
+
+function maybeRecoverStaleCacheFileLock(): void {
+  try {
+    const observedStat = fs.statSync(CACHE_FILE_LOCK_DIR);
+    const observedOwner = readCacheFileLockOwner();
+    if (Date.now() - observedStat.mtimeMs < LOCK_STALE_MS) return;
+    sleepForLock(CACHE_FILE_LOCK_WAIT_INTERVAL_MS);
+    const confirmedStat = fs.statSync(CACHE_FILE_LOCK_DIR);
+    const confirmedOwner = readCacheFileLockOwner();
+    if (
+      observedOwner === confirmedOwner
+      && Date.now() - confirmedStat.mtimeMs >= LOCK_STALE_MS
+    ) {
+      quarantineStaleCacheFileLock(confirmedOwner);
+      logInfo(LOG_PREFIX, "removed-stale-cache-file-lock", {});
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      logWarn(LOG_PREFIX, "recover-cache-file-lock-failed", {
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+    }
+  }
+}
+
+function acquireCacheFileLock(): CacheFileLock | null {
+  const ownerToken = randomBytes(16).toString("hex");
+  const ownerFile = path.join(CACHE_FILE_LOCK_DIR, `owner-${ownerToken}`);
+  const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
+  while (true) {
+    try {
+      ensureCacheDirs();
+      fs.mkdirSync(CACHE_FILE_LOCK_DIR, { mode: 0o700 });
+      try {
+        fs.writeFileSync(ownerFile, ownerToken, {
+          encoding: "utf-8",
+          flag: "wx",
+          mode: 0o600,
+        });
+      } catch (error) {
+        try {
+          fs.rmdirSync(CACHE_FILE_LOCK_DIR);
+        } catch {
+          // Preserve the owner-file error.
+        }
+        throw error;
+      }
+      return { ownerToken, ownerFile };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") {
+        logWarn(LOG_PREFIX, "acquire-cache-file-lock-failed", {
+          errorType: error instanceof Error ? error.constructor.name : typeof error,
+        });
+        return null;
+      }
+      maybeRecoverStaleCacheFileLock();
+      if (Date.now() >= deadline) {
+        logWarn(LOG_PREFIX, "cache-file-lock-timeout", {});
+        return null;
+      }
+      sleepForLock(CACHE_FILE_LOCK_WAIT_INTERVAL_MS);
+    }
+  }
+}
+
+function releaseCacheFileLock(lock: CacheFileLock | null): void {
+  if (!lock || readCacheFileLockOwner() !== lock.ownerToken) return;
+  try {
+    fs.unlinkSync(lock.ownerFile);
+    fs.rmdirSync(CACHE_FILE_LOCK_DIR);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      logWarn(LOG_PREFIX, "release-cache-file-lock-failed", {
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+    }
+  }
+}
+
+export interface QuotaCacheMaintenanceResult {
+  changed: boolean;
+  beforeCount: number;
+  afterCount: number;
+}
+
+export function maintainQuotaCache(): QuotaCacheMaintenanceResult {
+  const lock = acquireCacheFileLock();
+  if (!lock) return { changed: false, beforeCount: 0, afterCount: 0 };
+  try {
+    if (!fs.existsSync(CACHE_FILE)) {
+      return { changed: false, beforeCount: 0, afterCount: 0 };
+    }
+    const raw = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8")) as unknown;
+    const entries = typeof raw === "object" && raw !== null
+      && typeof (raw as { entries?: unknown }).entries === "object"
+      && (raw as { entries?: unknown }).entries !== null
+      ? (raw as { entries: Record<string, unknown> }).entries
+      : {};
+    const beforeCount = Object.keys(entries).length;
+    const normalized = normalizeCacheFile(raw);
+    const afterCount = Object.keys(normalized.entries).length;
+    const changed = JSON.stringify(raw) !== JSON.stringify(normalized);
+    if (changed) {
+      writeCacheFileUnlocked(normalized);
+    }
+    logInfo(LOG_PREFIX, "startup-maintenance", {
+      changed,
+      beforeCount,
+      afterCount,
+    });
+    return { changed, beforeCount, afterCount };
+  } catch (error) {
+    logWarn(LOG_PREFIX, "startup-maintenance-failed", {
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+    });
+    return { changed: false, beforeCount: 0, afterCount: 0 };
+  } finally {
+    releaseCacheFileLock(lock);
   }
 }
 
@@ -429,16 +644,26 @@ export function writeCachedQuotaSnapshot(account: QuotaCacheAccountLike, info: Q
   }
 
   const key = getCacheKey(account);
-  const cache = readCacheFile();
-  cache.entries[key] = {
-    version: CACHE_VERSION,
-    accountId: account.id,
-    accountName: account.name,
-    source: account.source,
-    queriedAt: new Date().toISOString(),
-    info: serializeQuotaInfo(info),
-  };
-  writeCacheFile(cache);
+  const scopeHash = getCacheScopeHash();
+  const lock = acquireCacheFileLock();
+  if (!lock) return;
+  try {
+    // The read belongs inside the process lock. Otherwise two extension hosts
+    // can both read the same snapshot and the last atomic rename loses one.
+    const cache = readCacheFile();
+    cache.entries[key] = {
+      version: CACHE_VERSION,
+      accountId: account.id,
+      accountName: account.name,
+      source: account.source,
+      scopeHash,
+      queriedAt: new Date().toISOString(),
+      info: serializeQuotaInfo(info),
+    };
+    writeCacheFileUnlocked(cache);
+  } finally {
+    releaseCacheFileLock(lock);
+  }
 }
 
 async function waitForCacheFromOtherProcess(key: string, minQueriedAtMs: number): Promise<CachedQuotaSnapshot | null> {
@@ -529,13 +754,13 @@ export async function queryQuotaWithCache(
           source: account.source,
           unavailableReason: result.info.unavailableReason.code,
           statusCode: result.info.unavailableReason.statusCode,
-          message: result.info.unavailableReason.message,
         });
         return {
           kind: "ok",
           displayName: account.name,
           info: cached.info,
-          fallbackErrorMessage: result.info.unavailableReason.message,
+          fallbackRefreshFailed: true,
+          fallbackReasonCode: result.info.unavailableReason.code,
           fallbackStatusCode: result.info.unavailableReason.statusCode,
           fallbackReloginRequired: result.info.unavailableReason.code === "relogin_required",
           usedCachedQuota: true,
@@ -548,14 +773,13 @@ export async function queryQuotaWithCache(
         account: account.name,
         source: account.source,
         resultKind: result.kind,
-        message: result.message,
         cacheAgeMs: cachedSnapshot ? Date.now() - cachedSnapshot.queriedAtMs : null,
       });
       return {
         kind: "ok",
         displayName: account.name,
         info: cached.info,
-        fallbackErrorMessage: result.message,
+        fallbackRefreshFailed: true,
         usedCachedQuota: true,
       };
     }
@@ -566,7 +790,6 @@ export async function queryQuotaWithCache(
       logWarn(LOG_PREFIX, "fallback-to-cache-after-query-error", {
         account: account.name,
         source: account.source,
-        error: error instanceof Error ? error.message : String(error),
         cacheAgeMs: cachedSnapshot ? Date.now() - cachedSnapshot.queriedAtMs : null,
         errorType: error instanceof Error ? error.constructor.name : typeof error,
       });
@@ -574,7 +797,7 @@ export async function queryQuotaWithCache(
         kind: "ok",
         displayName: account.name,
         info: cached.info,
-        fallbackErrorMessage: error instanceof Error ? error.message : String(error),
+        fallbackRefreshFailed: true,
         fallbackReloginRequired: isReloginRequiredRefreshError(error),
         usedCachedQuota: true,
       };

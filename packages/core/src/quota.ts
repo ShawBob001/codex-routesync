@@ -73,9 +73,19 @@ interface HttpErrorLike {
   message?: string;
 }
 
+function quotaRequestDiagnostic(error: unknown): string {
+  const statusCode = (error as HttpErrorLike | null)?.statusCode;
+  if (typeof statusCode === "number") {
+    return `HTTP ${statusCode}`;
+  }
+  return error instanceof Error ? error.constructor.name : typeof error;
+}
+
 export interface QuotaPerformanceOptions {
   performanceMode?: "summary" | "adaptive";
   slowThresholdMs?: number;
+  /** Undefined uses proxy environment variables; null forces a direct request. */
+  proxyUrl?: string | null;
 }
 
 type AuthUpdateHook = (auth: AuthFile) => void | Promise<void>;
@@ -182,10 +192,16 @@ function createProxyAgent(rawProxyUrl: string): https.Agent {
   }
 }
 
-function httpsGet(url: string, headers: Record<string, string>): Promise<string> {
+function httpsGet(
+  url: string,
+  headers: Record<string, string>,
+  explicitProxyUrl?: string | null,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
-    const proxyUrl = proxyForUrl(parsed);
+    const proxyUrl = explicitProxyUrl === undefined
+      ? proxyForUrl(parsed)
+      : explicitProxyUrl;
     const options = {
       hostname: parsed.hostname,
       port: parsed.port ? Number(parsed.port) : defaultPort(parsed.protocol),
@@ -249,7 +265,7 @@ async function fetchUsageApi(
   };
 
   try {
-    const raw = await httpsGet(USAGE_URL, headers);
+    const raw = await httpsGet(USAGE_URL, headers, options.proxyUrl);
     perf.mark("usage-request");
     const parsed = JSON.parse(raw) as UsageApiResponse;
     perf.mark("parse-usage-response");
@@ -263,12 +279,12 @@ async function fetchUsageApi(
       perf.mark("usage-request-auth-error", {
         statusCode: httpErr.statusCode,
       });
-      perf.fail(err, {
+      perf.fail(quotaRequestDiagnostic(err), {
         authError: true,
       });
       throw err;
     }
-    perf.fail(err);
+    perf.fail(quotaRequestDiagnostic(err));
     throw err;
   }
 }

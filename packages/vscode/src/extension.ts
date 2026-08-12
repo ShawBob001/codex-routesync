@@ -27,6 +27,7 @@ import {
 import { shareHistoryAcrossProviders } from "./sharedHistory";
 import { UsageService } from "./tokenUsage";
 import { knownUsageSubjects } from "./usageSubjects";
+import { maintainQuotaCache } from "./quotaCache";
 
 const LOG_PREFIX = "[codex-switchbridge:vscode:extension]";
 const CONFLICTING_EXTENSION_IDS = [
@@ -120,6 +121,7 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   applyNamedAuthDirSetting();
   applyDiagnosticLogSettings();
+  maintainQuotaCache();
   await initializeSavedEntries(context);
   await restoreSavedAuthPassphrase(context, {
     promptIfMissing: true,
@@ -181,6 +183,8 @@ export async function activate(context: vscode.ExtensionContext) {
             || event.affectsConfiguration("codex-switchbridge.defaultSaveTarget")
             || event.affectsConfiguration("codex-switchbridge.syncedStorage")
             || event.affectsConfiguration("codex-switchbridge.language")
+            || event.affectsConfiguration("codex-switchbridge.proxy")
+            || event.affectsConfiguration("http.proxy")
           ) {
             listener();
           }
@@ -237,12 +241,16 @@ export async function activate(context: vscode.ExtensionContext) {
       || e.affectsConfiguration("codex-switchbridge.detailedPerformanceLogging")
       || e.affectsConfiguration("codex-switchbridge.shareHistoryAcrossProviders")
       || e.affectsConfiguration("codex-switchbridge.syncedStorage")
+      || e.affectsConfiguration("codex-switchbridge.proxy")
+      || e.affectsConfiguration("http.proxy")
     ) {
       logInfo(LOG_PREFIX, "configuration-changed", {
         authDirectory: e.affectsConfiguration("codex-switchbridge.authDirectory"),
         defaultSaveTarget: e.affectsConfiguration("codex-switchbridge.defaultSaveTarget"),
         detailedPerformanceLogging: e.affectsConfiguration("codex-switchbridge.detailedPerformanceLogging"),
         shareHistoryAcrossProviders: e.affectsConfiguration("codex-switchbridge.shareHistoryAcrossProviders"),
+        quotaProxy: e.affectsConfiguration("codex-switchbridge.proxy")
+          || e.affectsConfiguration("http.proxy"),
       });
       applyNamedAuthDirSetting();
       applyDiagnosticLogSettings();

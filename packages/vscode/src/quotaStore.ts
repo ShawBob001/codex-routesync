@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import {
   isReloginRequiredRefreshError,
   QuotaInfo,
+  QuotaUnavailableCode,
   RELOGIN_REQUIRED_MESSAGE,
 } from "@codex-switchbridge/core";
 import {
@@ -34,6 +35,7 @@ export interface AccountQuotaState {
   loading: boolean;
   errorMessage: string | null;
   errorStatusCode: number | null;
+  fallbackReasonCode: QuotaUnavailableCode | null;
   refreshAttemptedAt: number | null;
   queriedAt: number | null;
   provenance: QuotaProvenance;
@@ -134,6 +136,7 @@ export class QuotaStore implements vscode.Disposable {
         loading: false,
         errorMessage: null,
         errorStatusCode: null,
+        fallbackReasonCode: null,
         refreshAttemptedAt: previous?.refreshAttemptedAt ?? null,
         queriedAt: cached.queriedAtMs,
         provenance: "hydrated-cache",
@@ -188,6 +191,7 @@ export class QuotaStore implements vscode.Disposable {
         loading: true,
         errorMessage: null,
         errorStatusCode: null,
+        fallbackReasonCode: null,
         refreshAttemptedAt: attemptedAt,
         queriedAt: previous?.queriedAt ?? null,
         provenance: previous?.provenance ?? null,
@@ -235,6 +239,7 @@ export class QuotaStore implements vscode.Disposable {
         if (result.usedCachedQuota === true) cacheReuseCount += 1;
         resultKind = result.kind;
         resultSource = (result as { source?: string }).source ?? "direct";
+        logQuotaResult(result);
         if (!this.isCurrent(account.id, generation)) {
           accountPerf.finish({ resultKind, source: resultSource, durationMs, stale: true });
           return;
@@ -324,6 +329,7 @@ export class QuotaStore implements vscode.Disposable {
         loading: false,
         errorMessage: result.message,
         errorStatusCode: null,
+        fallbackReasonCode: null,
         refreshAttemptedAt: attemptedAt,
         reloginRequired,
         reloginMessage: reloginRequired ? RELOGIN_REQUIRED_MESSAGE : previous.reloginMessage,
@@ -333,10 +339,13 @@ export class QuotaStore implements vscode.Disposable {
     }
 
     const usedCache = result.usedCachedQuota === true;
-    const fallbackError = result.fallbackErrorMessage ?? null;
+    const fallbackReasonCode = safeQuotaUnavailableCode(result.fallbackReasonCode);
+    const fallbackStatusCode = safeHttpStatusCode(result.fallbackStatusCode);
     const isFallback = usedCache && (
-      fallbackError !== null
-      || typeof result.fallbackStatusCode === "number"
+      result.fallbackRefreshFailed === true
+      || result.fallbackErrorMessage != null
+      || fallbackReasonCode !== null
+      || fallbackStatusCode !== null
       || result.fallbackReloginRequired === true
     );
     let cached: CachedQuotaSnapshot | null = null;
@@ -354,8 +363,9 @@ export class QuotaStore implements vscode.Disposable {
       accountId: account.id,
       info: cloneQuotaInfo(result.info),
       loading: false,
-      errorMessage: fallbackError,
-      errorStatusCode: result.fallbackStatusCode ?? null,
+      errorMessage: isFallback ? "Refresh failed" : null,
+      errorStatusCode: fallbackStatusCode,
+      fallbackReasonCode,
       refreshAttemptedAt: attemptedAt,
       queriedAt: usedCache && cached ? cached.queriedAtMs : this.dependencies.now(),
       provenance: usedCache ? (isFallback ? "cache-fallback" : "cache-reuse") : "network",
@@ -374,6 +384,7 @@ export class QuotaStore implements vscode.Disposable {
       loading: false,
       errorMessage: error instanceof Error ? error.message : String(error),
       errorStatusCode: null,
+      fallbackReasonCode: null,
       refreshAttemptedAt: attemptedAt,
       reloginRequired,
       reloginMessage: reloginRequired ? RELOGIN_REQUIRED_MESSAGE : previous.reloginMessage,
@@ -406,6 +417,31 @@ export class QuotaStore implements vscode.Disposable {
   }
 }
 
+function logQuotaResult(result: QuotaQueryResultWithFallbackMetadata): void {
+  if (result.kind !== "ok") {
+    logInfo(LOG_PREFIX, "quota-result", {
+      resultKind: result.kind,
+      unavailableReason: null,
+      statusCode: null,
+    });
+    return;
+  }
+
+  const fallbackReasonCode = result.usedCachedQuota === true
+    ? safeQuotaUnavailableCode(result.fallbackReasonCode)
+    : null;
+  const fallbackStatusCode = result.usedCachedQuota === true
+    ? safeHttpStatusCode(result.fallbackStatusCode)
+    : null;
+  logInfo(LOG_PREFIX, "quota-result", {
+    resultKind: result.kind,
+    unavailableReason: fallbackReasonCode
+      ?? safeQuotaUnavailableCode(result.info.unavailableReason?.code),
+    statusCode: fallbackStatusCode
+      ?? safeHttpStatusCode(result.info.unavailableReason?.statusCode),
+  });
+}
+
 function emptyState(accountId: string): AccountQuotaState {
   return {
     accountId,
@@ -413,6 +449,7 @@ function emptyState(accountId: string): AccountQuotaState {
     loading: false,
     errorMessage: null,
     errorStatusCode: null,
+    fallbackReasonCode: null,
     refreshAttemptedAt: null,
     queriedAt: null,
     provenance: null,
@@ -431,12 +468,29 @@ function cloneState(state: AccountQuotaState): AccountQuotaState {
 }
 
 function formatCacheReason(result: QuotaQueryResultWithFallbackMetadata): string | null {
-  if (typeof result.fallbackStatusCode === "number") {
-    return result.fallbackErrorMessage
-      ? `HTTP ${result.fallbackStatusCode}: ${result.fallbackErrorMessage}`
-      : `HTTP ${result.fallbackStatusCode}`;
-  }
-  return result.fallbackErrorMessage ?? null;
+  const statusCode = safeHttpStatusCode(result.fallbackStatusCode);
+  return statusCode === null ? "Refresh failed" : `HTTP ${statusCode}`;
+}
+
+const QUOTA_UNAVAILABLE_CODES = new Set<QuotaUnavailableCode>([
+  "workspace_deactivated",
+  "missing_auth_tokens",
+  "invalid_auth_token",
+  "relogin_required",
+  "quota_token_rejected",
+  "request_failed",
+]);
+
+function safeQuotaUnavailableCode(value: unknown): QuotaUnavailableCode | null {
+  return typeof value === "string" && QUOTA_UNAVAILABLE_CODES.has(value as QuotaUnavailableCode)
+    ? value as QuotaUnavailableCode
+    : null;
+}
+
+function safeHttpStatusCode(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 599
+    ? value
+    : null;
 }
 
 async function runWithConcurrency<T>(

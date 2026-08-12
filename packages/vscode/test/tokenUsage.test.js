@@ -107,6 +107,10 @@ function subject(kind, identity, label, legacyProviderIds) {
   };
 }
 
+function sumHistoryTokens(history, field = "totalTokens") {
+  return history.days.reduce((sum, day) => sum + day.total[field], history.undated[field]);
+}
+
 test("stable subject IDs are deterministic, opaque, and kind-specific", () => {
   const account = stableSubjectId("account", "account-123");
   assert.equal(account, stableSubjectId("account", "account-123"));
@@ -167,6 +171,176 @@ test("reverse bootstrap reads the last valid cumulative total and reuses fingerp
   assert.equal(second.total.totalTokens, 120);
   assert.equal(second.scan.rescannedFiles, 0);
   assert.equal(second.scan.reusedFiles, 1);
+  service.dispose();
+});
+
+test("usage history assigns timestamped increments to UTC days and active subjects", async () => {
+  const codexHome = tempCodexHome();
+  const account = subject("account", "daily-account", "Daily account");
+  const provider = subject("provider", "daily-provider", "Daily provider");
+  const initializedAt = Date.parse("2026-08-10T22:00:00.000Z");
+  const accountAt = Date.parse("2026-08-10T23:00:00.000Z");
+  const providerAt = Date.parse("2026-08-11T00:10:00.000Z");
+  let now = initializedAt;
+  const service = new UsageService({
+    codexHome,
+    memento: new MemoryMemento(),
+    knownSubjects: [account, provider],
+    now: () => now,
+    heartbeatIntervalMs: 0,
+    inactiveGapMs: 3 * 60 * 60 * 1_000,
+  });
+  await service.initialize();
+  now = accountAt;
+  await service.recordSelection(account);
+  now = providerAt;
+  await service.recordSelection(provider);
+  writeSession(codexHome, "sessions", "daily-history", [
+    sessionMeta("daily-history-thread", Date.parse("2026-08-10T23:30:00.000Z")),
+    tokenCount(100, Date.parse("2026-08-10T23:59:59.999Z")),
+    tokenCount(160, Date.parse("2026-08-11T00:15:00.000Z")),
+  ]);
+
+  now = Date.parse("2026-08-11T01:00:00.000Z");
+  const snapshot = await service.refresh();
+  assert.deepEqual(snapshot.history.days.map((day) => day.date), ["2026-08-10", "2026-08-11"]);
+  assert.equal(snapshot.history.days[0].total.totalTokens, 100);
+  assert.equal(snapshot.history.days[0].estimated.totalTokens, 0);
+  assert.equal(snapshot.history.days[0].estimatedUnattributed.totalTokens, 0);
+  assert.equal(snapshot.history.days[0].unattributed.totalTokens, 0);
+  assert.deepEqual(
+    snapshot.history.days[0].subjects.map((entry) => [
+      entry.id,
+      entry.tokens.totalTokens,
+      entry.estimated.totalTokens,
+    ]),
+    [[account.id, 100, 0]],
+  );
+  assert.equal(snapshot.history.days[1].total.totalTokens, 60);
+  assert.equal(snapshot.history.days[1].estimated.totalTokens, 0);
+  assert.equal(snapshot.history.days[1].estimatedUnattributed.totalTokens, 0);
+  assert.equal(snapshot.history.days[1].unattributed.totalTokens, 0);
+  assert.deepEqual(
+    snapshot.history.days[1].subjects.map((entry) => [
+      entry.id,
+      entry.tokens.totalTokens,
+      entry.estimated.totalTokens,
+    ]),
+    [[provider.id, 60, 0]],
+  );
+  assert.equal(snapshot.history.undated.totalTokens, 0);
+  assert.equal(sumHistoryTokens(snapshot.history), snapshot.total.totalTokens);
+  service.dispose();
+});
+
+test("usage history estimates historical and undated increments on the last observed UTC day", async () => {
+  const codexHome = tempCodexHome();
+  const relay = subject("provider", "historical-relay", "Historical relay", ["relay"]);
+  const initializedAt = Date.parse("2026-08-10T00:00:00.000Z");
+  writeSession(codexHome, "sessions", "historical-daily", [
+    sessionMeta("historical-daily-thread", Date.parse("2026-08-01T12:00:00.000Z"), "relay"),
+    tokenCount(75, Date.parse("2026-08-03T04:05:06.000Z")),
+  ]);
+  let now = initializedAt;
+  const memento = new MemoryMemento();
+  const service = new UsageService({
+    codexHome,
+    memento,
+    knownSubjects: [relay],
+    now: () => now,
+    heartbeatIntervalMs: 0,
+  });
+  await service.initialize();
+  writeSession(codexHome, "sessions", "undated-increment", [
+    sessionMeta("undated-increment-thread", Date.parse("2026-08-11T10:00:00.000Z")),
+    tokenCount(25, undefined),
+  ]);
+
+  now = Date.parse("2026-08-12T00:00:00.000Z");
+  const snapshot = await service.refresh();
+  assert.deepEqual(snapshot.history.days.map((day) => day.date), ["2026-08-03", "2026-08-11"]);
+  assert.equal(snapshot.history.days[0].total.totalTokens, 75);
+  assert.equal(snapshot.history.days[0].estimated.totalTokens, 75);
+  assert.equal(snapshot.history.days[0].estimatedUnattributed.totalTokens, 0);
+  assert.deepEqual(
+    snapshot.history.days[0].subjects.map((entry) => [
+      entry.id,
+      entry.tokens.totalTokens,
+      entry.estimated.totalTokens,
+    ]),
+    [[relay.id, 75, 75]],
+  );
+  assert.equal(snapshot.history.days[1].total.totalTokens, 25);
+  assert.equal(snapshot.history.days[1].estimated.totalTokens, 25);
+  assert.equal(snapshot.history.days[1].estimatedUnattributed.totalTokens, 25);
+  assert.equal(snapshot.history.days[1].unattributed.totalTokens, 25);
+  for (const field of [
+    "inputTokens",
+    "cachedInputTokens",
+    "outputTokens",
+    "reasoningOutputTokens",
+    "totalTokens",
+  ]) {
+    assert.equal(sumHistoryTokens(snapshot.history, field), snapshot.total[field]);
+  }
+  assert.equal(memento.value.version, 2);
+  assert.equal(Object.hasOwn(memento.value, "history"), false, "derived history must not be persisted");
+
+  snapshot.history.days[0].total.totalTokens = 999_999;
+  assert.equal(service.getSnapshot().history.days[0].total.totalTokens, 75);
+  service.dispose();
+});
+
+test("usage history conserves records whose timestamps cannot form a UTC date as undated", async () => {
+  const codexHome = tempCodexHome();
+  writeSession(codexHome, "sessions", "invalid-calendar-date", [
+    sessionMeta("invalid-calendar-date-thread", Number.MAX_VALUE),
+    tokenCount(10, undefined),
+  ]);
+  const service = new UsageService({
+    codexHome,
+    memento: new MemoryMemento(),
+    now: () => 0,
+    heartbeatIntervalMs: 0,
+  });
+
+  const snapshot = await service.initialize();
+  assert.deepEqual(snapshot.history.days, []);
+  assert.deepEqual(snapshot.history.undated, snapshot.total);
+  assert.equal(sumHistoryTokens(snapshot.history), snapshot.total.totalTokens);
+  service.dispose();
+});
+
+test("usage history changes notify listeners even when cumulative totals stay unchanged", async () => {
+  const codexHome = tempCodexHome();
+  let now = Date.parse("2026-08-01T00:00:00.000Z");
+  const service = new UsageService({
+    codexHome,
+    memento: new MemoryMemento(),
+    now: () => now,
+    heartbeatIntervalMs: 0,
+  });
+  await service.initialize();
+  const rollout = writeSession(codexHome, "sessions", "history-signature", [
+    sessionMeta("history-signature-thread", Date.parse("2026-08-02T00:00:00.000Z")),
+    tokenCount(50, Date.parse("2026-08-02T12:00:00.000Z")),
+  ]);
+  await service.refresh();
+  let changes = 0;
+  const disposable = service.onDidChange(() => { changes += 1; });
+  const movedToken = tokenCount(50, Date.parse("2026-08-03T12:00:00.000Z"));
+  movedToken.payload.padding = "fingerprint-change";
+  fs.writeFileSync(
+    rollout,
+    `${JSON.stringify(sessionMeta("history-signature-thread", Date.parse("2026-08-02T00:00:00.000Z")))}\n${JSON.stringify(movedToken)}\n`,
+    "utf8",
+  );
+
+  now = Date.parse("2026-08-04T00:00:00.000Z");
+  const snapshot = await service.refresh();
+  assert.deepEqual(snapshot.history.days.map((day) => day.date), ["2026-08-03"]);
+  assert.ok(changes > 0, "history-only changes must update dashboard listeners");
+  disposable.dispose();
   service.dispose();
 });
 

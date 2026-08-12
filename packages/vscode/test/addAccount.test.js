@@ -757,9 +757,10 @@ function createVscodeMock(options) {
     },
     workspace: {
       getConfiguration(section) {
-        assert.equal(section, "codex-switchbridge");
+        assert.ok(section === "codex-switchbridge" || section === "http");
         return {
           get(key, defaultValue) {
+            if (section === "http") return defaultValue;
             if (key === "syncedStorage" && options.legacyConfigurationSyncedStorage) {
               return legacySyncedStorage;
             }

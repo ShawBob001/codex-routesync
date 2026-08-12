@@ -40,6 +40,26 @@ export interface SubjectTokenUsage extends UsageSubject {
   tokens: TokenTotals;
 }
 
+export interface DailySubjectTokenUsage {
+  id: string;
+  tokens: TokenTotals;
+  estimated: TokenTotals;
+}
+
+export interface DailyTokenUsage {
+  date: string;
+  total: TokenTotals;
+  unattributed: TokenTotals;
+  estimated: TokenTotals;
+  estimatedUnattributed: TokenTotals;
+  subjects: DailySubjectTokenUsage[];
+}
+
+export interface UsageHistory {
+  days: DailyTokenUsage[];
+  undated: TokenTotals;
+}
+
 export interface UsageSnapshot {
   updatedAt: number;
   trackingStartedAt: number | null;
@@ -50,6 +70,7 @@ export interface UsageSnapshot {
   total: TokenTotals;
   unattributed: TokenTotals;
   subjects: SubjectTokenUsage[];
+  history: UsageHistory;
   scan: {
     discoveredFiles: number;
     rescannedFiles: number;
@@ -615,28 +636,46 @@ export class UsageService {
     const total = zeroTokens();
     const unattributed = zeroTokens();
     const subjectUsage = new Map<string, { threads: Set<string>; tokens: TokenTotals }>();
+    const historyDays = new Map<string, MutableDailyTokenUsage>();
+    const undated = zeroTokens();
     for (const record of byThread.values()) {
       addTokens(total, record.tokens);
       const allocated = zeroTokens();
-      const attribute = (tokens: TokenTotals, subjectId: string | null): void => {
+      const attribute = (
+        tokens: TokenTotals,
+        subjectId: string | null,
+        timestamp: number | null,
+        estimated: boolean,
+      ): void => {
         if (!hasTokens(tokens)) return;
         addTokens(allocated, tokens);
-        if (!subjectId) {
+        const resolved = subjectId ? this.resolveSubjectId(subjectId) : null;
+        if (!resolved) {
           addTokens(unattributed, tokens);
-          return;
+        } else {
+          const usage = subjectUsage.get(resolved) ?? { threads: new Set(), tokens: zeroTokens() };
+          usage.threads.add(record.threadKey);
+          addTokens(usage.tokens, tokens);
+          subjectUsage.set(resolved, usage);
         }
-        const resolved = this.resolveSubjectId(subjectId);
-        const usage = subjectUsage.get(resolved) ?? { threads: new Set(), tokens: zeroTokens() };
-        usage.threads.add(record.threadKey);
-        addTokens(usage.tokens, tokens);
-        subjectUsage.set(resolved, usage);
+        addHistoryTokens(historyDays, undated, tokens, resolved, timestamp, estimated);
       };
-      attribute(record.historicalTokens, this.historicalSubject(record, legacySubjects));
+      attribute(
+        record.historicalTokens,
+        this.historicalSubject(record, legacySubjects),
+        record.observedAt,
+        true,
+      );
       for (const increment of record.increments) {
-        attribute(increment.tokens, this.subjectAt(increment.at, record, legacySubjects));
+        attribute(
+          increment.tokens,
+          this.subjectAt(increment.at, record, legacySubjects),
+          increment.at ?? record.observedAt,
+          increment.at === null,
+        );
       }
       const remainder = subtractFloor(record.tokens, allocated);
-      if (hasTokens(remainder)) addTokens(unattributed, remainder);
+      if (hasTokens(remainder)) attribute(remainder, null, record.observedAt, true);
     }
 
     const allSubjectIds = new Set<string>();
@@ -672,6 +711,12 @@ export class UsageService {
       total,
       unattributed,
       subjects,
+      history: {
+        days: [...historyDays.values()]
+          .sort((left, right) => left.date.localeCompare(right.date))
+          .map(projectDailyTokenUsage),
+        undated,
+      },
       scan: { ...scan },
     };
     if (before !== snapshotUsageSignature(this.snapshot)) this.emit();
@@ -2235,6 +2280,84 @@ function safeSum(left: number, right: number): number {
   return Math.min(Number.MAX_SAFE_INTEGER, left + right);
 }
 
+interface MutableDailyTokenUsage {
+  date: string;
+  total: TokenTotals;
+  unattributed: TokenTotals;
+  estimated: TokenTotals;
+  estimatedUnattributed: TokenTotals;
+  subjects: Map<string, { tokens: TokenTotals; estimated: TokenTotals }>;
+}
+
+function addHistoryTokens(
+  days: Map<string, MutableDailyTokenUsage>,
+  undated: TokenTotals,
+  tokens: Readonly<TokenTotals>,
+  subjectId: string | null,
+  timestamp: number | null,
+  estimated: boolean,
+): void {
+  const date = utcDate(timestamp);
+  if (!date) {
+    addTokens(undated, tokens);
+    return;
+  }
+  let day = days.get(date);
+  if (!day) {
+    day = {
+      date,
+      total: zeroTokens(),
+      unattributed: zeroTokens(),
+      estimated: zeroTokens(),
+      estimatedUnattributed: zeroTokens(),
+      subjects: new Map(),
+    };
+    days.set(date, day);
+  }
+  addTokens(day.total, tokens);
+  if (estimated) addTokens(day.estimated, tokens);
+  if (!subjectId) {
+    addTokens(day.unattributed, tokens);
+    if (estimated) addTokens(day.estimatedUnattributed, tokens);
+    return;
+  }
+  const subject = day.subjects.get(subjectId) ?? {
+    tokens: zeroTokens(),
+    estimated: zeroTokens(),
+  };
+  addTokens(subject.tokens, tokens);
+  if (estimated) addTokens(subject.estimated, tokens);
+  day.subjects.set(subjectId, subject);
+}
+
+function utcDate(timestamp: number | null): string | null {
+  if (timestamp === null) return null;
+  try {
+    return new Date(timestamp).toISOString().slice(0, 10);
+  } catch {
+    return null;
+  }
+}
+
+function projectDailyTokenUsage(day: MutableDailyTokenUsage): DailyTokenUsage {
+  return {
+    date: day.date,
+    total: cloneTokens(day.total),
+    unattributed: cloneTokens(day.unattributed),
+    estimated: cloneTokens(day.estimated),
+    estimatedUnattributed: cloneTokens(day.estimatedUnattributed),
+    subjects: [...day.subjects]
+      .map(([id, usage]) => ({
+        id,
+        tokens: cloneTokens(usage.tokens),
+        estimated: cloneTokens(usage.estimated),
+      }))
+      .sort((left, right) => (
+        right.tokens.totalTokens - left.tokens.totalTokens || left.id.localeCompare(right.id)
+      )),
+  };
+}
+
 function emptySnapshot(): UsageSnapshot {
   return {
     updatedAt: 0,
@@ -2246,6 +2369,7 @@ function emptySnapshot(): UsageSnapshot {
     total: zeroTokens(),
     unattributed: zeroTokens(),
     subjects: [],
+    history: { days: [], undated: zeroTokens() },
     scan: {
       discoveredFiles: 0,
       rescannedFiles: 0,
@@ -2267,6 +2391,21 @@ function cloneSnapshot(snapshot: UsageSnapshot): UsageSnapshot {
       ...(subject.legacyProviderIds ? { legacyProviderIds: [...subject.legacyProviderIds] } : {}),
       tokens: cloneTokens(subject.tokens),
     })),
+    history: {
+      days: snapshot.history.days.map((day) => ({
+        ...day,
+        total: cloneTokens(day.total),
+        unattributed: cloneTokens(day.unattributed),
+        estimated: cloneTokens(day.estimated),
+        estimatedUnattributed: cloneTokens(day.estimatedUnattributed),
+        subjects: day.subjects.map((subject) => ({
+          ...subject,
+          tokens: cloneTokens(subject.tokens),
+          estimated: cloneTokens(subject.estimated),
+        })),
+      })),
+      undated: cloneTokens(snapshot.history.undated),
+    },
     scan: { ...snapshot.scan },
   };
 }
@@ -2287,6 +2426,7 @@ function snapshotUsageSignature(snapshot: UsageSnapshot): string {
       sessionCount,
       tokens,
     })),
+    history: snapshot.history,
   });
 }
 
