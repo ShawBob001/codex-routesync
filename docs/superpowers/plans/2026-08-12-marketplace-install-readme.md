@@ -25,11 +25,16 @@ const assert = require("node:assert/strict");
 const files = ["README.md", "packages/vscode/README.md"];
 const marketplace = "https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge";
 const extensionId = "@id:baoshichao001-dev.codex-switchbridge";
+const safeVsix = "codex-switchbridge-VERSION.vsix";
+const unsafeVsix = "codex-switchbridge-<version>.vsix";
 for (const file of files) {
   const text = fs.readFileSync(file, "utf8");
   assert.ok(text.includes(marketplace), `${file}: Marketplace URL missing`);
   assert.ok(text.includes(extensionId), `${file}: extension ID missing`);
   assert.doesNotMatch(text, /codex-switchbridge-0\.3\.0\.vsix/);
+  assert.ok(text.includes(safeVsix), `${file}: shell-safe VSIX placeholder missing`);
+  assert.ok(!text.includes(unsafeVsix), `${file}: unsafe shell-redirection placeholder found`);
+  assert.match(text, /Replace VERSION with the version in the downloaded filename\./);
 }
 const root = fs.readFileSync("README.md", "utf8");
 assert.match(root, /visual studio marketplace/i);
@@ -54,8 +59,10 @@ Replace the VS Code quick-start body with concise instructions in this order:
 
 For offline installation, download the latest `.vsix` from [GitHub Releases](https://github.com/baoshichao001-dev/codex-switchbridge/releases), then run **Extensions: Install from VSIX...** or:
 
+Replace VERSION with the version in the downloaded filename.
+
 ```bash
-code --install-extension codex-switchbridge-<version>.vsix
+code --install-extension codex-switchbridge-VERSION.vsix
 ```
 ```
 
@@ -71,20 +78,28 @@ Read both edited sections aloud as technical instructions. Remove promotional fi
 
 Run the Node script from Step 1 again.
 
-Expected: exit 0 with no output.
+Expected: exit 0 with no output. Both README files contain the shell-safe `codex-switchbridge-VERSION.vsix` placeholder and reject `codex-switchbridge-<version>.vsix`.
 
-- [ ] **Step 6: Verify Markdown destinations respond**
+- [ ] **Step 6: Verify the VSIX example does not invoke shell redirection**
 
 ```bash
-curl -fsSIL -o /dev/null \
+bash -c 'code(){ :; }; code --install-extension codex-switchbridge-VERSION.vsix'
+```
+
+Expected: exit 0. Do not substitute `bash -n`; shell syntax validation accepts redirections and would not catch the unsafe placeholder.
+
+- [ ] **Step 7: Verify Markdown destinations respond**
+
+```bash
+curl -fsSL -A 'Mozilla/5.0' -o /dev/null -w '%{http_code}\n' \
   'https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge'
-curl -fsSIL -o /dev/null \
+curl -fsSL -A 'Mozilla/5.0' -o /dev/null -w '%{http_code}\n' \
   'https://github.com/baoshichao001-dev/codex-switchbridge/releases'
 ```
 
-Expected: both commands exit 0 after redirects.
+Expected: both commands exit 0 and print `200`. The Marketplace route returns 404 to HEAD requests, so this check uses GET.
 
-- [ ] **Step 7: Commit documentation**
+- [ ] **Step 8: Commit documentation**
 
 ```bash
 git add README.md packages/vscode/README.md

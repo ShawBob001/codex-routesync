@@ -20,7 +20,7 @@ The VS Code quick-start section in both `README.md` and `packages/vscode/README.
 2. In VS Code, open Extensions and search for `Codex SwitchBridge` or `@id:baoshichao001-dev.codex-switchbridge`.
 3. Use the latest VSIX from GitHub Releases only for offline or manual installation.
 
-The instructions will not hard-code a VSIX version in prose or commands. A shell example will use `codex-switchbridge-<version>.vsix` so future releases do not make the README inaccurate.
+The instructions will not hard-code a VSIX version in prose or commands. The shell example will use `codex-switchbridge-VERSION.vsix`, and the text will tell readers to replace `VERSION` with the version in the downloaded filename. The placeholder must not use angle brackets because an unquoted `<` is shell redirection.
 
 ## Repository Metadata
 
@@ -35,6 +35,8 @@ Verification requires:
 - both README files contain the exact Marketplace item URL and extension ID;
 - the root README contains the Marketplace badge and direct install link;
 - neither README names the stale `codex-switchbridge-0.3.0.vsix` artifact;
+- both README files use the shell-safe `codex-switchbridge-VERSION.vsix` placeholder and explain how to replace `VERSION`;
+- neither README contains the unsafe `codex-switchbridge-<version>.vsix` form;
 - Markdown links use public HTTPS targets;
 - the Marketplace public API reports version 0.3.1 and VSIX SHA-256 `7639ace6f827f57a7e773762f78c252c692de1ad63c96af855bf3b3b31015971` at the time of the change;
 - GitHub reports its homepage field as the Marketplace item URL after merge.
