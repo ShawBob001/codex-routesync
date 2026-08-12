@@ -3,6 +3,8 @@ const assert = require("node:assert/strict");
 const Module = require("node:module");
 
 const originalLoad = Module._load;
+const outputLines = [];
+let detailedPerformanceLogging = false;
 
 class EventEmitter {
   constructor() {
@@ -28,15 +30,19 @@ Module._load = function mockVscode(request, parent, isMain) {
       EventEmitter,
       workspace: {
         getConfiguration() {
-          return { get: (_key, fallback) => fallback };
+          return {
+            get: (key, fallback) => (
+              key === "detailedPerformanceLogging" ? detailedPerformanceLogging : fallback
+            ),
+          };
         },
       },
       window: {
         createOutputChannel() {
           return {
-            info() {},
-            warn() {},
-            error() {},
+            info(line) { outputLines.push(line); },
+            warn(line) { outputLines.push(line); },
+            error(line) { outputLines.push(line); },
             show() {},
             dispose() {},
           };
@@ -410,4 +416,47 @@ test("normalizes non-finite concurrency without leaving accounts loading", async
   });
   assert.equal([...store.getSnapshot().byAccountId.values()].every((state) => !state.loading), true);
   assert.equal(maximum, 4);
+});
+
+test("finishes stale request timers without logging account identifiers", async () => {
+  const secretAccount = {
+    ...accountA,
+    id: "local:secret-account-id",
+    name: "secret-account@example.com",
+  };
+  const first = deferred();
+  const second = deferred();
+  let calls = 0;
+  const originalDateNow = Date.now;
+  let clock = 1700000100000;
+  detailedPerformanceLogging = true;
+  outputLines.length = 0;
+  Date.now = () => {
+    clock += 4000;
+    return clock;
+  };
+
+  try {
+    const store = new QuotaStore({
+      getCachedQuota: () => null,
+      queryQuota: async () => (++calls === 1 ? first.promise : second.promise),
+    });
+    const options = { snapshot: snapshot([secretAccount]), reason: "manual" };
+    const oldRefresh = store.refreshQuota([secretAccount.id], options);
+    const newRefresh = store.refreshQuota([secretAccount.id], options);
+    second.resolve({ kind: "ok", displayName: secretAccount.name, info: quotaInfo(20) });
+    await newRefresh;
+    first.resolve({ kind: "ok", displayName: secretAccount.name, info: quotaInfo(90) });
+    await oldRefresh;
+
+    const accountFinishes = outputLines.filter((line) => (
+      line.includes(" perf-finish ")
+      && line.includes('"operation":"quotaStore.refreshQuota.account"')
+    ));
+    assert.equal(accountFinishes.length, 2);
+    assert.doesNotMatch(outputLines.join("\n"), /secret-account@example\.com|local:secret-account-id/);
+  } finally {
+    Date.now = originalDateNow;
+    detailedPerformanceLogging = false;
+  }
 });

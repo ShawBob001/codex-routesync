@@ -198,7 +198,7 @@ export class QuotaStore implements vscode.Disposable {
     this.publish();
 
     const accountDurations: number[] = [];
-    const slowestAccounts: Array<{ account: string; source: string; durationMs: number }> = [];
+    const slowestAccounts: Array<{ source: string; durationMs: number }> = [];
     let okCount = 0;
     let errorCount = 0;
     let inflightReuseCount = 0;
@@ -212,7 +212,6 @@ export class QuotaStore implements vscode.Disposable {
         LOG_PREFIX,
         "quotaStore.refreshQuota.account",
         {
-          account: account.name,
           source: account.source,
           refreshId: options.refreshId ?? null,
         },
@@ -226,7 +225,7 @@ export class QuotaStore implements vscode.Disposable {
         });
         const durationMs = Math.max(0, this.dependencies.now() - startedAt);
         accountDurations.push(durationMs);
-        slowestAccounts.push({ account: account.name, source: account.source, durationMs });
+        slowestAccounts.push({ source: account.source, durationMs });
         if (result.kind === "ok") okCount += 1;
         else errorCount += 1;
         if ((result as { source?: string }).source === "reused" || (result as { reusedInflight?: boolean }).reusedInflight) {
@@ -235,13 +234,16 @@ export class QuotaStore implements vscode.Disposable {
         if (result.usedCachedQuota === true) cacheReuseCount += 1;
         resultKind = result.kind;
         resultSource = (result as { source?: string }).source ?? "direct";
-        if (!this.isCurrent(account.id, generation)) return;
+        if (!this.isCurrent(account.id, generation)) {
+          accountPerf.finish({ resultKind, source: resultSource, durationMs, stale: true });
+          return;
+        }
         await this.applyResult(account, result, attemptedAt, generation);
         accountPerf.finish({ resultKind, source: resultSource, durationMs });
       } catch (error) {
         const durationMs = Math.max(0, this.dependencies.now() - startedAt);
         accountDurations.push(durationMs);
-        slowestAccounts.push({ account: account.name, source: account.source, durationMs });
+        slowestAccounts.push({ source: account.source, durationMs });
         errorCount += 1;
         accountPerf.fail(error instanceof Error ? error.constructor.name : typeof error, { durationMs });
         if (!this.isCurrent(account.id, generation)) return;
