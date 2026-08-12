@@ -16,7 +16,7 @@ Account activation will then consume the migrated route state and restore its re
 
 Re-login will use the existing transient login directory rather than the live `CODEX_HOME`. Clicking `Done` is only a request to inspect the transient result; the operation succeeds only when that directory contains a valid account OAuth payload. The returned identity must match the saved account being updated. The saved entry is overwritten with the new auth while preserving the previously active selection when re-login targets an inactive account.
 
-When the re-login target is the active account, the validated auth becomes the live auth through the normal saved-account activation path. The existing reload policy is then applied so Codex cannot silently keep using its cached revoked token. Cancelling or failing transient login leaves the live auth, route, saved entry, and selection unchanged.
+When the re-login target is the active account, the validated auth becomes the live auth through the same transactional account activation primitive. Re-login deliberately does not rewrite the current-selection marker: that asynchronous write could overwrite a selection made while login was open. A cloud marker whose sync metadata is now stale is reconciled by the existing saved-entry guard before the next account operation. The existing reload policy is then applied so Codex cannot silently keep using its cached revoked token. Cancelling or failing transient login leaves the live auth, route, saved entry, and selection unchanged.
 
 ### Conflict warning
 

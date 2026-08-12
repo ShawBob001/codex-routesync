@@ -479,14 +479,15 @@ async function runTransientCodexLogin(options?: { useDeviceAuth?: boolean }) {
   const useDeviceAuth = options?.useDeviceAuth ?? getUseDeviceAuthForLogin();
   const loginCommand = getCodexLoginCommand(useDeviceAuth);
   const tempCodexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-switchbridge-login-"));
-  logCommandInfo("login", "terminal-started", {
-    useDeviceAuth,
-    command: loginCommand,
-    transient: true,
-  });
+  let terminal: vscode.Terminal | undefined;
 
   try {
-    const terminal = vscode.window.createTerminal({
+    logCommandInfo("login", "terminal-started", {
+      useDeviceAuth,
+      command: loginCommand,
+      transient: true,
+    });
+    terminal = vscode.window.createTerminal({
       name: "Codex Login",
       env: {
         CODEX_HOME: tempCodexHome,
@@ -514,7 +515,15 @@ async function runTransientCodexLogin(options?: { useDeviceAuth?: boolean }) {
       auth: readAuthFile(path.join(tempCodexHome, "auth.json")),
     };
   } finally {
-    fs.rmSync(tempCodexHome, { recursive: true, force: true });
+    try {
+      terminal?.dispose();
+    } catch (error) {
+      logCommandWarn("login", "terminal-dispose-failed", {
+        error: toErrorMessage(error),
+      });
+    } finally {
+      fs.rmSync(tempCodexHome, { recursive: true, force: true });
+    }
   }
 }
 

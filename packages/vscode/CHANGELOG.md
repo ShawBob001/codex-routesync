@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 - 2026-08-12
+
+- Migrated legacy provider route state so switching back to a Codex account reliably removes stale API routing.
+- Made account re-login use an isolated Codex home and reject missing or identity-mismatched login results without changing the live session.
+- Applied refreshed credentials immediately for the active account and reused the configured reload policy to clear cached revoked tokens.
+- Warned when another active extension can concurrently overwrite Codex auth or configuration files.
+
 ## 0.4.0 - 2026-08-12
 
 - Replaced the Overview tree with a graphical quota-first sidebar dashboard.

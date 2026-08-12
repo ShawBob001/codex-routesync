@@ -829,15 +829,24 @@ export function activateSavedAccountAfterRelogin(
   }
 
   const runtimeChanged = !isSameRuntimeAuth(readCurrentAuth(), account.auth);
-  activateAccountAuth(
-    account.source === "cloud"
-      ? markCloudAuthForCurrentUse(account.auth, { updatedAt: account.syncUpdatedAt })
-      : account.auth,
-    {
-      source: "relogin",
-      target: `account:${account.source}:${account.name}`,
-    },
-  );
+  try {
+    activateAccountAuth(
+      account.source === "cloud"
+        ? markCloudAuthForCurrentUse(account.auth, { updatedAt: account.syncUpdatedAt })
+        : account.auth,
+      {
+        source: "relogin",
+        target: `account:${account.source}:${account.name}`,
+      },
+    );
+  } catch (error) {
+    return {
+      success: false,
+      message:
+        `Account "${account.name}" was saved, but activating the refreshed login failed: `
+        + `${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
   return {
     success: true,
     message: `Activated updated auth for account "${account.name}"`,

@@ -653,11 +653,11 @@ function createVscodeMock(options) {
         createdStatusBarItems.push(item);
         return item;
       },
-      createOutputChannel(name, options) {
+      createOutputChannel(name, channelOptions) {
         const entries = [];
         const channel = {
           name,
-          options,
+          options: channelOptions,
           entries,
           info() {},
           warn() {},
@@ -667,6 +667,9 @@ function createVscodeMock(options) {
           dispose() {},
         };
         channel.info = (line) => {
+          if (options.outputChannelInfoThrowsOn && line.includes(options.outputChannelInfoThrowsOn)) {
+            throw new Error("output channel write failed");
+          }
           entries.push({ level: "info", line });
         };
         channel.warn = (line) => {
@@ -679,11 +682,18 @@ function createVscodeMock(options) {
         return channel;
       },
       createTerminal(options) {
+        let disposed = false;
         const terminal = {
           options,
           show() {},
           sendText(text) {
             sentTerminalCommands.push(text);
+          },
+          dispose() {
+            disposed = true;
+          },
+          get disposed() {
+            return disposed;
           },
         };
         createdTerminals.push(terminal);
@@ -2898,6 +2908,8 @@ test("reloginAccount updates an active local account and marks reload recommende
         const terminalHome = mocked.createdTerminals.at(-1)?.options?.env?.CODEX_HOME;
         assert.equal(typeof terminalHome, "string");
         assert.notEqual(terminalHome, codexHome);
+        assert.equal(mocked.createdTerminals.at(-1)?.disposed, true);
+        assert.equal(fs.existsSync(terminalHome), false);
         const savedAuth = JSON.parse(fs.readFileSync(path.join(authDir, "auth_active.json"), "utf-8"));
         const liveAuth = JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8"));
         assert.equal(savedAuth.tokens.access_token, "access-new");
@@ -2939,6 +2951,52 @@ test("reloginAccount updates an active local account and marks reload recommende
   }
 
   await t.test("cleanup", () => fs.rmSync(tempRoot, { recursive: true, force: true }));
+});
+
+test("reloginAccount removes its transient home when startup logging fails", async (t) => {
+  const { tempRoot, codexHome, authDir } = createTempExtensionEnvironment(
+    t,
+    "csb-vscode-relogin-log-failure-",
+  );
+  const loginTempParent = path.join(tempRoot, "login-temp");
+  fs.mkdirSync(loginTempParent, { recursive: true });
+  const auth = makeAuthFile("acct-active", { accessToken: "access-old", refreshToken: "refresh-old" });
+  core.setNamedAuthDir(authDir);
+  core.writeSavedAuthFile(path.join(authDir, "auth_active.json"), auth);
+  core.setNamedAuthDir(undefined);
+  fs.writeFileSync(path.join(codexHome, "auth.json"), JSON.stringify(auth, null, 2), "utf-8");
+
+  const mocked = createVscodeMock({
+    authDirectory: authDir,
+    warningResponses: ["Re-login"],
+    outputChannelInfoThrowsOn: "login-terminal-started",
+  });
+
+  await withDisabledIntervals(() =>
+    withSuccessfulHttps(async () => {
+      const extension = loadExtensionWithMockedVscode(mocked.vscode);
+      const context = createExtensionContext(mocked);
+      await extension.activate(context);
+      const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+      const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
+        .filter((item) => item.account.name === "active" && item.account.source === "local");
+      const previousTmpdir = os.tmpdir;
+      os.tmpdir = () => loginTempParent;
+      try {
+        await assert.rejects(
+          mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem),
+          /output channel write failed/,
+        );
+      } finally {
+        os.tmpdir = previousTmpdir;
+      }
+
+      assert.equal(mocked.createdTerminals.length, 0);
+      assert.deepEqual(fs.readdirSync(loginTempParent), []);
+      for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+      await waitForRefreshCoordinatorIdle(context);
+    })
+  );
 });
 
 test("reloginAccount activation does not asynchronously rewrite the current selection marker", async (t) => {
@@ -3124,7 +3182,7 @@ test("reloginAccount does not activate or reload when selection changes while lo
   await t.test("cleanup", () => fs.rmSync(tempRoot, { recursive: true, force: true }));
 });
 
-test("reloginAccount activates updated cloud auth with the new sync metadata and reloads once", async (t) => {
+test("reloginAccount activates cloud auth, safely defers marker reconciliation, and reloads once", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-relogin-active-cloud-"));
   const codexHome = path.join(tempRoot, ".codex");
   const authDir = path.join(tempRoot, "saved-auth");
@@ -3269,6 +3327,9 @@ test("reloginAccount rejects a different identity without changing saved or runt
 
         await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
 
+        const transientTerminal = mocked.createdTerminals.at(-1);
+        assert.equal(transientTerminal?.disposed, true);
+        assert.equal(fs.existsSync(transientTerminal?.options?.env?.CODEX_HOME), false);
         assert.deepEqual(fs.readFileSync(path.join(authDir, "auth_active.json")), savedBefore);
         assert.deepEqual(fs.readFileSync(path.join(codexHome, "auth.json")), liveBefore);
         assert.deepEqual(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"), markerBefore);
@@ -3363,6 +3424,82 @@ test("reloginAccount rejects a cloud login result without a stable identity", as
   await t.test("cleanup", () => fs.rmSync(tempRoot, { recursive: true, force: true }));
 });
 
+test("reloginAccount reports an activation failure after saving refreshed auth", async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-relogin-activation-failure-"));
+  const codexHome = path.join(tempRoot, ".codex");
+  const authDir = path.join(tempRoot, "saved-auth");
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
+  const oldAuth = makeAuthFile("acct-active", { accessToken: "access-old", refreshToken: "refresh-old" });
+  core.setNamedAuthDir(authDir);
+  core.writeSavedAuthFile(path.join(authDir, "auth_active.json"), oldAuth);
+  core.setNamedAuthDir(undefined);
+  fs.writeFileSync(path.join(codexHome, "auth.json"), JSON.stringify(oldAuth, null, 2), "utf-8");
+
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousNamedAuthDir = process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+  process.env.CODEX_HOME = codexHome;
+  delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+
+  try {
+    const mocked = createVscodeMock({
+      authDirectory: authDir,
+      reloadWindowAfterSwitch: "always",
+      globalStateValues: {
+        "codex-switchbridge.currentSavedSelection": {
+          kind: "account",
+          name: "active",
+          source: "local",
+        },
+      },
+      warningResponses: ["Re-login"],
+      infoResponses: [
+        () => {
+          writeLastTerminalAuth(mocked, makeAuthFile("acct-active", {
+            accessToken: "access-new",
+            refreshToken: "refresh-new",
+          }));
+          fs.writeFileSync(path.join(codexHome, "switchbridge-shared-history.json"), "{invalid", "utf-8");
+          return "Done";
+        },
+      ],
+    });
+
+    await withDisabledIntervals(() =>
+      withSuccessfulHttps(async () => {
+        const extension = loadExtensionWithMockedVscode(mocked.vscode);
+        const context = createExtensionContext(mocked);
+        await extension.activate(context);
+        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
+          .filter((item) => item.account.name === "active" && item.account.source === "local");
+
+        await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
+        await waitForRefreshCoordinatorIdle(context);
+
+        const savedAuth = JSON.parse(fs.readFileSync(path.join(authDir, "auth_active.json"), "utf-8"));
+        const liveAuth = JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8"));
+        assert.equal(savedAuth.tokens.access_token, "access-new");
+        assert.equal(liveAuth.tokens.access_token, "access-old");
+        assert.match(mocked.errorMessages.at(-1)?.message ?? "", /saved.*activat|activat.*failed/i);
+        assert.equal(mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length, 0);
+
+        for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+        fs.rmSync(path.join(codexHome, "switchbridge-shared-history.json"), { force: true });
+        await waitForRefreshCoordinatorIdle(context);
+      })
+    );
+  } finally {
+    core.setNamedAuthDir(undefined);
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousNamedAuthDir === undefined) delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+    else process.env.CODEX_SWITCHBRIDGE_AUTH_DIR = previousNamedAuthDir;
+  }
+
+  await t.test("cleanup", () => fs.rmSync(tempRoot, { recursive: true, force: true }));
+});
+
 test("reloginAccount leaves state unchanged when Done has no transient auth", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-relogin-missing-auth-"));
   const codexHome = path.join(tempRoot, ".codex");
@@ -3402,6 +3539,9 @@ test("reloginAccount leaves state unchanged when Done has no transient auth", as
           .filter((item) => item.account.name === "active" && item.account.source === "local");
         await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
 
+        const transientTerminal = mocked.createdTerminals.at(-1);
+        assert.equal(transientTerminal?.disposed, true);
+        assert.equal(fs.existsSync(transientTerminal?.options?.env?.CODEX_HOME), false);
         assert.deepEqual(fs.readFileSync(path.join(authDir, "auth_active.json")), savedBefore);
         assert.deepEqual(fs.readFileSync(path.join(codexHome, "auth.json")), liveBefore);
         assert.deepEqual(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"), markerBefore);
@@ -4677,6 +4817,8 @@ test("cancelled relogin leaves an active local provider byte-for-byte unchanged"
         const terminalHome = mocked.createdTerminals.at(-1)?.options?.env?.CODEX_HOME;
         assert.equal(typeof terminalHome, "string");
         assert.notEqual(terminalHome, codexHome);
+        assert.equal(mocked.createdTerminals.at(-1)?.disposed, true);
+        assert.equal(fs.existsSync(terminalHome), false);
         assert.deepEqual(fs.readFileSync(path.join(codexHome, "auth.json")), liveAuthBefore);
         assert.deepEqual(fs.readFileSync(path.join(codexHome, "config.toml")), configBefore);
         assert.deepEqual(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"), markerBefore);
