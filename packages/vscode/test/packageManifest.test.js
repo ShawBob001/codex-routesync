@@ -106,11 +106,11 @@ test("VS Code-owned user-visible contributions use complete English and Chinese 
   }
 });
 
-test("extension identity is Codex SwitchBridge 0.4.1", () => {
+test("extension identity is Codex SwitchBridge 0.5.0", () => {
   assert.equal(manifest.name, "codex-switchbridge");
   assert.equal(manifest.displayName, "Codex SwitchBridge");
   assert.equal(manifest.publisher, "baoshichao001-dev");
-  assert.equal(manifest.version, "0.4.1");
+  assert.equal(manifest.version, "0.5.0");
   assert.match(manifest.description, /accounts and API providers/i);
   assert.match(manifest.description, /shared local conversation history/i);
   assert.match(manifest.description, /token usage/i);

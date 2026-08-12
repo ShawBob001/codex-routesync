@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 - 2026-08-12
+
+- Moved the graphical Dashboard from the narrow sidebar into a reusable editor panel while keeping native account and API-provider management views.
+- Added responsive wide-screen cards for the current route, automatic switching, saved accounts, quota, and local token usage.
+- Added live quota reset countdowns with local time-zone details and exact upstream UTC timestamps, including explicit unavailable and due states.
+- Added immediate English and Simplified Chinese Dashboard switching, automatic VS Code language following, and localized commands, views, welcome text, and settings.
+
 ## 0.4.1 - 2026-08-12
 
 - Migrated legacy provider route state so switching back to a Codex account reliably removes stale API routing.
