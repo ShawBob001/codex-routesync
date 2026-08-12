@@ -57,6 +57,7 @@ test("rejects malformed dashboard locale preference messages", () => {
     { type: valid.type, requestId: valid.requestId },
     { type: valid.type, preference: valid.preference },
     { ...valid, requestId: 1 },
+    { ...valid, requestId: "" },
     { ...valid, requestId: "x".repeat(129) },
     [],
     null,

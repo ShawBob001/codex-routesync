@@ -286,6 +286,23 @@ test("routes only fixed actions and allows current model target IDs", async () =
   harness.provider.dispose();
 });
 
+test("ignores locale messages without invoking action handlers", async () => {
+  const harness = createHarness();
+  const resolved = createWebviewView();
+  harness.provider.resolveWebviewView(resolved.view);
+
+  resolved.deliver({
+    type: "dashboard.locale.set",
+    requestId: "locale-1",
+    preference: "zh-cn",
+  });
+  await flushMicrotasks();
+
+  assert.deepEqual(harness.calls, []);
+  assert.deepEqual(harness.actionErrors, []);
+  harness.provider.dispose();
+});
+
 test("contains synchronous action failures and reports the fixed action", async () => {
   const harness = createHarness();
   harness.provider.options.handlers.refreshDashboard = () => {

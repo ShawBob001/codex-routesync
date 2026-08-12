@@ -3,10 +3,26 @@ const assert = require("node:assert/strict");
 
 const {
   DASHBOARD_CATALOGS,
+  REQUIRED_DASHBOARD_MESSAGE_KEYS,
   dashboardLocaleTag,
   resolveDashboardLocale,
   translate,
 } = require("../dist/dashboardI18n.js");
+
+test("required dashboard message contract exactly covers both catalogs", () => {
+  const required = [...REQUIRED_DASHBOARD_MESSAGE_KEYS].sort();
+  const newlyReviewedKeys = [
+    "navigation.skipToDashboard",
+    "source.local",
+    "source.cloud",
+    "reload.afterSwitch",
+    "reload.afterHistoryRepair",
+  ];
+
+  for (const key of newlyReviewedKeys) assert.ok(required.includes(key), `missing required key: ${key}`);
+  assert.deepEqual(Object.keys(DASHBOARD_CATALOGS.en).sort(), required);
+  assert.deepEqual(Object.keys(DASHBOARD_CATALOGS["zh-cn"]).sort(), required);
+});
 
 test("English and Chinese dashboard catalogs have identical keys", () => {
   assert.deepEqual(
@@ -38,6 +54,17 @@ test("translation interpolates all placeholders as plain text", () => {
       sessions: "<script>alert(1)</script>",
     }),
     "<Team & Admin>: 1234 tokens across <script>alert(1)</script> sessions",
+  );
+});
+
+test("reload recommendation templates preserve dynamic labels and counts", () => {
+  assert.equal(
+    translate("en", "reload.afterSwitch", { kind: "account", label: "<Work>" }),
+    'Switched to account "<Work>". Reload so Codex picks up the new configuration.',
+  );
+  assert.equal(
+    translate("zh-cn", "reload.afterHistoryRepair", { rollouts: 2, threads: 3 }),
+    "历史记录修复更新了 2 条 rollout 记录和 3 条会话记录。",
   );
 });
 
