@@ -6,5 +6,6 @@ dist/
 packages/core/tsconfig.tsbuildinfo
 .playwright-mcp/
 .superpowers/
+.worktrees/
 __pycache__/
 *.py[cod]
