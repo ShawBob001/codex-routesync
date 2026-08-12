@@ -15,6 +15,7 @@ const options = {
     dashboardI18n: path.join(packageDir, "src", "dashboardI18n.ts"),
     dashboardModel: path.join(packageDir, "src", "dashboardModel.ts"),
     dashboardProtocol: path.join(packageDir, "src", "dashboardProtocol.ts"),
+    dashboardResetTime: path.join(packageDir, "src", "dashboardResetTime.ts"),
     dashboardViewProvider: path.join(packageDir, "src", "dashboardViewProvider.ts"),
     historyReconciliation: path.join(packageDir, "src", "historyReconciliation.ts"),
     providerProfile: path.join(packageDir, "src", "providerProfile.ts"),
