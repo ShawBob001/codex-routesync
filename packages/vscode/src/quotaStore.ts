@@ -15,8 +15,11 @@ import {
   getCachedQuotaSnapshot,
   QuotaQueryResultWithFallbackMetadata,
 } from "./quotaCache";
+import { logInfo, logWarn, startPerformanceLog } from "./log";
 
 const DEFAULT_CONCURRENCY = 4;
+const SLOW_ACCOUNT_THRESHOLD_MS = 3000;
+const LOG_PREFIX = "[codex-switchbridge:vscode:quotaStore]";
 
 export type QuotaProvenance =
   | "network"
@@ -52,11 +55,9 @@ export interface AccountQuotaRefreshOptions {
   concurrency?: number;
 }
 
-type MaybePromise<T> = T | Promise<T>;
-
 interface QuotaStoreDependencies {
   now: () => number;
-  getCachedQuota: (account: SavedAccountInfo) => MaybePromise<CachedQuotaSnapshot | null>;
+  getCachedQuota: (account: SavedAccountInfo) => CachedQuotaSnapshot | null;
   queryQuota: (
     account: SavedAccountInfo,
     context: SavedAccountQuotaQueryContext | undefined,
@@ -99,7 +100,7 @@ export class QuotaStore implements vscode.Disposable {
     return state ? cloneState(state) : undefined;
   }
 
-  async reconcileAccounts(accounts: readonly SavedAccountInfo[]): Promise<void> {
+  reconcileAccounts(accounts: readonly SavedAccountInfo[]): void {
     this.assertActive();
     const readyAccounts = accounts.filter((account) => account.storageState === "ready");
     const readyIds = new Set(readyAccounts.map((account) => account.id));
@@ -108,13 +109,12 @@ export class QuotaStore implements vscode.Disposable {
     for (const accountId of this.states.keys()) {
       if (!readyIds.has(accountId)) {
         this.states.delete(accountId);
-        this.generations.delete(accountId);
         changed = true;
       }
     }
 
     for (const account of readyAccounts) {
-      const cached = await this.dependencies.getCachedQuota(account);
+      const cached = this.dependencies.getCachedQuota(account);
       if (!cached) continue;
       const previous = this.states.get(account.id);
       if (previous?.loading) continue;
@@ -144,12 +144,28 @@ export class QuotaStore implements vscode.Disposable {
     options: AccountQuotaRefreshOptions,
   ): Promise<void> {
     this.assertActive();
-    await this.reconcileAccounts(options.snapshot.accounts);
-    const targetSet = targetIds ? new Set(targetIds) : null;
+    const normalizedTargetIds = targetIds ? [...targetIds] : undefined;
+    const perf = startPerformanceLog(LOG_PREFIX, "quotaStore.refreshQuota", {
+      targetCount: normalizedTargetIds?.length ?? null,
+      reason: options.reason ?? null,
+      refreshId: options.refreshId ?? null,
+    });
+    this.reconcileAccounts(options.snapshot.accounts);
+    const targetSet = normalizedTargetIds ? new Set(normalizedTargetIds) : null;
     const accounts = options.snapshot.accounts.filter((account) => (
       account.storageState === "ready" && (!targetSet || targetSet.has(account.id))
     ));
-    if (accounts.length === 0) return;
+    if (accounts.length === 0) {
+      perf.finish({ effectiveCount: 0 });
+      return;
+    }
+
+    logInfo(LOG_PREFIX, "refresh-start", {
+      targetIds: targetSet ? [...targetSet] : null,
+      reason: options.reason ?? null,
+      refreshId: options.refreshId ?? null,
+      effectiveCount: accounts.length,
+    });
 
     const generations = new Map<string, number>();
     const attemptedAt = this.dependencies.now();
@@ -174,18 +190,83 @@ export class QuotaStore implements vscode.Disposable {
     }
     this.publish();
 
-    await runWithConcurrency(accounts, options.concurrency ?? DEFAULT_CONCURRENCY, async (account) => {
+    const accountDurations: number[] = [];
+    const slowestAccounts: Array<{ account: string; source: string; durationMs: number }> = [];
+    let okCount = 0;
+    let errorCount = 0;
+    let inflightReuseCount = 0;
+    let cacheReuseCount = 0;
+    const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
+
+    await runWithConcurrency(accounts, concurrency, async (account) => {
       const generation = generations.get(account.id)!;
+      const startedAt = this.dependencies.now();
+      const accountPerf = startPerformanceLog(
+        LOG_PREFIX,
+        "quotaStore.refreshQuota.account",
+        {
+          account: account.name,
+          source: account.source,
+          refreshId: options.refreshId ?? null,
+        },
+        { mode: "adaptive", slowThresholdMs: SLOW_ACCOUNT_THRESHOLD_MS },
+      );
       try {
         const result = await this.dependencies.queryQuota(account, options.queryContext, {
           reason: options.reason,
         });
+        const durationMs = Math.max(0, this.dependencies.now() - startedAt);
+        accountDurations.push(durationMs);
+        slowestAccounts.push({ account: account.name, source: account.source, durationMs });
+        if (result.kind === "ok") okCount += 1;
+        else errorCount += 1;
+        if ((result as { source?: string }).source === "reused" || (result as { reusedInflight?: boolean }).reusedInflight) {
+          inflightReuseCount += 1;
+        }
+        if (result.usedCachedQuota === true) cacheReuseCount += 1;
+        accountPerf.finish({
+          resultKind: result.kind,
+          source: (result as { source?: string }).source ?? "direct",
+          durationMs,
+        });
         if (!this.isCurrent(account.id, generation)) return;
         await this.applyResult(account, result, attemptedAt, generation);
       } catch (error) {
+        const durationMs = Math.max(0, this.dependencies.now() - startedAt);
+        accountDurations.push(durationMs);
+        slowestAccounts.push({ account: account.name, source: account.source, durationMs });
+        errorCount += 1;
+        accountPerf.fail(error, { durationMs });
         if (!this.isCurrent(account.id, generation)) return;
         this.applyError(account.id, error, attemptedAt);
+        logWarn(LOG_PREFIX, "refresh-result-error", {
+          account: account.id,
+          refreshId: options.refreshId ?? null,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
+    });
+
+    const sortedDurations = [...accountDurations].sort((left, right) => left - right);
+    slowestAccounts.sort((left, right) => right.durationMs - left.durationMs);
+    slowestAccounts.length = Math.min(slowestAccounts.length, 5);
+    logInfo(LOG_PREFIX, "refresh-finish", {
+      targetIds: targetSet ? [...targetSet] : null,
+      reason: options.reason ?? null,
+      refreshId: options.refreshId ?? null,
+    });
+    perf.finish({
+      requestedCount: targetSet?.size ?? accounts.length,
+      effectiveCount: accounts.length,
+      concurrency,
+      okCount,
+      errorCount,
+      inflightReuseCount,
+      cacheReuseCount,
+      p50Ms: percentile(sortedDurations, 0.5),
+      p95Ms: percentile(sortedDurations, 0.95),
+      maxMs: sortedDurations[sortedDurations.length - 1] ?? 0,
+      slowestAccountsTopN: slowestAccounts,
     });
   }
 
@@ -247,7 +328,7 @@ export class QuotaStore implements vscode.Disposable {
       || typeof result.fallbackStatusCode === "number"
       || result.fallbackReloginRequired === true
     );
-    const cached = usedCache ? await this.dependencies.getCachedQuota(account) : null;
+    const cached = usedCache ? this.dependencies.getCachedQuota(account) : null;
     if (!this.isCurrent(account.id, generation)) return;
     const reloginRequired = result.info.unavailableReason?.code === "relogin_required"
       || result.fallbackReloginRequired === true;
@@ -344,4 +425,13 @@ async function runWithConcurrency<T>(
     }
   });
   await Promise.all(runners);
+}
+
+function percentile(sortedValues: number[], fraction: number): number {
+  if (sortedValues.length === 0) return 0;
+  const index = Math.min(
+    sortedValues.length - 1,
+    Math.max(0, Math.ceil(sortedValues.length * fraction) - 1),
+  );
+  return sortedValues[index];
 }

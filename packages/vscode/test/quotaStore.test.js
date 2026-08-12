@@ -23,7 +23,27 @@ class EventEmitter {
 }
 
 Module._load = function mockVscode(request, parent, isMain) {
-  if (request === "vscode") return { EventEmitter };
+  if (request === "vscode") {
+    return {
+      EventEmitter,
+      workspace: {
+        getConfiguration() {
+          return { get: (_key, fallback) => fallback };
+        },
+      },
+      window: {
+        createOutputChannel() {
+          return {
+            info() {},
+            warn() {},
+            error() {},
+            show() {},
+            dispose() {},
+          };
+        },
+      },
+    };
+  }
   return originalLoad.call(this, request, parent, isMain);
 };
 
@@ -84,7 +104,7 @@ function deferred() {
 test("hydrates cached quota and returns detached snapshots", async () => {
   const store = new QuotaStore({
     now: () => 1700000005000,
-    getCachedQuota: async (account) => {
+    getCachedQuota: (account) => {
       assert.equal(account.id, "local:a");
       return cachedQuota;
     },
@@ -115,7 +135,7 @@ test("hydrates cached quota and returns detached snapshots", async () => {
 test("prunes missing and non-ready account IDs", async () => {
   const store = new QuotaStore({
     now: () => 1700000005000,
-    getCachedQuota: async () => cachedQuota,
+    getCachedQuota: () => cachedQuota,
     queryQuota: async () => cachedQuota,
   });
 
@@ -134,7 +154,7 @@ test("keeps cached info while loading and replaces it after a network success", 
   const pending = deferred();
   const store = new QuotaStore({
     now: () => now,
-    getCachedQuota: async () => cachedQuota,
+    getCachedQuota: () => cachedQuota,
     queryQuota: async () => pending.promise,
   });
   await store.reconcileAccounts([accountA]);
@@ -162,7 +182,7 @@ test("keeps cached info while loading and replaces it after a network success", 
 test("marks cached fallback stale and keeps the cache query timestamp", async () => {
   const store = new QuotaStore({
     now: () => 1700000010000,
-    getCachedQuota: async () => cachedQuota,
+    getCachedQuota: () => cachedQuota,
     queryQuota: async () => ({
       kind: "ok",
       displayName: "a",
@@ -184,7 +204,7 @@ test("marks cached fallback stale and keeps the cache query timestamp", async ()
 test("records a failed query without inventing quota data", async () => {
   const store = new QuotaStore({
     now: () => 1700000010000,
-    getCachedQuota: async () => null,
+    getCachedQuota: () => null,
     queryQuota: async () => ({ kind: "not_found", message: "quota unavailable" }),
   });
   await store.refreshQuota([accountA.id], { snapshot: snapshot([accountA]) });
@@ -198,7 +218,7 @@ test("records a failed query without inventing quota data", async () => {
 
 test("marks relogin required without discarding cached quota", async () => {
   const store = new QuotaStore({
-    getCachedQuota: async () => cachedQuota,
+    getCachedQuota: () => cachedQuota,
   });
   await store.reconcileAccounts([accountA]);
   store.markReloginRequired([accountA.id], "Sign in again");
@@ -214,7 +234,7 @@ test("ignores an older completion for the same account", async () => {
   let call = 0;
   const store = new QuotaStore({
     now: () => 1700000010000 + call,
-    getCachedQuota: async () => null,
+    getCachedQuota: () => null,
     queryQuota: async () => (++call === 1 ? first.promise : second.promise),
   });
   const options = { snapshot: snapshot([accountA]) };
@@ -231,7 +251,7 @@ test("keeps completions for different accounts", async () => {
   const accountB = { ...accountA, id: "local:b", name: "b" };
   const pending = new Map([[accountA.id, deferred()], [accountB.id, deferred()]]);
   const store = new QuotaStore({
-    getCachedQuota: async () => null,
+    getCachedQuota: () => null,
     queryQuota: async (account) => pending.get(account.id).promise,
   });
   const refresh = store.refreshQuota(undefined, { snapshot: snapshot([accountA, accountB]) });
@@ -240,4 +260,93 @@ test("keeps completions for different accounts", async () => {
   await refresh;
   assert.equal(store.get(accountA.id).info.primaryWindow.usedPercent, 10);
   assert.equal(store.get(accountB.id).info.primaryWindow.usedPercent, 30);
+});
+
+test("reconciles cache state synchronously", () => {
+  const store = new QuotaStore({ getCachedQuota: () => cachedQuota });
+  const result = store.reconcileAccounts([accountA]);
+  assert.equal(result, undefined);
+  assert.equal(store.get(accountA.id).queriedAt, cachedQuota.queriedAtMs);
+});
+
+test("distinguishes cache reuse from a failed refresh fallback", async () => {
+  const store = new QuotaStore({
+    getCachedQuota: () => cachedQuota,
+    queryQuota: async () => ({
+      kind: "ok",
+      displayName: "a",
+      info: quotaInfo(25),
+      usedCachedQuota: true,
+    }),
+  });
+  await store.refreshQuota([accountA.id], { snapshot: snapshot([accountA]) });
+  const state = store.get(accountA.id);
+  assert.equal(state.provenance, "cache-reuse");
+  assert.equal(state.errorMessage, null);
+  assert.equal(state.cacheReason, null);
+  assert.equal(state.queriedAt, cachedQuota.queriedAtMs);
+});
+
+test("preserves a quota unavailable result without treating it as zero", async () => {
+  const unavailable = quotaInfo(0);
+  unavailable.primaryWindow = null;
+  unavailable.unavailableReason = {
+    code: "request_failed",
+    message: "Quota service unavailable",
+    statusCode: 503,
+  };
+  const store = new QuotaStore({
+    getCachedQuota: () => null,
+    queryQuota: async () => ({ kind: "ok", displayName: "a", info: unavailable }),
+  });
+  await store.refreshQuota([accountA.id], { snapshot: snapshot([accountA]) });
+  const state = store.get(accountA.id);
+  assert.equal(state.info.primaryWindow, null);
+  assert.equal(state.info.unavailableReason.code, "request_failed");
+  assert.equal(state.reloginRequired, false);
+});
+
+test("limits concurrent account queries", async () => {
+  const accounts = Array.from({ length: 6 }, (_, index) => ({
+    ...accountA,
+    id: `local:${index}`,
+    name: String(index),
+  }));
+  let active = 0;
+  let maximum = 0;
+  const store = new QuotaStore({
+    getCachedQuota: () => null,
+    queryQuota: async (account) => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return { kind: "ok", displayName: account.name, info: quotaInfo(10) };
+    },
+  });
+  await store.refreshQuota(undefined, {
+    snapshot: snapshot(accounts),
+    concurrency: 2,
+  });
+  assert.equal(maximum, 2);
+});
+
+test("does not accept an old response after an account is removed and re-added", async () => {
+  const old = deferred();
+  const fresh = deferred();
+  let calls = 0;
+  const store = new QuotaStore({
+    getCachedQuota: () => null,
+    queryQuota: async () => (++calls === 1 ? old.promise : fresh.promise),
+  });
+  const firstRefresh = store.refreshQuota([accountA.id], { snapshot: snapshot([accountA]) });
+  await new Promise((resolve) => setImmediate(resolve));
+  store.reconcileAccounts([]);
+  store.reconcileAccounts([accountA]);
+  const secondRefresh = store.refreshQuota([accountA.id], { snapshot: snapshot([accountA]) });
+  fresh.resolve({ kind: "ok", displayName: "a", info: quotaInfo(15) });
+  await secondRefresh;
+  old.resolve({ kind: "ok", displayName: "a", info: quotaInfo(95) });
+  await firstRefresh;
+  assert.equal(store.get(accountA.id).info.primaryWindow.usedPercent, 15);
 });
