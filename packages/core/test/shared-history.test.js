@@ -389,6 +389,182 @@ test("shared route restores the original base URL on account activation", (t) =>
   assert.doesNotMatch(readConfig(root), /^model_provider\s*=/m);
 });
 
+test("account activation migrates and consumes a legacy shared route", (t) => {
+  const root = withCodexHome(t, [
+    'openai_base_url = "https://proxy.example/v1"',
+    'personality = "pragmatic"',
+    '',
+  ].join("\n"));
+  const authPath = path.join(root, "auth.json");
+  const currentRoutePath = path.join(root, "switchbridge-shared-history.json");
+  const legacyRoutePath = path.join(root, "account-switch-shared-history.json");
+  fs.writeFileSync(authPath, '{"OPENAI_API_KEY":"relay"}\n', { mode: 0o600 });
+  fs.writeFileSync(legacyRoutePath, JSON.stringify({
+    version: 1,
+    activeProvider: "pro20",
+    originalOpenAIBaseUrl: { present: false, value: null },
+  }), { mode: 0o600 });
+
+  core.activateAccountAuth(
+    { auth_mode: "chatgpt", tokens: { access_token: "account-oauth" } },
+    { source: "provider:pro20", target: "account:personal" }
+  );
+
+  assert.deepEqual(JSON.parse(fs.readFileSync(authPath, "utf8")), {
+    auth_mode: "chatgpt",
+    tokens: { access_token: "account-oauth" },
+  });
+  assert.deepEqual(core.getOpenAIBaseUrlSnapshot(), { present: false, value: null });
+  assert.doesNotMatch(readConfig(root), /^openai_base_url\s*=/m);
+  assert.match(readConfig(root), /^personality = "pragmatic"$/m);
+  assert.equal(fs.existsSync(currentRoutePath), false);
+  assert.equal(fs.existsSync(legacyRoutePath), false);
+});
+
+test("account activation without route state preserves openai_base_url", (t) => {
+  const root = withCodexHome(t, [
+    'openai_base_url = "https://user-configured.example/v1"',
+    'personality = "pragmatic"',
+    '',
+  ].join("\n"));
+  fs.writeFileSync(path.join(root, "auth.json"), '{"OPENAI_API_KEY":"before"}\n', { mode: 0o600 });
+
+  core.activateAccountAuth(
+    { auth_mode: "chatgpt", tokens: { access_token: "account-oauth" } },
+    { source: "account:before", target: "account:personal" }
+  );
+
+  assert.deepEqual(core.getOpenAIBaseUrlSnapshot(), {
+    present: true,
+    value: "https://user-configured.example/v1",
+  });
+  assert.match(readConfig(root), /^personality = "pragmatic"$/m);
+});
+
+test("current shared route takes precedence and account activation consumes both files", (t) => {
+  const root = withCodexHome(t, 'openai_base_url = "https://proxy.example/v1"\n');
+  const authPath = path.join(root, "auth.json");
+  const currentRoutePath = path.join(root, "switchbridge-shared-history.json");
+  const legacyRoutePath = path.join(root, "account-switch-shared-history.json");
+  fs.writeFileSync(authPath, '{"OPENAI_API_KEY":"relay"}\n', { mode: 0o600 });
+  fs.writeFileSync(currentRoutePath, JSON.stringify({
+    version: 1,
+    activeProvider: "current-provider",
+    originalOpenAIBaseUrl: { present: true, value: "https://current-original.example/v1" },
+  }), { mode: 0o600 });
+  fs.writeFileSync(legacyRoutePath, JSON.stringify({
+    version: 1,
+    activeProvider: "legacy-provider",
+    originalOpenAIBaseUrl: { present: true, value: "https://legacy-original.example/v1" },
+  }), { mode: 0o600 });
+
+  core.activateAccountAuth(
+    { auth_mode: "chatgpt", tokens: { access_token: "account-oauth" } },
+    { source: "provider:current-provider", target: "account:personal" }
+  );
+
+  assert.deepEqual(JSON.parse(fs.readFileSync(authPath, "utf8")), {
+    auth_mode: "chatgpt",
+    tokens: { access_token: "account-oauth" },
+  });
+  assert.deepEqual(core.getOpenAIBaseUrlSnapshot(), {
+    present: true,
+    value: "https://current-original.example/v1",
+  });
+  assert.equal(fs.existsSync(currentRoutePath), false);
+  assert.equal(fs.existsSync(legacyRoutePath), false);
+});
+
+test("invalid legacy shared route state is rejected without migration", (t) => {
+  const root = withCodexHome(t, 'openai_base_url = "https://proxy.example/v1"\n');
+  const currentRoutePath = path.join(root, "switchbridge-shared-history.json");
+  const legacyRoutePath = path.join(root, "account-switch-shared-history.json");
+  const invalidLegacy = JSON.stringify({
+    version: 1,
+    activeProvider: "pro20",
+    originalOpenAIBaseUrl: { present: true, value: null },
+  });
+  fs.writeFileSync(legacyRoutePath, invalidLegacy, { mode: 0o640 });
+
+  assert.throws(() => core.getSharedHistoryRouteState(), /Invalid shared-history route state/);
+  assert.equal(fs.existsSync(currentRoutePath), false);
+  assert.equal(fs.readFileSync(legacyRoutePath, "utf8"), invalidLegacy);
+  assert.equal(fs.statSync(legacyRoutePath).mode & 0o777, 0o640);
+});
+
+test("invalid current shared route state does not fall back to legacy", (t) => {
+  const root = withCodexHome(t, 'openai_base_url = "https://proxy.example/v1"\n');
+  const currentRoutePath = path.join(root, "switchbridge-shared-history.json");
+  const legacyRoutePath = path.join(root, "account-switch-shared-history.json");
+  const invalidCurrent = JSON.stringify({
+    version: 1,
+    activeProvider: "current-provider",
+    originalOpenAIBaseUrl: { present: true, value: null },
+  });
+  const validLegacy = JSON.stringify({
+    version: 1,
+    activeProvider: "legacy-provider",
+    originalOpenAIBaseUrl: { present: false, value: null },
+  });
+  fs.writeFileSync(currentRoutePath, invalidCurrent, { mode: 0o600 });
+  fs.writeFileSync(legacyRoutePath, validLegacy, { mode: 0o640 });
+
+  assert.throws(() => core.getSharedHistoryRouteState(), /Invalid shared-history route state/);
+  assert.equal(fs.readFileSync(currentRoutePath, "utf8"), invalidCurrent);
+  assert.equal(fs.readFileSync(legacyRoutePath, "utf8"), validLegacy);
+});
+
+test("failed migrated route cleanup restores the exact legacy route state", (t) => {
+  const root = withCodexHome(t, [
+    'openai_base_url = "https://proxy.example/v1"',
+    'personality = "pragmatic"',
+    '',
+  ].join("\n"));
+  const authPath = path.join(root, "auth.json");
+  const currentRoutePath = path.join(root, "switchbridge-shared-history.json");
+  const legacyRoutePath = path.join(root, "account-switch-shared-history.json");
+  const legacyRoute = `${JSON.stringify({
+    version: 1,
+    activeProvider: "pro20",
+    originalOpenAIBaseUrl: { present: false, value: null },
+  }, null, 2)}\n`;
+  fs.writeFileSync(authPath, '{"OPENAI_API_KEY":"relay"}\n', { mode: 0o640 });
+  fs.writeFileSync(legacyRoutePath, legacyRoute, { mode: 0o604 });
+  const originalAuth = fs.readFileSync(authPath, "utf8");
+  const originalConfig = readConfig(root);
+  const originalUnlinkSync = fs.unlinkSync;
+  let cleanupFailureInjected = false;
+  t.after(() => {
+    fs.unlinkSync = originalUnlinkSync;
+  });
+  fs.unlinkSync = function patchedUnlinkSync(filePath) {
+    if (!cleanupFailureInjected && String(filePath) === currentRoutePath) {
+      cleanupFailureInjected = true;
+      originalUnlinkSync.apply(this, arguments);
+      throw new Error("injected migrated route cleanup failure");
+    }
+    return originalUnlinkSync.apply(this, arguments);
+  };
+
+  assert.throws(
+    () => core.activateAccountAuth(
+      { auth_mode: "chatgpt", tokens: { access_token: "account-oauth" } },
+      { source: "provider:pro20", target: "account:personal" }
+    ),
+    /injected migrated route cleanup failure/
+  );
+
+  assert.equal(cleanupFailureInjected, true);
+  assert.equal(fs.readFileSync(authPath, "utf8"), originalAuth);
+  assert.equal(fs.statSync(authPath).mode & 0o777, 0o640);
+  assert.equal(readConfig(root), originalConfig);
+  assert.equal(fs.existsSync(currentRoutePath), false);
+  assert.equal(fs.readFileSync(legacyRoutePath, "utf8"), legacyRoute);
+  assert.equal(fs.statSync(legacyRoutePath).mode & 0o777, 0o604);
+  assert.deepEqual(fs.readdirSync(path.join(root, "switchbridge-backups")), []);
+  assert.equal(fs.existsSync(path.join(root, ".switchbridge-live-switch.lock")), false);
+});
+
 test("failed shared route mutation restores auth and config", (t) => {
   const root = withCodexHome(t, 'personality = "pragmatic"\n');
   const authPath = path.join(root, "auth.json");
@@ -516,6 +692,8 @@ test("successful switches create completed redacted backups", (t) => {
   assert.equal(manifest.source, "account:a");
   assert.equal(manifest.target, "provider:pro20");
   assert.match(manifestText, /auth\.json/);
+  assert.match(manifestText, /switchbridge-shared-history\.json/);
+  assert.match(manifestText, /account-switch-shared-history\.json/);
   assert.doesNotMatch(manifestText, /before-secret|after-secret/);
 });
 
