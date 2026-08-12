@@ -14,7 +14,7 @@ import { StatusBarManager } from "./statusBar";
 import { registerCommands } from "./commands";
 import { buildDashboardModel, DashboardModel } from "./dashboardModel";
 import { DashboardViewProvider } from "./dashboardViewProvider";
-import { disposeLogging, initializeLogging, logInfo, writeRawLog } from "./log";
+import { disposeLogging, initializeLogging, logInfo, logWarn, writeRawLog } from "./log";
 import { restoreSavedAuthPassphrase } from "./storagePassword";
 import {
   createSavedEntriesSnapshot,
@@ -27,6 +27,40 @@ import { UsageService } from "./tokenUsage";
 import { knownUsageSubjects } from "./usageSubjects";
 
 const LOG_PREFIX = "[codex-switchbridge:vscode:extension]";
+const CONFLICTING_EXTENSION_IDS = [
+  "wannanbigpig.codex-accounts-manager",
+  "techfetch-dev.codex-account-switch-vscode",
+] as const;
+
+function warnAboutConflictingExtensions(): void {
+  const activeExtensionIds: string[] = [];
+
+  for (const extensionId of CONFLICTING_EXTENSION_IDS) {
+    try {
+      if (vscode.extensions.getExtension(extensionId)?.isActive === true) {
+        activeExtensionIds.push(extensionId);
+      }
+    } catch (error) {
+      logWarn(LOG_PREFIX, "conflicting-extension-check-failed", {
+        extensionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (activeExtensionIds.length === 0) {
+    return;
+  }
+
+  logWarn(LOG_PREFIX, "conflicting-extensions-detected", {
+    extensionIds: activeExtensionIds,
+    count: activeExtensionIds.length,
+  });
+  void vscode.window.showWarningMessage(
+    `Active extensions ${activeExtensionIds.join(", ")} can also write Codex auth/config files, `
+      + "which can cause Unauthorized errors. Disable or uninstall them, then run Developer: Reload Window."
+  );
+}
 
 function applyNamedAuthDirSetting() {
   const authDir = vscode.workspace
@@ -71,6 +105,7 @@ function dashboardNeedsQuotaRefresh(model: DashboardModel): boolean {
 export async function activate(context: vscode.ExtensionContext) {
   initializeLogging();
   logInfo(LOG_PREFIX, "activate-start", {});
+  warnAboutConflictingExtensions();
   setDiagnosticLogger((level: DiagnosticLogLevel, line: string) => {
     writeRawLog(level, line);
   });
