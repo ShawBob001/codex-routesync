@@ -3,11 +3,108 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const manifest = JSON.parse(
+const rawManifest = JSON.parse(
   fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8")
 );
 
+const englishNlsPath = path.join(__dirname, "..", "package.nls.json");
+const chineseNlsPath = path.join(__dirname, "..", "package.nls.zh-cn.json");
+
+function readCatalogIfPresent(catalogPath) {
+  return fs.existsSync(catalogPath)
+    ? JSON.parse(fs.readFileSync(catalogPath, "utf-8"))
+    : {};
+}
+
+function nlsKey(value) {
+  return typeof value === "string" && /^%([^%]+)%$/.exec(value)?.[1];
+}
+
+function localizeManifest(value, catalog) {
+  if (Array.isArray(value)) return value.map((item) => localizeManifest(item, catalog));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, localizeManifest(item, catalog)]),
+    );
+  }
+  if (typeof value !== "string") return value;
+  const key = nlsKey(value);
+  return key ? catalog[key] ?? value : value;
+}
+
+const manifest = localizeManifest(rawManifest, readCatalogIfPresent(englishNlsPath));
+
 const commands = manifest.contributes.commands;
+
+test("VS Code-owned user-visible contributions use complete English and Chinese NLS catalogs", () => {
+  assert.equal(fs.existsSync(englishNlsPath), true, "package.nls.json must exist");
+  assert.equal(fs.existsSync(chineseNlsPath), true, "package.nls.zh-cn.json must exist");
+
+  const english = readCatalogIfPresent(englishNlsPath);
+  const chinese = readCatalogIfPresent(chineseNlsPath);
+  assert.deepEqual(Object.keys(chinese).sort(), Object.keys(english).sort());
+  const languageNeutralBrandKeys = new Set([
+    "extension.displayName",
+    "viewContainer.title",
+    "command.category",
+    "configuration.title",
+  ]);
+
+  const localizedValues = [
+    ["displayName", rawManifest.displayName],
+    ["description", rawManifest.description],
+  ];
+
+  for (const [index, container] of
+    (rawManifest.contributes.viewsContainers.activitybar ?? []).entries()) {
+    localizedValues.push([`viewsContainers.activitybar[${index}].title`, container.title]);
+  }
+  for (const [containerId, views] of Object.entries(rawManifest.contributes.views ?? {})) {
+    for (const [index, view] of views.entries()) {
+      localizedValues.push([`views.${containerId}[${index}].name`, view.name]);
+    }
+  }
+  for (const [index, welcome] of (rawManifest.contributes.viewsWelcome ?? []).entries()) {
+    localizedValues.push([`viewsWelcome[${index}].contents`, welcome.contents]);
+  }
+  for (const [index, command] of (rawManifest.contributes.commands ?? []).entries()) {
+    localizedValues.push([`commands[${index}].title`, command.title]);
+    localizedValues.push([`commands[${index}].category`, command.category]);
+  }
+
+  const configuration = rawManifest.contributes.configuration;
+  localizedValues.push(["configuration.title", configuration.title]);
+  for (const [settingId, setting] of Object.entries(configuration.properties ?? {})) {
+    for (const property of [
+      "description",
+      "markdownDescription",
+      "deprecationMessage",
+      "markdownDeprecationMessage",
+    ]) {
+      if (setting[property] !== undefined) {
+        localizedValues.push([`configuration.${settingId}.${property}`, setting[property]]);
+      }
+    }
+    for (const [index, description] of (setting.enumDescriptions ?? []).entries()) {
+      localizedValues.push([
+        `configuration.${settingId}.enumDescriptions[${index}]`,
+        description,
+      ]);
+    }
+  }
+
+  for (const [location, value] of localizedValues) {
+    const key = nlsKey(value);
+    assert.ok(key, `${location} must contain one complete %key% placeholder`);
+    assert.equal(typeof english[key], "string", `${location} is missing English key ${key}`);
+    assert.ok(english[key].trim().length > 0, `${key} must have a default English value`);
+    assert.equal(typeof chinese[key], "string", `${location} is missing Chinese key ${key}`);
+    assert.ok(chinese[key].trim().length > 0, `${key} must have a Chinese value`);
+    if (!languageNeutralBrandKeys.has(key)) {
+      assert.match(chinese[key], /[\u3400-\u9fff]/u, `${key} must be translated into Chinese`);
+    }
+  }
+});
 
 test("extension identity is Codex SwitchBridge 0.4.1", () => {
   assert.equal(manifest.name, "codex-switchbridge");
