@@ -467,6 +467,22 @@
     "configuration": {
       "title": "Codex SwitchBridge",
       "properties": {
+        "codex-switchbridge.language": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "en",
+            "zh-cn"
+          ],
+          "enumDescriptions": [
+            "Follow VS Code's display language",
+            "Use English",
+            "Use Simplified Chinese"
+          ],
+          "scope": "window",
+          "description": "Controls the dashboard language."
+        },
         "codex-switchbridge.quotaRefreshInterval": {
           "type": "number",
           "default": 30,

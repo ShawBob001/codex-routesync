@@ -9,6 +9,10 @@ const { EventEmitter } = require("node:events");
 const core = require("@codex-switchbridge/core");
 const { stableSubjectId } = require("../dist/tokenUsage.js");
 
+const extensionManifest = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"),
+);
+
 const STORAGE_SECRET_KEY = "codex-switchbridge.savedAuthPassphrase";
 const SYNCED_CLOUD_STATE_KEY = "codex-switchbridge.syncedCloudState.v1";
 const SYNCED_CLOUD_ACCOUNT_KEY_PREFIX = "codex-switchbridge.syncedCloudAccount.v1.";
@@ -13290,6 +13294,13 @@ test("activation registers three native trees and opens one lazy dashboard panel
       assert.equal(mocked.webviewPanels.length, 1);
       assert.deepEqual(dashboard.panel.revealCalls, [undefined]);
 
+      assert.equal(
+        extensionManifest.contributes.configuration.properties[
+          "codex-switchbridge.language"
+        ]?.type,
+        "string",
+      );
+
       dashboard.deliver({
         type: "dashboard.locale.set",
         requestId: "locale-en",
@@ -13303,6 +13314,12 @@ test("activation registers three native trees and opens one lazy dashboard panel
         value: "en",
         target: mocked.vscode.ConfigurationTarget.Global,
       });
+      assert.equal(
+        extensionManifest.contributes.configuration.properties[
+          "codex-switchbridge.language"
+        ]?.type,
+        "string",
+      );
       assert.deepEqual(dashboard.latestMessage()?.locale, {
         preference: "en",
         effective: "en",

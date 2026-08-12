@@ -183,6 +183,23 @@ test("device auth login setting is opt-in", () => {
   assert.match(setting?.description ?? "", /device code authorization/i);
 });
 
+test("dashboard language setting supports automatic, English, and Simplified Chinese", () => {
+  const setting =
+    manifest.contributes.configuration.properties[
+      "codex-switchbridge.language"
+    ];
+
+  assert.equal(setting?.type, "string");
+  assert.equal(setting?.default, "auto");
+  assert.deepEqual(setting?.enum, ["auto", "en", "zh-cn"]);
+  assert.equal(setting?.scope, "window");
+  assert.match(setting?.description ?? "", /dashboard language/i);
+  assert.equal(setting?.enumDescriptions?.length, 3);
+  assert.match(setting?.enumDescriptions?.[0] ?? "", /follow VS Code/i);
+  assert.match(setting?.enumDescriptions?.[1] ?? "", /English/i);
+  assert.match(setting?.enumDescriptions?.[2] ?? "", /Simplified Chinese/i);
+});
+
 test("storage password commands are contributed", () => {
   const byId = new Map(commands.map((command) => [command.command, command]));
 
