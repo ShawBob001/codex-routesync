@@ -53,9 +53,8 @@
       "codex-switchbridge": [
         {
           "id": "codexSwitchBridgeOverview",
-          "name": "Overview",
-          "icon": "resources/icon.svg",
-          "type": "webview"
+          "name": "Dashboard",
+          "icon": "resources/icon.svg"
         },
         {
           "id": "codexSwitchBridgeAccounts",
@@ -82,6 +81,12 @@
       }
     ],
     "commands": [
+      {
+        "command": "codex-switchbridge.openDashboard",
+        "title": "Open Dashboard",
+        "category": "Codex SwitchBridge",
+        "icon": "$(open-preview)"
+      },
       {
         "command": "codex-switchbridge.importAccounts",
         "title": "Import Accounts",
@@ -296,14 +301,9 @@
     "menus": {
       "view/title": [
         {
-          "command": "codex-switchbridge.refreshDashboard",
+          "command": "codex-switchbridge.openDashboard",
           "when": "view == codexSwitchBridgeOverview",
           "group": "navigation@1"
-        },
-        {
-          "command": "codex-switchbridge.switchMode",
-          "when": "view == codexSwitchBridgeOverview",
-          "group": "navigation@2"
         },
         {
           "command": "codex-switchbridge.refresh",

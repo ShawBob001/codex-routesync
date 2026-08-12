@@ -4,9 +4,9 @@ import type { DashboardModel } from "./dashboardModel";
 import {
   DashboardAction,
   DashboardActionMessage,
-  DashboardClientMessage,
   parseDashboardClientMessage,
 } from "./dashboardProtocol";
+import type { DashboardLocaleEnvelope, LanguagePreference } from "./dashboardI18n";
 
 type MaybePromise = void | PromiseLike<void>;
 
@@ -25,11 +25,14 @@ export interface DashboardActionHandlers {
 export interface DashboardViewProviderOptions<Model extends object = DashboardModel> {
   extensionUri: vscode.Uri;
   getModel(): Model;
+  getLocale(): DashboardLocaleEnvelope;
+  setLanguagePreference(preference: LanguagePreference): MaybePromise;
   subscribe(listener: () => void): vscode.Disposable;
   getTargetIds(model: Model): readonly string[];
   getFreshTargetIds(): readonly string[];
   handlers: DashboardActionHandlers;
   onActionError?: (action: DashboardAction) => void;
+  onLocaleError?: () => void;
   onModelError?: () => void;
   shouldRefreshVisibleModel?: (model: Model) => boolean;
   requestVisibleRefresh?: () => MaybePromise;
@@ -39,13 +42,14 @@ export interface DashboardHostMessage<Model extends object = DashboardModel> {
   type: "dashboard.state";
   revision: number;
   state: Model;
+  locale: DashboardLocaleEnvelope;
 }
 
 export class DashboardViewProvider<Model extends object = DashboardModel>
-implements vscode.WebviewViewProvider, vscode.Disposable {
+implements vscode.Disposable {
   private readonly sourceSubscription: vscode.Disposable;
-  private view: vscode.WebviewView | null = null;
-  private viewSubscriptions: vscode.Disposable[] = [];
+  private panel: vscode.WebviewPanel | null = null;
+  private panelSubscriptions: vscode.Disposable[] = [];
   private ready = false;
   private disposed = false;
   private dirty = true;
@@ -58,58 +62,91 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     this.sourceSubscription = options.subscribe(() => this.invalidate());
   }
 
-  resolveWebviewView(view: vscode.WebviewView): void {
+  show(): void {
     if (this.disposed) return;
-    this.releaseView();
-    this.view = view;
-    this.ready = false;
-    this.dirty = true;
+    if (this.panel) {
+      this.panel.reveal();
+      return;
+    }
 
     const resourceRoot = vscode.Uri.joinPath(this.options.extensionUri, "dist", "webview");
-    view.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [resourceRoot],
-    };
-    view.webview.html = renderHtml(view.webview, resourceRoot);
-    this.viewSubscriptions = [
-      view.webview.onDidReceiveMessage((value) => this.receive(value)),
-      view.onDidChangeVisibility(() => {
-        if (view === this.view && view.visible && this.ready && this.dirty) {
-          this.queuePost();
-        }
+    const panel = vscode.window.createWebviewPanel(
+      "codexSwitchBridge.dashboard",
+      "Codex SwitchBridge",
+      vscode.ViewColumn.Active,
+      {
+        enableScripts: true,
+        enableForms: false,
+        enableCommandUris: false,
+        localResourceRoots: [resourceRoot],
+        enableFindWidget: true,
+        retainContextWhenHidden: false,
+      },
+    );
+    this.panel = panel;
+    this.ready = false;
+    this.dirty = true;
+    this.deliveryRetryUsed = false;
+    this.visibleRefreshRequested = false;
+    this.panelSubscriptions = [
+      panel.webview.onDidReceiveMessage((value) => this.receive(value)),
+      panel.onDidChangeViewState(() => {
+        if (panel !== this.panel || panel.visible) return;
+        this.ready = false;
+        this.dirty = true;
+        this.deliveryRetryUsed = false;
+        this.visibleRefreshRequested = false;
       }),
-      view.onDidDispose(() => {
-        if (view === this.view) this.releaseView();
+      panel.onDidDispose(() => {
+        if (panel === this.panel) this.releasePanel();
       }),
     ];
+    panel.webview.html = renderHtml(panel.webview, resourceRoot);
   }
 
   invalidate(): void {
     if (this.disposed) return;
     this.dirty = true;
     this.deliveryRetryUsed = false;
-    if (this.ready && this.view?.visible) this.queuePost();
+    if (this.ready && this.panel?.visible) this.queuePost();
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     this.sourceSubscription.dispose();
-    this.releaseView();
+    const panel = this.panel;
+    this.releasePanel();
+    panel?.dispose();
   }
 
   private receive(value: unknown): void {
-    if (this.disposed || !this.view) return;
+    if (this.disposed || !this.panel) return;
     const message = parseDashboardClientMessage(value);
     if (!message) return;
     if (message.type === "dashboard.ready") {
-      if (this.ready) return;
       this.ready = true;
       this.dirty = true;
-      if (this.view.visible) this.queuePost();
+      this.deliveryRetryUsed = false;
+      if (this.panel.visible) this.queuePost();
+      return;
+    }
+    if (message.type === "dashboard.locale.set") {
+      this.setLanguagePreference(message.preference);
       return;
     }
     if (message.type === "dashboard.action") this.dispatch(message);
+  }
+
+  private setLanguagePreference(preference: LanguagePreference): void {
+    try {
+      Promise.resolve(this.options.setLanguagePreference(preference)).then(
+        () => this.invalidate(),
+        () => this.options.onLocaleError?.(),
+      );
+    } catch {
+      this.options.onLocaleError?.();
+    }
   }
 
   private dispatch(message: DashboardActionMessage): void {
@@ -148,8 +185,9 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     this.postQueued = true;
     queueMicrotask(() => {
       this.postQueued = false;
-      if (this.disposed || !this.ready || !this.view?.visible || !this.dirty) return;
+      if (this.disposed || !this.ready || !this.panel?.visible || !this.dirty) return;
       let state: Model;
+      let locale: DashboardLocaleEnvelope;
       try {
         state = this.options.getModel();
       } catch {
@@ -157,30 +195,38 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
         this.options.onModelError?.();
         return;
       }
+      try {
+        locale = this.options.getLocale();
+      } catch {
+        this.dirty = true;
+        this.options.onLocaleError?.();
+        return;
+      }
       this.dirty = false;
       const message: DashboardHostMessage<Model> = {
         type: "dashboard.state",
         revision: ++this.revision,
         state,
+        locale,
       };
-      const targetView = this.view;
-      Promise.resolve(targetView.webview.postMessage(message)).then(
-        (delivered) => this.handleDelivery(targetView, delivered),
-        () => this.handleDelivery(targetView, false),
+      const targetPanel = this.panel;
+      Promise.resolve(targetPanel.webview.postMessage(message)).then(
+        (delivered) => this.handleDelivery(targetPanel, delivered),
+        () => this.handleDelivery(targetPanel, false),
       );
       this.maybeRequestVisibleRefresh(state);
     });
   }
 
-  private handleDelivery(view: vscode.WebviewView, delivered: boolean): void {
-    if (this.disposed || view !== this.view) return;
+  private handleDelivery(panel: vscode.WebviewPanel, delivered: boolean): void {
+    if (this.disposed || panel !== this.panel) return;
     if (delivered) {
       this.deliveryRetryUsed = false;
-      if (this.dirty && view.visible) this.queuePost();
+      if (this.dirty && panel.visible) this.queuePost();
       return;
     }
     this.dirty = true;
-    if (!this.deliveryRetryUsed && this.ready && view.visible) {
+    if (!this.deliveryRetryUsed && this.ready && panel.visible) {
       this.deliveryRetryUsed = true;
       this.queuePost();
     }
@@ -208,9 +254,9 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     }
   }
 
-  private releaseView(): void {
-    for (const subscription of this.viewSubscriptions.splice(0)) subscription.dispose();
-    this.view = null;
+  private releasePanel(): void {
+    for (const subscription of this.panelSubscriptions.splice(0)) subscription.dispose();
+    this.panel = null;
     this.ready = false;
     this.dirty = true;
     this.deliveryRetryUsed = false;

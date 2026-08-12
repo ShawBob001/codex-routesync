@@ -1150,6 +1150,7 @@ export function registerCommands(
   accountTreeView: vscode.TreeView<AccountTreeNode>,
   refreshCoordinator: RefreshCoordinator,
   usageService: UsageService,
+  openDashboard: () => void,
 ) {
   let autoSwitchInFlight: Promise<void> | null = null;
   let lastAutoSwitchState: AutoSwitchState | null = null;
@@ -1166,6 +1167,7 @@ export function registerCommands(
 
   context.subscriptions.push(
     autoSwitchConfigListener,
+    vscode.commands.registerCommand("codex-switchbridge.openDashboard", openDashboard),
     vscode.commands.registerCommand("codex-switchbridge.maybeAutoSwitchExhaustedAccount", async (request?: AutoSwitchRequest) => {
       if (!isAutoSwitchOnZeroQuotaEnabled() || !request?.exhaustedAccountId) {
         return;

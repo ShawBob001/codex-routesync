@@ -19,6 +19,7 @@ function createVscodeMock() {
   const registeredCommands = new Map();
   const configurationListeners = new Set();
   const createdChannels = [];
+  const createdPanels = [];
   const extensionLookups = [];
   const extensionLookupErrors = new Map();
   const installedExtensions = new Map();
@@ -100,9 +101,16 @@ function createVscodeMock() {
     ConfigurationTarget: {
       Global: 1,
     },
+    ViewColumn: {
+      Active: -1,
+    },
     window: {
       registerWebviewViewProvider() {
-        return createDisposable();
+        assert.fail("activation must not register a WebviewView provider");
+      },
+      createWebviewPanel() {
+        createdPanels.push({});
+        assert.fail("activation must not create the dashboard panel");
       },
       createTreeView() {
         return createDisposable();
@@ -223,6 +231,7 @@ function createVscodeMock() {
       },
     },
     env: {
+      language: "en",
       clipboard: {
         async writeText() {},
       },
@@ -238,6 +247,7 @@ function createVscodeMock() {
     vscode,
     registeredCommands,
     createdChannels,
+    createdPanels,
     extensionLookups,
     extensionLookupErrors,
     installedExtensions,
@@ -455,6 +465,7 @@ test("activate creates a dedicated VS Code log channel and writes startup logs i
   });
 
   assert.equal(mocked.createdChannels.length, 1);
+  assert.equal(mocked.createdPanels.length, 0);
   assert.equal(mocked.createdChannels[0].name, "Codex SwitchBridge");
   assert.deepEqual(mocked.createdChannels[0].options, { log: true });
   assert.ok(mocked.createdChannels[0].entries.length > 0);

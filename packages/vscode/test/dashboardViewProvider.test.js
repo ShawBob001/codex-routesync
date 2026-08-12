@@ -29,25 +29,12 @@ function uri(path) {
   };
 }
 
-const vscodeMock = {
-  Uri: {
-    joinPath(base, ...segments) {
-      return uri([base.path.replace(/\/$/, ""), ...segments].join("/"));
-    },
-  },
-};
+const createdPanels = [];
+let pendingPostResults = [[true]];
 
-const originalLoad = Module._load;
-Module._load = function mockVscode(request, parent, isMain) {
-  if (request === "vscode") return vscodeMock;
-  return originalLoad.call(this, request, parent, isMain);
-};
-const { DashboardViewProvider } = require("../dist/dashboardViewProvider.js");
-Module._load = originalLoad;
-
-function createWebviewView(postResults = [true]) {
+function createWebviewPanel(postResults = [true]) {
   const messages = eventSource();
-  const visibility = eventSource();
+  const viewState = eventSource();
   const disposal = eventSource();
   const posted = [];
   const webview = {
@@ -64,40 +51,90 @@ function createWebviewView(postResults = [true]) {
     },
     onDidReceiveMessage: messages.event,
   };
-  const view = {
+  const panel = {
     visible: true,
+    active: true,
     webview,
-    onDidChangeVisibility: visibility.event,
+    revealCalls: [],
+    disposed: false,
+    onDidChangeViewState: viewState.event,
     onDidDispose: disposal.event,
+    reveal(column) {
+      this.revealCalls.push(column);
+      this.visible = true;
+      this.active = true;
+      viewState.fire({ webviewPanel: this });
+    },
+    dispose() {
+      if (this.disposed) return;
+      this.disposed = true;
+      disposal.fire(undefined);
+    },
   };
   return {
-    view,
+    panel,
     posted,
     deliver: (message) => messages.fire(message),
     setVisible(value) {
-      view.visible = value;
-      visibility.fire();
+      panel.visible = value;
+      panel.active = value;
+      viewState.fire({ webviewPanel: panel });
     },
-    dispose: () => disposal.fire(),
+    dispose: () => panel.dispose(),
     listenerCounts: () => ({
       messages: messages.listenerCount,
-      visibility: visibility.listenerCount,
+      viewState: viewState.listenerCount,
       disposal: disposal.listenerCount,
     }),
   };
 }
 
-function createHarness() {
+const vscodeMock = {
+  ViewColumn: { Active: -1 },
+  Uri: {
+    joinPath(base, ...segments) {
+      return uri([base.path.replace(/\/$/, ""), ...segments].join("/"));
+    },
+  },
+  window: {
+    createWebviewPanel(viewType, title, showOptions, options) {
+      const created = createWebviewPanel(pendingPostResults.shift() ?? [true]);
+      created.createArgs = { viewType, title, showOptions, options };
+      createdPanels.push(created);
+      return created.panel;
+    },
+  },
+};
+
+const originalLoad = Module._load;
+Module._load = function mockVscode(request, parent, isMain) {
+  if (request === "vscode") return vscodeMock;
+  return originalLoad.call(this, request, parent, isMain);
+};
+const { DashboardViewProvider } = require("../dist/dashboardViewProvider.js");
+Module._load = originalLoad;
+
+function createHarness(options = {}) {
+  createdPanels.length = 0;
+  pendingPostResults = options.postResultsByPanel ?? [[true]];
   const changes = eventSource();
   let model = {
     marker: "initial",
     accounts: [{ id: "local:a" }, { id: "cloud:locked" }],
   };
+  let locale = { preference: "auto", effective: "en" };
   const calls = [];
+  const localeCalls = [];
   const actionErrors = [];
+  let localeErrors = 0;
   let visibleRefreshes = 0;
   let modelFailures = 0;
+  let modelErrors = 0;
   let freshTargetIds = ["local:a", "cloud:locked"];
+  let localeSetter = (preference) => {
+    localeCalls.push(preference);
+    locale = { preference, effective: preference === "zh-cn" ? "zh-cn" : "en" };
+  };
   const handlers = Object.fromEntries([
     "refreshDashboard",
     "switchMode",
@@ -119,11 +156,15 @@ function createHarness() {
       }
       return model;
     },
+    getLocale: () => locale,
+    setLanguagePreference: (preference) => localeSetter(preference),
     subscribe: changes.event,
     getTargetIds: (current) => current.accounts.map((account) => account.id),
     getFreshTargetIds: () => freshTargetIds,
     handlers,
     onActionError: (action) => actionErrors.push(action),
+    onLocaleError: () => { localeErrors += 1; },
+    onModelError: () => { modelErrors += 1; },
     shouldRefreshVisibleModel: (current) => current.marker === "needs-refresh",
     requestVisibleRefresh: () => { visibleRefreshes += 1; },
   });
@@ -131,30 +172,60 @@ function createHarness() {
     provider,
     changes,
     calls,
+    localeCalls,
     actionErrors,
+    show() {
+      provider.show();
+      return createdPanels.at(-1);
+    },
     setModel(next) { model = next; },
+    setLocale(next) { locale = next; },
+    setLocaleSetter(next) { localeSetter = next; },
     setFreshTargetIds(next) { freshTargetIds = next; },
     failNextModelBuild() { modelFailures += 1; },
     get visibleRefreshes() { return visibleRefreshes; },
+    get localeErrors() { return localeErrors; },
+    get modelErrors() { return modelErrors; },
   };
 }
 
 async function flushMicrotasks() {
   await Promise.resolve();
   await Promise.resolve();
+  await Promise.resolve();
 }
 
-test("resolve configures a local-only webview and a nonce CSP shell", () => {
+test("constructing is lazy, while show creates and reveals one editor panel", () => {
   const harness = createHarness();
-  const resolved = createWebviewView();
-  harness.provider.resolveWebviewView(resolved.view);
+  assert.equal(createdPanels.length, 0);
+  assert.equal(harness.changes.listenerCount, 1);
 
-  assert.equal(resolved.view.webview.options.enableScripts, true);
+  const first = harness.show();
+  assert.equal(createdPanels.length, 1);
+  assert.equal(first.createArgs.viewType, "codexSwitchBridge.dashboard");
+  assert.equal(first.createArgs.title, "Codex SwitchBridge");
+  assert.equal(first.createArgs.showOptions, vscodeMock.ViewColumn.Active);
   assert.deepEqual(
-    resolved.view.webview.options.localResourceRoots.map((root) => root.path),
+    first.createArgs.options.localResourceRoots.map((root) => root.path),
     ["/extension/dist/webview"],
   );
-  const html = resolved.view.webview.html;
+  assert.equal(first.createArgs.options.enableScripts, true);
+  assert.equal(first.createArgs.options.enableForms, false);
+  assert.equal(first.createArgs.options.enableCommandUris, false);
+  assert.equal(first.createArgs.options.enableFindWidget, true);
+  assert.equal(first.createArgs.options.retainContextWhenHidden, false);
+
+  harness.provider.show();
+  assert.equal(createdPanels.length, 1);
+  assert.deepEqual(first.panel.revealCalls, [undefined]);
+  harness.provider.dispose();
+});
+
+test("show configures a local-only webview and nonce CSP shell", () => {
+  const harness = createHarness();
+  const created = harness.show();
+
+  const html = created.panel.webview.html;
   assert.match(html, /default-src 'none'/);
   assert.match(html, /img-src vscode-webview:\/\/test-source data:/);
   assert.match(html, /style-src vscode-webview:\/\/test-source/);
@@ -170,21 +241,34 @@ test("resolve configures a local-only webview and a nonce CSP shell", () => {
   harness.provider.dispose();
 });
 
-test("ready posts the latest state once and bursty changes coalesce", async () => {
+test("closing releases panel listeners and a later show creates a new panel", () => {
   const harness = createHarness();
-  const resolved = createWebviewView();
-  harness.provider.resolveWebviewView(resolved.view);
+  const first = harness.show();
+  assert.deepEqual(first.listenerCounts(), { messages: 1, viewState: 1, disposal: 1 });
+
+  first.dispose();
+  assert.deepEqual(first.listenerCounts(), { messages: 0, viewState: 0, disposal: 0 });
+  const second = harness.show();
+  assert.equal(createdPanels.length, 2);
+  assert.notEqual(second.panel, first.panel);
+  harness.provider.dispose();
+});
+
+test("ready posts the latest state, includes locale, and bursty changes coalesce", async () => {
+  const harness = createHarness();
+  const created = harness.show();
 
   harness.setModel({ marker: "before-ready", accounts: [{ id: "local:a" }] });
+  harness.setLocale({ preference: "auto", effective: "zh-cn" });
   harness.changes.fire();
   harness.changes.fire();
-  resolved.deliver({ type: "dashboard.ready" });
-  resolved.deliver({ type: "dashboard.ready" });
+  created.deliver({ type: "dashboard.ready" });
   await flushMicrotasks();
 
-  assert.equal(resolved.posted.length, 1);
-  assert.equal(resolved.posted[0].type, "dashboard.state");
-  assert.equal(resolved.posted[0].state.marker, "before-ready");
+  assert.equal(created.posted.length, 1);
+  assert.equal(created.posted[0].type, "dashboard.state");
+  assert.equal(created.posted[0].state.marker, "before-ready");
+  assert.deepEqual(created.posted[0].locale, { preference: "auto", effective: "zh-cn" });
 
   harness.setModel({ marker: "old", accounts: [{ id: "local:a" }] });
   harness.changes.fire();
@@ -193,65 +277,73 @@ test("ready posts the latest state once and bursty changes coalesce", async () =
   harness.changes.fire();
   await flushMicrotasks();
 
-  assert.equal(resolved.posted.length, 2);
-  assert.equal(resolved.posted[1].state.marker, "latest");
-  assert.ok(resolved.posted[1].revision > resolved.posted[0].revision);
+  assert.equal(created.posted.length, 2);
+  assert.equal(created.posted[1].state.marker, "latest");
+  assert.ok(created.posted[1].revision > created.posted[0].revision);
   harness.provider.dispose();
 });
 
-test("hidden and disposed views stop delivery without leaking listeners", async () => {
+test("every repeated ready marks dirty and posts the latest state", async () => {
   const harness = createHarness();
-  const first = createWebviewView();
-  harness.provider.resolveWebviewView(first.view);
-  first.deliver({ type: "dashboard.ready" });
+  const created = harness.show();
+  created.deliver({ type: "dashboard.ready" });
   await flushMicrotasks();
 
-  first.setVisible(false);
+  harness.setModel({ marker: "latest-after-reload", accounts: [] });
+  created.deliver({ type: "dashboard.ready" });
+  await flushMicrotasks();
+
+  assert.equal(created.posted.length, 2);
+  assert.equal(created.posted[1].state.marker, "latest-after-reload");
+  harness.provider.dispose();
+});
+
+test("hidden panels stop delivery and require a new ready after becoming visible", async () => {
+  const harness = createHarness();
+  const created = harness.show();
+  created.deliver({ type: "dashboard.ready" });
+  await flushMicrotasks();
+
+  created.setVisible(false);
   harness.setModel({ marker: "hidden", accounts: [] });
   harness.changes.fire();
   await flushMicrotasks();
-  assert.equal(first.posted.length, 1);
+  assert.equal(created.posted.length, 1);
 
-  first.setVisible(true);
+  created.setVisible(true);
   await flushMicrotasks();
-  assert.equal(first.posted.length, 2);
-  assert.equal(first.posted[1].state.marker, "hidden");
-
-  const second = createWebviewView();
-  harness.provider.resolveWebviewView(second.view);
-  assert.deepEqual(first.listenerCounts(), { messages: 0, visibility: 0, disposal: 0 });
-  second.dispose();
-  assert.deepEqual(second.listenerCounts(), { messages: 0, visibility: 0, disposal: 0 });
-  assert.equal(harness.changes.listenerCount, 1);
-
+  assert.equal(created.posted.length, 1);
+  harness.setModel({ marker: "newest", accounts: [] });
+  created.deliver({ type: "dashboard.ready" });
+  await flushMicrotasks();
+  assert.equal(created.posted.length, 2);
+  assert.equal(created.posted[1].state.marker, "newest");
   harness.provider.dispose();
-  assert.equal(harness.changes.listenerCount, 0);
 });
 
-test("routes only fixed actions and allows current model target IDs", async () => {
+test("routes only fixed actions and allows current fresh target IDs", async () => {
   const harness = createHarness();
-  const resolved = createWebviewView();
-  harness.provider.resolveWebviewView(resolved.view);
+  const created = harness.show();
 
-  resolved.deliver({
+  created.deliver({
     type: "dashboard.action",
     requestId: "1",
     action: "setAutoSwitch",
     enabled: true,
   });
-  resolved.deliver({
+  created.deliver({
     type: "dashboard.action",
     requestId: "2",
     action: "reloginAccount",
     targetId: "local:a",
   });
-  resolved.deliver({
+  created.deliver({
     type: "dashboard.action",
     requestId: "3",
     action: "unlockStorage",
     targetId: "missing",
   });
-  resolved.deliver({
+  created.deliver({
     type: "dashboard.action",
     requestId: "4",
     action: "workbench.action.reloadWindow",
@@ -264,18 +356,15 @@ test("routes only fixed actions and allows current model target IDs", async () =
   ]);
 
   harness.setModel({ marker: "changed", accounts: [] });
-  resolved.deliver({
+  created.deliver({
     type: "dashboard.action",
     requestId: "5",
     action: "reloginAccount",
     targetId: "local:a",
   });
-  await flushMicrotasks();
-  assert.equal(harness.calls.length, 2);
-
   harness.setModel({ marker: "model-still-allows", accounts: [{ id: "local:a" }] });
   harness.setFreshTargetIds([]);
-  resolved.deliver({
+  created.deliver({
     type: "dashboard.action",
     requestId: "6",
     action: "reloginAccount",
@@ -286,21 +375,47 @@ test("routes only fixed actions and allows current model target IDs", async () =
   harness.provider.dispose();
 });
 
-test("ignores locale messages without invoking action handlers", async () => {
+test("locale set calls only its setter and invalidates the successful result", async () => {
   const harness = createHarness();
-  const resolved = createWebviewView();
-  harness.provider.resolveWebviewView(resolved.view);
+  const created = harness.show();
+  created.deliver({ type: "dashboard.ready" });
+  await flushMicrotasks();
 
-  resolved.deliver({
+  created.deliver({
     type: "dashboard.locale.set",
     requestId: "locale-1",
     preference: "zh-cn",
   });
   await flushMicrotasks();
 
+  assert.deepEqual(harness.localeCalls, ["zh-cn"]);
   assert.deepEqual(harness.calls, []);
   assert.deepEqual(harness.actionErrors, []);
+  assert.deepEqual(created.posted.at(-1).locale, { preference: "zh-cn", effective: "zh-cn" });
   harness.provider.dispose();
+});
+
+test("locale setter failures are contained and reported without action dispatch", async () => {
+  for (const failure of ["sync", "async"]) {
+    const harness = createHarness();
+    const created = harness.show();
+    harness.setLocaleSetter(() => {
+      if (failure === "sync") throw new Error("locale update failed");
+      return Promise.reject(new Error("locale update failed"));
+    });
+
+    assert.doesNotThrow(() => created.deliver({
+      type: "dashboard.locale.set",
+      requestId: `locale-${failure}`,
+      preference: "zh-cn",
+    }));
+    await flushMicrotasks();
+
+    assert.equal(harness.localeErrors, 1);
+    assert.deepEqual(harness.calls, []);
+    assert.deepEqual(harness.actionErrors, []);
+    harness.provider.dispose();
+  }
 });
 
 test("contains synchronous action failures and reports the fixed action", async () => {
@@ -308,10 +423,9 @@ test("contains synchronous action failures and reports the fixed action", async 
   harness.provider.options.handlers.refreshDashboard = () => {
     throw new Error("synchronous action failure");
   };
-  const resolved = createWebviewView();
-  harness.provider.resolveWebviewView(resolved.view);
+  const created = harness.show();
 
-  assert.doesNotThrow(() => resolved.deliver({
+  assert.doesNotThrow(() => created.deliver({
     type: "dashboard.action",
     requestId: "sync-failure",
     action: "refreshDashboard",
@@ -324,41 +438,39 @@ test("contains synchronous action failures and reports the fixed action", async 
 
 test("retries the latest state when webview delivery returns false or rejects", async () => {
   for (const firstFailure of [false, new Error("delivery failed")]) {
-    const harness = createHarness();
-    const resolved = createWebviewView([firstFailure, true]);
-    harness.provider.resolveWebviewView(resolved.view);
-    resolved.deliver({ type: "dashboard.ready" });
+    const harness = createHarness({ postResultsByPanel: [[firstFailure, true]] });
+    const created = harness.show();
+    created.deliver({ type: "dashboard.ready" });
     await flushMicrotasks();
     await flushMicrotasks();
 
-    assert.equal(resolved.posted.length, 2);
-    assert.equal(resolved.posted.at(-1).state.marker, "initial");
+    assert.equal(created.posted.length, 2);
+    assert.equal(created.posted.at(-1).state.marker, "initial");
     harness.provider.dispose();
   }
 });
 
 test("recovers from a synchronous model-build failure on the next invalidation", async () => {
   const harness = createHarness();
-  const resolved = createWebviewView();
-  harness.provider.resolveWebviewView(resolved.view);
+  const created = harness.show();
   harness.failNextModelBuild();
-  resolved.deliver({ type: "dashboard.ready" });
+  created.deliver({ type: "dashboard.ready" });
   await flushMicrotasks();
-  assert.equal(resolved.posted.length, 0);
+  assert.equal(created.posted.length, 0);
+  assert.equal(harness.modelErrors, 1);
 
   harness.changes.fire();
   await flushMicrotasks();
-  assert.equal(resolved.posted.length, 1);
-  assert.equal(resolved.posted[0].state.marker, "initial");
+  assert.equal(created.posted.length, 1);
+  assert.equal(created.posted[0].state.marker, "initial");
   harness.provider.dispose();
 });
 
 test("requests one coalesced refresh when the first visible model lacks fresh quota", async () => {
   const harness = createHarness();
-  const resolved = createWebviewView();
   harness.setModel({ marker: "needs-refresh", accounts: [{ id: "local:a" }] });
-  harness.provider.resolveWebviewView(resolved.view);
-  resolved.deliver({ type: "dashboard.ready" });
+  const created = harness.show();
+  created.deliver({ type: "dashboard.ready" });
   await flushMicrotasks();
   await flushMicrotasks();
 
@@ -368,4 +480,16 @@ test("requests one coalesced refresh when the first visible model lacks fresh qu
   await flushMicrotasks();
   assert.equal(harness.visibleRefreshes, 1);
   harness.provider.dispose();
+});
+
+test("manager disposal releases the source, listeners, and current panel", () => {
+  const harness = createHarness();
+  const created = harness.show();
+  harness.provider.dispose();
+
+  assert.equal(harness.changes.listenerCount, 0);
+  assert.equal(created.panel.disposed, true);
+  assert.deepEqual(created.listenerCounts(), { messages: 0, viewState: 0, disposal: 0 });
+  harness.provider.show();
+  assert.equal(createdPanels.length, 1);
 });

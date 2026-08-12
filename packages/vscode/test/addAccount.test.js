@@ -440,9 +440,10 @@ function createVscodeMock(options) {
   const quickPickResponses = [...(options.quickPickResponses ?? [])];
   const secretState = new Map(Object.entries(options.secretValues ?? {}));
   const configurationUpdateErrors = new Map(Object.entries(options.configurationUpdateErrors ?? {}));
+  const configurationUpdates = [];
   const configurationListeners = new Set();
   const treeViews = new Map();
-  const webviewViews = new Map();
+  const webviewPanels = [];
   const createdChannels = [];
   const createdStatusBarItems = [];
   const globalStateValues = new Map(Object.entries(options.globalStateValues ?? {}));
@@ -483,6 +484,7 @@ function createVscodeMock(options) {
     detailedPerformanceLogging: options.detailedPerformanceLogging ?? false,
     shareHistoryAcrossProviders: options.shareHistoryAcrossProviders ?? false,
     defaultSaveTarget: options.defaultSaveTarget ?? "local",
+    language: options.languagePreference ?? "auto",
   };
   Object.defineProperty(config, "syncedStorage", {
     enumerable: true,
@@ -571,10 +573,13 @@ function createVscodeMock(options) {
     ConfigurationTarget: {
       Global: 1,
     },
+    ViewColumn: {
+      Active: -1,
+    },
     window: {
-      registerWebviewViewProvider(id, provider, registrationOptions) {
+      createWebviewPanel(viewType, title, showOptions, panelOptions) {
         const messageEmitter = new EventEmitter();
-        const visibilityEmitter = new EventEmitter();
+        const viewStateEmitter = new EventEmitter();
         const disposalEmitter = new EventEmitter();
         const posted = [];
         const webview = {
@@ -592,39 +597,55 @@ function createVscodeMock(options) {
           },
           onDidReceiveMessage: messageEmitter.event,
         };
-        const view = {
+        const panel = {
           visible: true,
+          active: true,
           webview,
-          onDidChangeVisibility: visibilityEmitter.event,
+          onDidChangeViewState: viewStateEmitter.event,
           onDidDispose: disposalEmitter.event,
+          revealCalls: [],
+          reveal(column) {
+            this.revealCalls.push(column);
+            this.visible = true;
+            this.active = true;
+            viewStateEmitter.fire({ webviewPanel: this });
+          },
+          dispose() {
+            if (this.disposed) return;
+            this.disposed = true;
+            disposalEmitter.fire(undefined);
+          },
         };
-        const registered = {
-          id,
-          provider,
-          registrationOptions,
-          view,
+        const created = {
+          viewType,
+          title,
+          showOptions,
+          panelOptions,
+          panel,
           posted,
           deliver(message) {
             messageEmitter.fire(message);
           },
           setVisible(visible) {
-            view.visible = visible;
-            visibilityEmitter.fire(undefined);
+            panel.visible = visible;
+            panel.active = visible;
+            viewStateEmitter.fire({ webviewPanel: panel });
           },
           latestState() {
             return posted.filter((message) => message?.type === "dashboard.state").at(-1)?.state;
           },
+          latestMessage() {
+            return posted.filter((message) => message?.type === "dashboard.state").at(-1);
+          },
           dispose() {
-            disposalEmitter.fire(undefined);
+            panel.dispose();
             messageEmitter.dispose();
-            visibilityEmitter.dispose();
+            viewStateEmitter.dispose();
             disposalEmitter.dispose();
-            webviewViews.delete(id);
           },
         };
-        webviewViews.set(id, registered);
-        provider.resolveWebviewView(view);
-        return createDisposable(() => registered.dispose());
+        webviewPanels.push(created);
+        return panel;
       },
       createTreeView(id, viewOptions) {
         const treeView = createDisposable();
@@ -740,11 +761,12 @@ function createVscodeMock(options) {
             }
             return config[key] ?? defaultValue;
           },
-          async update(key, value) {
+          async update(key, value, target) {
             const configuredError = configurationUpdateErrors.get(key);
             if (configuredError) {
               throw configuredError instanceof Error ? configuredError : new Error(String(configuredError));
             }
+            configurationUpdates.push({ key, value, target });
             config[key] = value;
             const event = {
               affectsConfiguration(target) {
@@ -777,6 +799,7 @@ function createVscodeMock(options) {
       },
     },
     env: {
+      language: options.language ?? "en",
       clipboard: {
         async writeText(value) {
           clipboardWrites.push(value);
@@ -806,17 +829,19 @@ function createVscodeMock(options) {
     errorMessages,
     inputBoxCalls,
     treeViews,
-    webviewViews,
+    webviewPanels,
     async readyDashboard() {
-      const registered = webviewViews.get("codexSwitchBridgeOverview");
-      assert.ok(registered, "activation should register the Overview WebviewView");
-      registered.deliver({ type: "dashboard.ready" });
+      await registeredCommands.get("codex-switchbridge.openDashboard")();
+      const created = webviewPanels.at(-1);
+      assert.ok(created, "openDashboard should create the dashboard WebviewPanel");
+      created.deliver({ type: "dashboard.ready" });
       await Promise.resolve();
       await Promise.resolve();
-      return registered;
+      return created;
     },
     createdChannels,
     createdStatusBarItems,
+    configurationUpdates,
     config,
     secrets: {
       async get(key) {
@@ -13212,7 +13237,7 @@ test("missing account marker skips outgoing sync for ambiguous local and cloud i
   });
 });
 
-test("activate creates an Overview dashboard with indexed local token usage", async (t) => {
+test("activation registers three native trees and opens one lazy dashboard panel", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-usage-overview-"));
   const codexHome = path.join(tempRoot, ".codex");
   const authDir = path.join(tempRoot, "saved-auth");
@@ -13226,16 +13251,62 @@ test("activate creates an Overview dashboard with indexed local token usage", as
   delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
 
   try {
-    const mocked = createVscodeMock({ authDirectory: authDir });
+    const mocked = createVscodeMock({
+      authDirectory: authDir,
+      language: "zh-TW",
+    });
     await withDisabledIntervals(async () => {
       const extension = loadExtensionWithMockedVscode(mocked.vscode);
       const context = createExtensionContext(mocked);
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
 
+      assert.deepEqual([...mocked.treeViews.keys()], [
+        "codexSwitchBridgeOverview",
+        "codexSwitchBridgeAccounts",
+        "codexSwitchBridgeProviders",
+      ]);
+      assert.equal(mocked.webviewPanels.length, 0);
+      const launcher = mocked.treeViews.get("codexSwitchBridgeOverview").treeDataProvider;
+      const launcherItems = launcher.getChildren();
+      assert.equal(launcherItems.length, 1);
+      assert.equal(launcherItems[0].label, "Open Dashboard");
+      assert.equal(launcherItems[0].collapsibleState, mocked.vscode.TreeItemCollapsibleState.None);
+      assert.equal(launcherItems[0].iconPath.id, "open-preview");
+      assert.equal(launcherItems[0].command.command, "codex-switchbridge.openDashboard");
+
       const dashboard = await mocked.readyDashboard();
+      assert.equal(mocked.webviewPanels.length, 1);
+      assert.equal(dashboard.viewType, "codexSwitchBridge.dashboard");
+      assert.equal(dashboard.showOptions, mocked.vscode.ViewColumn.Active);
       assert.equal(dashboard.latestState()?.usage.total.totalTokens, 125);
       assert.equal(dashboard.latestState()?.usage.compactTotal, "125");
+      assert.deepEqual(dashboard.latestMessage()?.locale, {
+        preference: "auto",
+        effective: "zh-cn",
+      });
+
+      await mocked.registeredCommands.get("codex-switchbridge.openDashboard")();
+      assert.equal(mocked.webviewPanels.length, 1);
+      assert.deepEqual(dashboard.panel.revealCalls, [undefined]);
+
+      dashboard.deliver({
+        type: "dashboard.locale.set",
+        requestId: "locale-en",
+        preference: "en",
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      assert.deepEqual(mocked.configurationUpdates.at(-1), {
+        key: "language",
+        value: "en",
+        target: mocked.vscode.ConfigurationTarget.Global,
+      });
+      assert.deepEqual(dashboard.latestMessage()?.locale, {
+        preference: "en",
+        effective: "en",
+      });
 
       for (const subscription of context.subscriptions.reverse()) {
         subscription?.dispose?.();

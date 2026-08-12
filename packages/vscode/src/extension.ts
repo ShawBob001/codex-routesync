@@ -13,6 +13,8 @@ import { RefreshCoordinator } from "./refreshCoordinator";
 import { StatusBarManager } from "./statusBar";
 import { registerCommands } from "./commands";
 import { buildDashboardModel, DashboardModel } from "./dashboardModel";
+import { resolveDashboardLocale, LanguagePreference } from "./dashboardI18n";
+import { DashboardLauncher } from "./dashboardLauncher";
 import { DashboardViewProvider } from "./dashboardViewProvider";
 import { disposeLogging, initializeLogging, logInfo, logWarn, writeRawLog } from "./log";
 import { restoreSavedAuthPassphrase } from "./storagePassword";
@@ -83,6 +85,13 @@ function getAutoSwitchEnabled(): boolean {
     .get<boolean>("autoSwitchOnZeroQuota", false);
 }
 
+function getDashboardLanguagePreference(): LanguagePreference {
+  const preference = vscode.workspace
+    .getConfiguration("codex-switchbridge")
+    .get<unknown>("language", "auto");
+  return preference === "en" || preference === "zh-cn" ? preference : "auto";
+}
+
 function dashboardTargetIds(model: DashboardModel): string[] {
   const ids = new Set(model.otherAccounts.map((account) => account.accountId));
   if (model.route.kind === "account" && model.route.accountId) ids.add(model.route.accountId);
@@ -149,6 +158,16 @@ export async function activate(context: vscode.ExtensionContext) {
       reload: statusBarManager.getReloadRecommendation(),
       nowMs: Date.now(),
     }),
+    getLocale: () => {
+      const preference = getDashboardLanguagePreference();
+      return {
+        preference,
+        effective: resolveDashboardLocale(preference, vscode.env.language),
+      };
+    },
+    setLanguagePreference: (preference) => vscode.workspace
+      .getConfiguration("codex-switchbridge")
+      .update("language", preference, vscode.ConfigurationTarget.Global),
     subscribe: (listener) => {
       const subscriptions = [
         quotaStore.onDidChange(listener),
@@ -161,6 +180,7 @@ export async function activate(context: vscode.ExtensionContext) {
             || event.affectsConfiguration("codex-switchbridge.authDirectory")
             || event.affectsConfiguration("codex-switchbridge.defaultSaveTarget")
             || event.affectsConfiguration("codex-switchbridge.syncedStorage")
+            || event.affectsConfiguration("codex-switchbridge.language")
           ) {
             listener();
           }
@@ -190,17 +210,17 @@ export async function activate(context: vscode.ExtensionContext) {
       reloadWindow: () => vscode.commands.executeCommand("codex-switchbridge.reloadWindow"),
     },
     onActionError: (action) => logInfo(LOG_PREFIX, "dashboard-action-failed", { action }),
+    onLocaleError: () => logInfo(LOG_PREFIX, "dashboard-locale-update-failed", {}),
     onModelError: () => logInfo(LOG_PREFIX, "dashboard-model-build-failed", {}),
     shouldRefreshVisibleModel: dashboardNeedsQuotaRefresh,
     requestVisibleRefresh: () => {
       refreshCoordinator.scheduleQuotaRefresh({ reason: "manual", fullRefresh: true });
     },
   });
-  const dashboardViewRegistration = vscode.window.registerWebviewViewProvider(
-    "codexSwitchBridgeOverview",
-    dashboardView,
-    { webviewOptions: { retainContextWhenHidden: true } },
-  );
+  const dashboardLauncher = new DashboardLauncher();
+  const dashboardTreeView = vscode.window.createTreeView("codexSwitchBridgeOverview", {
+    treeDataProvider: dashboardLauncher,
+  });
   const accountTreeView = vscode.window.createTreeView<AccountTreeNode>("codexSwitchBridgeAccounts", {
     treeDataProvider: accountTree,
     showCollapseAll: true,
@@ -239,7 +259,7 @@ export async function activate(context: vscode.ExtensionContext) {
   });
 
   context.subscriptions.push(
-    dashboardViewRegistration,
+    dashboardTreeView,
     dashboardView,
     accountTreeView,
     providerTreeView,
@@ -261,6 +281,7 @@ export async function activate(context: vscode.ExtensionContext) {
     accountTreeView,
     refreshCoordinator,
     usageService,
+    () => dashboardView.show(),
   );
 
   statusBarManager.startConfigurationSync(context);

@@ -66,7 +66,7 @@ test("S-Bridge brand assets are self-contained and Marketplace-ready", () => {
   );
 });
 
-test("activity view starts with a graphical Overview and keeps management trees native", () => {
+test("activity view uses a native Dashboard launcher and keeps management trees native", () => {
   const views = manifest.contributes.views["codex-switchbridge"] ?? [];
   assert.deepEqual(
     views.map((view) => view.id),
@@ -80,7 +80,8 @@ test("activity view starts with a graphical Overview and keeps management trees 
   const overview = views.find((view) => view.id === "codexSwitchBridgeOverview");
   const accounts = views.find((view) => view.id === "codexSwitchBridgeAccounts");
   const providers = views.find((view) => view.id === "codexSwitchBridgeProviders");
-  assert.equal(overview?.type, "webview");
+  assert.equal(overview?.name, "Dashboard");
+  assert.equal(overview?.type, undefined);
   assert.equal(overview?.showCollapseAll, undefined);
   assert.equal(accounts?.type, undefined);
   assert.equal(providers?.type, undefined);
@@ -91,8 +92,15 @@ test("activity view starts with a graphical Overview and keeps management trees 
     .map((item) => item.command);
   assert.deepEqual(
     overviewTitleCommands,
-    ["codex-switchbridge.refreshDashboard", "codex-switchbridge.switchMode"],
+    ["codex-switchbridge.openDashboard"],
   );
+
+  const openDashboard = commands.find(
+    (command) => command.command === "codex-switchbridge.openDashboard",
+  );
+  assert.equal(openDashboard?.title, "Open Dashboard");
+  assert.equal(openDashboard?.category, "Codex SwitchBridge");
+  assert.equal(openDashboard?.icon, "$(open-preview)");
 });
 
 test("production build includes dashboard browser assets and excludes raw webview sources", () => {

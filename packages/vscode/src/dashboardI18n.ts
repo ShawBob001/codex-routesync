@@ -1,6 +1,11 @@
 export type LanguagePreference = "auto" | "en" | "zh-cn";
 export type SupportedLocale = "en" | "zh-cn";
 
+export interface DashboardLocaleEnvelope {
+  preference: LanguagePreference;
+  effective: SupportedLocale;
+}
+
 const en = {
   "navigation.skipToDashboard": "Skip to dashboard",
   "loading.dashboard": "Loading dashboard...",
