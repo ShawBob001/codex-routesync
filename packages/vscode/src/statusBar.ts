@@ -20,6 +20,11 @@ interface StatusBarRefreshOptions {
   refreshId?: string;
 }
 
+export interface ReloadRecommendationSnapshot {
+  recommended: boolean;
+  reason: string | null;
+}
+
 function windowLabel(window: WindowInfo): string {
   if (window.windowSeconds == null) return "quota";
   const hours = window.windowSeconds / 3600;
@@ -48,7 +53,11 @@ export class StatusBarManager implements vscode.Disposable {
   private reloadStatusBarItem: vscode.StatusBarItem;
   private configListener: vscode.Disposable | undefined;
   private reloadRecommended = false;
+  private reloadReason: string | null = null;
+  private readonly reloadRecommendationEmitter = new vscode.EventEmitter<ReloadRecommendationSnapshot>();
   private refreshGeneration = 0;
+
+  readonly onDidChangeReloadRecommendation = this.reloadRecommendationEmitter.event;
 
   constructor(private readonly usageService?: UsageService) {
     this.statusBarItem = vscode.window.createStatusBarItem(
@@ -87,16 +96,30 @@ export class StatusBarManager implements vscode.Disposable {
   }
 
   markReloadRecommended(reason?: string): void {
+    const nextReason = reason?.trim() || null;
+    const changed = !this.reloadRecommended || this.reloadReason !== nextReason;
     this.reloadRecommended = true;
-    this.reloadStatusBarItem.tooltip = reason
-      ? `${reason}\n\nClick to reload this VS Code window.`
+    this.reloadReason = nextReason;
+    this.reloadStatusBarItem.tooltip = nextReason
+      ? `${nextReason}\n\nClick to reload this VS Code window.`
       : "Reload this VS Code window so Codex uses the newly selected account or provider.";
     this.updateVisibility();
+    if (changed) this.reloadRecommendationEmitter.fire(this.getReloadRecommendation());
   }
 
   clearReloadRecommendation(): void {
+    const changed = this.reloadRecommended || this.reloadReason != null;
     this.reloadRecommended = false;
+    this.reloadReason = null;
     this.updateVisibility();
+    if (changed) this.reloadRecommendationEmitter.fire(this.getReloadRecommendation());
+  }
+
+  getReloadRecommendation(): ReloadRecommendationSnapshot {
+    return {
+      recommended: this.reloadRecommended,
+      reason: this.reloadRecommended ? this.reloadReason : null,
+    };
   }
 
   startConfigurationSync(context: vscode.ExtensionContext) {
@@ -111,7 +134,7 @@ export class StatusBarManager implements vscode.Disposable {
             .getConfiguration("codex-switchbridge")
             .get<string>("reloadWindowAfterSwitch", "statusBar") !== "statusBar"
         ) {
-          this.reloadRecommended = false;
+          this.clearReloadRecommendation();
         }
         this.updateVisibility();
         if (this.isVisibleEnabled()) {
@@ -394,6 +417,7 @@ export class StatusBarManager implements vscode.Disposable {
 
   dispose() {
     this.configListener?.dispose();
+    this.reloadRecommendationEmitter.dispose();
     this.statusBarItem.dispose();
     this.reloadStatusBarItem.dispose();
   }

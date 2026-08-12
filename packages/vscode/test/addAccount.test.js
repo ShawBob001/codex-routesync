@@ -3518,8 +3518,17 @@ test("shared history local provider syncs current auth before switching accounts
           (item) => item.command === "codex-switchbridge.reloadWindow",
         );
         assert.ok(reloadItem);
+        const statusBarManager = context.subscriptions.find(
+          (subscription) => typeof subscription?.getReloadRecommendation === "function",
+        );
+        assert.ok(statusBarManager);
+        const reloadChanges = [];
+        const reloadSubscription = statusBarManager.onDidChangeReloadRecommendation(
+          (snapshot) => reloadChanges.push(snapshot),
+        );
         assert.equal(reloadItem.visible, true);
         assert.match(reloadItem.text, /Reload recommended/);
+        assert.match(statusBarManager.getReloadRecommendation().reason ?? "", /Switched to mode/);
         const reloadShowCount = reloadItem.showCount;
 
         const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
@@ -3540,6 +3549,7 @@ test("shared history local provider syncs current auth before switching accounts
           { OPENAI_API_KEY: "sk-proxy-refreshed" },
         );
         assert.equal(reloadItem.showCount, reloadShowCount);
+        assert.deepEqual(reloadChanges, []);
         const providerAfterReselect = core.readProviderProfileResult("proxy");
         assert.equal(providerAfterReselect.status, "ok");
         assert.equal(providerAfterReselect.value.auth.OPENAI_API_KEY, "sk-proxy-refreshed");
@@ -3553,6 +3563,9 @@ test("shared history local provider syncs current auth before switching accounts
         );
         assert.equal(core.getSharedHistoryRouteState(), null);
         assert.deepEqual(core.getOpenAIBaseUrlSnapshot(), { present: false, value: null });
+        assert.equal(reloadChanges.length, 1);
+        assert.match(reloadChanges[0].reason ?? "", /Switched to account/);
+        reloadSubscription.dispose();
         const savedProvider = core.readProviderProfileResult("proxy");
         assert.equal(savedProvider.status, "ok");
         assert.equal(savedProvider.value.auth.OPENAI_API_KEY, "sk-proxy-refreshed");
