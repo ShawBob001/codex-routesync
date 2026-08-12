@@ -327,7 +327,7 @@ function buildQuota(
     );
   }
   const window = getFiveHourQuotaWindow(state.info);
-  if (!window || !Number.isFinite(window.usedPercent)) {
+  if (!window || !isValidUsedPercent(window.usedPercent)) {
     return quotaFromState(state, "unavailable", "A five-hour quota window is unavailable.");
   }
   const remaining = getRemainingQuotaPercent(window);
@@ -352,10 +352,10 @@ function quotaFromState(
     status,
     refreshing: state.loading,
     freshness: freshness(state),
-    fiveHour: fiveHourSource && Number.isFinite(fiveHourSource.usedPercent)
+    fiveHour: fiveHourSource && isValidUsedPercent(fiveHourSource.usedPercent)
       ? projectWindow(fiveHourSource)
       : null,
-    secondary: otherWindow && Number.isFinite(otherWindow.usedPercent)
+    secondary: otherWindow && isValidUsedPercent(otherWindow.usedPercent)
       ? projectWindow(otherWindow)
       : null,
     message,
@@ -422,7 +422,7 @@ function isCandidateAccount(
     || (state.errorMessage != null && state.provenance !== "cache-fallback")
   ) return false;
   const window = getFiveHourQuotaWindow(state.info);
-  return window != null && Number.isFinite(window.usedPercent);
+  return window != null && isValidUsedPercent(window.usedPercent);
 }
 
 function compareDashboardAccounts(left: DashboardAccount, right: DashboardAccount): number {
@@ -567,4 +567,8 @@ function isoTime(value: string | null | undefined): number {
 function windowResetTime(window: WindowInfo): number {
   const value = window.resetsAt?.getTime();
   return value != null && Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
+}
+
+function isValidUsedPercent(value: number): boolean {
+  return Number.isFinite(value) && value >= 0 && value <= 100;
 }

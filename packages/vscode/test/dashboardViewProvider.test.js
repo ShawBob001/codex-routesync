@@ -45,7 +45,7 @@ Module._load = function mockVscode(request, parent, isMain) {
 const { DashboardViewProvider } = require("../dist/dashboardViewProvider.js");
 Module._load = originalLoad;
 
-function createWebviewView() {
+function createWebviewView(postResults = [true]) {
   const messages = eventSource();
   const visibility = eventSource();
   const disposal = eventSource();
@@ -59,7 +59,8 @@ function createWebviewView() {
     },
     postMessage(message) {
       posted.push(message);
-      return Promise.resolve(true);
+      const result = postResults.length > 1 ? postResults.shift() : postResults[0];
+      return result instanceof Error ? Promise.reject(result) : Promise.resolve(result);
     },
     onDidReceiveMessage: messages.event,
   };
@@ -93,6 +94,9 @@ function createHarness() {
     accounts: [{ id: "local:a" }, { id: "cloud:locked" }],
   };
   const calls = [];
+  const actionErrors = [];
+  let visibleRefreshes = 0;
+  let modelFailures = 0;
   let freshTargetIds = ["local:a", "cloud:locked"];
   const handlers = Object.fromEntries([
     "refreshDashboard",
@@ -108,18 +112,30 @@ function createHarness() {
 
   const provider = new DashboardViewProvider({
     extensionUri: uri("/extension"),
-    getModel: () => model,
+    getModel: () => {
+      if (modelFailures > 0) {
+        modelFailures -= 1;
+        throw new Error("model build failed");
+      }
+      return model;
+    },
     subscribe: changes.event,
     getTargetIds: (current) => current.accounts.map((account) => account.id),
     getFreshTargetIds: () => freshTargetIds,
     handlers,
+    onActionError: (action) => actionErrors.push(action),
+    shouldRefreshVisibleModel: (current) => current.marker === "needs-refresh",
+    requestVisibleRefresh: () => { visibleRefreshes += 1; },
   });
   return {
     provider,
     changes,
     calls,
+    actionErrors,
     setModel(next) { model = next; },
     setFreshTargetIds(next) { freshTargetIds = next; },
+    failNextModelBuild() { modelFailures += 1; },
+    get visibleRefreshes() { return visibleRefreshes; },
   };
 }
 
@@ -267,5 +283,72 @@ test("routes only fixed actions and allows current model target IDs", async () =
   });
   await flushMicrotasks();
   assert.equal(harness.calls.length, 2);
+  harness.provider.dispose();
+});
+
+test("contains synchronous action failures and reports the fixed action", async () => {
+  const harness = createHarness();
+  harness.provider.options.handlers.refreshDashboard = () => {
+    throw new Error("synchronous action failure");
+  };
+  const resolved = createWebviewView();
+  harness.provider.resolveWebviewView(resolved.view);
+
+  assert.doesNotThrow(() => resolved.deliver({
+    type: "dashboard.action",
+    requestId: "sync-failure",
+    action: "refreshDashboard",
+  }));
+  await flushMicrotasks();
+
+  assert.deepEqual(harness.actionErrors, ["refreshDashboard"]);
+  harness.provider.dispose();
+});
+
+test("retries the latest state when webview delivery returns false or rejects", async () => {
+  for (const firstFailure of [false, new Error("delivery failed")]) {
+    const harness = createHarness();
+    const resolved = createWebviewView([firstFailure, true]);
+    harness.provider.resolveWebviewView(resolved.view);
+    resolved.deliver({ type: "dashboard.ready" });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    assert.equal(resolved.posted.length, 2);
+    assert.equal(resolved.posted.at(-1).state.marker, "initial");
+    harness.provider.dispose();
+  }
+});
+
+test("recovers from a synchronous model-build failure on the next invalidation", async () => {
+  const harness = createHarness();
+  const resolved = createWebviewView();
+  harness.provider.resolveWebviewView(resolved.view);
+  harness.failNextModelBuild();
+  resolved.deliver({ type: "dashboard.ready" });
+  await flushMicrotasks();
+  assert.equal(resolved.posted.length, 0);
+
+  harness.changes.fire();
+  await flushMicrotasks();
+  assert.equal(resolved.posted.length, 1);
+  assert.equal(resolved.posted[0].state.marker, "initial");
+  harness.provider.dispose();
+});
+
+test("requests one coalesced refresh when the first visible model lacks fresh quota", async () => {
+  const harness = createHarness();
+  const resolved = createWebviewView();
+  harness.setModel({ marker: "needs-refresh", accounts: [{ id: "local:a" }] });
+  harness.provider.resolveWebviewView(resolved.view);
+  resolved.deliver({ type: "dashboard.ready" });
+  await flushMicrotasks();
+  await flushMicrotasks();
+
+  assert.equal(harness.visibleRefreshes, 1);
+  harness.changes.fire();
+  harness.changes.fire();
+  await flushMicrotasks();
+  assert.equal(harness.visibleRefreshes, 1);
   harness.provider.dispose();
 });

@@ -442,6 +442,7 @@ function createVscodeMock(options) {
   const configurationUpdateErrors = new Map(Object.entries(options.configurationUpdateErrors ?? {}));
   const configurationListeners = new Set();
   const treeViews = new Map();
+  const webviewViews = new Map();
   const createdChannels = [];
   const createdStatusBarItems = [];
   const globalStateValues = new Map(Object.entries(options.globalStateValues ?? {}));
@@ -571,6 +572,60 @@ function createVscodeMock(options) {
       Global: 1,
     },
     window: {
+      registerWebviewViewProvider(id, provider, registrationOptions) {
+        const messageEmitter = new EventEmitter();
+        const visibilityEmitter = new EventEmitter();
+        const disposalEmitter = new EventEmitter();
+        const posted = [];
+        const webview = {
+          options: undefined,
+          html: "",
+          cspSource: "vscode-webview://codex-switchbridge-test",
+          asWebviewUri(resource) {
+            return {
+              toString: () => `vscode-resource:${resource.fsPath}`,
+            };
+          },
+          postMessage(message) {
+            posted.push(message);
+            return Promise.resolve(true);
+          },
+          onDidReceiveMessage: messageEmitter.event,
+        };
+        const view = {
+          visible: true,
+          webview,
+          onDidChangeVisibility: visibilityEmitter.event,
+          onDidDispose: disposalEmitter.event,
+        };
+        const registered = {
+          id,
+          provider,
+          registrationOptions,
+          view,
+          posted,
+          deliver(message) {
+            messageEmitter.fire(message);
+          },
+          setVisible(visible) {
+            view.visible = visible;
+            visibilityEmitter.fire(undefined);
+          },
+          latestState() {
+            return posted.filter((message) => message?.type === "dashboard.state").at(-1)?.state;
+          },
+          dispose() {
+            disposalEmitter.fire(undefined);
+            messageEmitter.dispose();
+            visibilityEmitter.dispose();
+            disposalEmitter.dispose();
+            webviewViews.delete(id);
+          },
+        };
+        webviewViews.set(id, registered);
+        provider.resolveWebviewView(view);
+        return createDisposable(() => registered.dispose());
+      },
       createTreeView(id, viewOptions) {
         const treeView = createDisposable();
         treeView.id = id;
@@ -720,7 +775,11 @@ function createVscodeMock(options) {
     },
     Uri: {
       file(filePath) {
-        return { fsPath: filePath };
+        return { fsPath: filePath, toString: () => `file://${filePath}` };
+      },
+      joinPath(base, ...segments) {
+        const joined = path.join(base.fsPath, ...segments);
+        return { fsPath: joined, toString: () => `file://${joined}` };
       },
     },
   };
@@ -737,6 +796,15 @@ function createVscodeMock(options) {
     errorMessages,
     inputBoxCalls,
     treeViews,
+    webviewViews,
+    async readyDashboard() {
+      const registered = webviewViews.get("codexSwitchBridgeOverview");
+      assert.ok(registered, "activation should register the Overview WebviewView");
+      registered.deliver({ type: "dashboard.ready" });
+      await Promise.resolve();
+      await Promise.resolve();
+      return registered;
+    },
     createdChannels,
     createdStatusBarItems,
     config,
@@ -809,6 +877,7 @@ function createExtensionContext(mocked) {
   return {
     subscriptions: [],
     extensionPath: path.join(__dirname, ".."),
+    extensionUri: mocked.vscode.Uri.file(path.join(__dirname, "..")),
     secrets: mocked.secrets,
     globalState: mocked.globalState,
     globalStorageUri: {
@@ -3529,6 +3598,13 @@ test("shared history local provider syncs current auth before switching accounts
         assert.equal(reloadItem.visible, true);
         assert.match(reloadItem.text, /Reload recommended/);
         assert.match(statusBarManager.getReloadRecommendation().reason ?? "", /Switched to mode/);
+        const dashboard = await mocked.readyDashboard();
+        assert.equal(dashboard.latestState()?.reload.recommended, true);
+        assert.match(dashboard.latestState()?.reload.message ?? "", /Switched to mode/);
+        assert.equal(
+          mocked.informationMessages.some(({ actions }) => actions.includes("Reload") && actions.includes("Later")),
+          false,
+        );
         const reloadShowCount = reloadItem.showCount;
 
         const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
@@ -3565,6 +3641,10 @@ test("shared history local provider syncs current auth before switching accounts
         assert.deepEqual(core.getOpenAIBaseUrlSnapshot(), { present: false, value: null });
         assert.equal(reloadChanges.length, 1);
         assert.match(reloadChanges[0].reason ?? "", /Switched to account/);
+        await Promise.resolve();
+        await Promise.resolve();
+        assert.equal(dashboard.latestState()?.reload.recommended, true);
+        assert.match(dashboard.latestState()?.reload.message ?? "", /Switched to account/);
         reloadSubscription.dispose();
         const savedProvider = core.readProviderProfileResult("proxy");
         assert.equal(savedProvider.status, "ok");
@@ -9315,28 +9395,35 @@ test("stale local provider marker resolves the only cloud entry without overwrit
         assert.ok(cloudItem);
         const cloudWasCurrent = cloudItem.provider.isCurrent;
 
-        const overviewTreeView = mocked.treeViews.get("codexSwitchBridgeOverview");
-        const modeBeforeSwitch = overviewTreeView.treeDataProvider
-          .getChildren()
-          .find((item) => item.id === "overview:mode");
+        const dashboard = await mocked.readyDashboard();
+        const routeBeforeSwitch = dashboard.latestState()?.route;
 
         const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
         const targetItem = getAccountTreeItems(accountTreeView.treeDataProvider)
           .find((item) => item.account.name === "target" && item.account.source === "local");
         assert.ok(targetItem);
         await mocked.registeredCommands.get("codex-switchbridge.useAccount")(targetItem);
+        await Promise.resolve();
+        await Promise.resolve();
+        const routeAfterSwitch = dashboard.latestState()?.route;
 
         const cloudAfterSwitch = readCloudProvider(mocked.config, "proxy", passphrase);
         assert.deepEqual(
           {
             cloudWasCurrent,
-            modeDescription: modeBeforeSwitch?.description,
+            modeBeforeSwitch: routeBeforeSwitch?.kind,
+            sourceBeforeSwitch: routeBeforeSwitch?.kind === "provider" ? routeBeforeSwitch.source : null,
+            modeAfterSwitch: routeAfterSwitch?.kind,
+            accountAfterSwitch: routeAfterSwitch?.kind === "account" ? routeAfterSwitch.name : null,
             apiKey: cloudAfterSwitch.auth.OPENAI_API_KEY,
             entryVersion: getCloudEnvelope(mocked.config, "provider", "proxy").entryVersion,
           },
           {
             cloudWasCurrent: true,
-            modeDescription: "API Provider · Cloud",
+            modeBeforeSwitch: "provider",
+            sourceBeforeSwitch: "cloud",
+            modeAfterSwitch: "account",
+            accountAfterSwitch: "target",
             apiKey: "sk-cloud-saved",
             entryVersion: 1,
           },
@@ -12212,16 +12299,10 @@ test("missing account marker keeps duplicate local and cloud identities unattrib
         );
         await mocked.registeredCommands.get("codex-switchbridge.refreshUsage")();
 
-        const overviewTreeView = mocked.treeViews.get("codexSwitchBridgeOverview");
-        const overviewItems = overviewTreeView.treeDataProvider.getChildren();
-        const usageItem = overviewItems.find((item) => item.id === "overview:usage");
-        const unattributedItem = overviewTreeView.treeDataProvider
-          .getChildren(usageItem)
-          .find((item) => item.label === "Earlier or unattributed");
-        assert.equal(unattributedItem?.description, "40 tokens");
-
-        const modeItem = overviewItems.find((item) => item.id === "overview:mode");
-        assert.equal(modeItem?.label, "No active selection");
+        const dashboard = await mocked.readyDashboard();
+        const dashboardState = dashboard.latestState();
+        assert.equal(dashboardState?.usage.unattributedTokens, 40);
+        assert.equal(dashboardState?.route.kind, "unknown");
         const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
         const duplicateItems = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "duplicate");
@@ -12383,7 +12464,7 @@ test("missing account marker skips outgoing sync for ambiguous local and cloud i
   });
 });
 
-test("activate creates an Overview tree with indexed local token usage", async (t) => {
+test("activate creates an Overview dashboard with indexed local token usage", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-usage-overview-"));
   const codexHome = path.join(tempRoot, ".codex");
   const authDir = path.join(tempRoot, "saved-auth");
@@ -12404,14 +12485,9 @@ test("activate creates an Overview tree with indexed local token usage", async (
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
 
-      const overviewTreeView = mocked.treeViews.get("codexSwitchBridgeOverview");
-      assert.ok(overviewTreeView, "activation should create the Overview TreeView");
-      const overviewItems = overviewTreeView.treeDataProvider.getChildren();
-      const usageItem = overviewItems.find((item) => item.label === "Local token usage");
-      assert.ok(usageItem, "Overview should include local token usage");
-      assert.equal(usageItem.id, "overview:usage");
-      assert.equal(usageItem.collapsibleState, mocked.vscode.TreeItemCollapsibleState.Expanded);
-      assert.equal(usageItem.description, "125 tokens");
+      const dashboard = await mocked.readyDashboard();
+      assert.equal(dashboard.latestState()?.usage.total.totalTokens, 125);
+      assert.equal(dashboard.latestState()?.usage.compactTotal, "125");
 
       for (const subscription of context.subscriptions.reverse()) {
         subscription?.dispose?.();
@@ -12436,7 +12512,7 @@ test("activate creates an Overview tree with indexed local token usage", async (
   });
 });
 
-test("refreshUsage reindexes rollout files and refreshes the Overview tree", async (t) => {
+test("refreshUsage reindexes rollout files and posts a newer dashboard state", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-refresh-usage-"));
   const codexHome = path.join(tempRoot, ".codex");
   const authDir = path.join(tempRoot, "saved-auth");
@@ -12459,12 +12535,8 @@ test("refreshUsage reindexes rollout files and refreshes the Overview tree", asy
 
       const refreshUsage = mocked.registeredCommands.get("codex-switchbridge.refreshUsage");
       assert.equal(typeof refreshUsage, "function", "refreshUsage should be registered");
-      const overviewTreeView = mocked.treeViews.get("codexSwitchBridgeOverview");
-      assert.ok(overviewTreeView, "activation should create the Overview TreeView");
-      let refreshEvents = 0;
-      const listener = overviewTreeView.treeDataProvider.onDidChangeTreeData(() => {
-        refreshEvents += 1;
-      });
+      const dashboard = await mocked.readyDashboard();
+      const initialRevision = dashboard.posted.at(-1)?.revision ?? 0;
       fs.appendFileSync(
         rolloutPath,
         `${JSON.stringify(makeTokenCountRecord(275, "2025-01-02T03:06:00.000Z"))}\n`,
@@ -12472,14 +12544,29 @@ test("refreshUsage reindexes rollout files and refreshes the Overview tree", asy
       );
 
       await refreshUsage();
+      await Promise.resolve();
+      await Promise.resolve();
 
-      const usageItem = overviewTreeView.treeDataProvider
-        .getChildren()
-        .find((item) => item.id === "overview:usage");
-      assert.equal(usageItem?.description, "275 tokens");
-      assert.ok(refreshEvents > 0, "refreshUsage should notify the Overview TreeView");
+      assert.equal(dashboard.latestState()?.usage.total.totalTokens, 275);
+      assert.ok(
+        dashboard.posted.at(-1)?.revision > initialRevision,
+        "refreshUsage should post a newer dashboard state",
+      );
 
-      listener.dispose();
+      const afterUsageRevision = dashboard.posted.at(-1)?.revision ?? 0;
+      fs.appendFileSync(
+        rolloutPath,
+        `${JSON.stringify(makeTokenCountRecord(350, "2025-01-02T03:07:00.000Z"))}\n`,
+        "utf-8",
+      );
+      const refreshDashboard = mocked.registeredCommands.get("codex-switchbridge.refreshDashboard");
+      assert.equal(typeof refreshDashboard, "function", "refreshDashboard should be registered");
+      await refreshDashboard();
+      await Promise.resolve();
+      await Promise.resolve();
+      assert.equal(dashboard.latestState()?.usage.total.totalTokens, 350);
+      assert.ok(dashboard.posted.at(-1)?.revision > afterUsageRevision);
+
       for (const subscription of context.subscriptions.reverse()) {
         subscription?.dispose?.();
       }
@@ -12770,15 +12857,12 @@ test("regression: switching records the new usage selection before quota resolve
         await idlePromise;
         idlePromise = undefined;
 
-        const overviewTreeView = mocked.treeViews.get("codexSwitchBridgeOverview");
-        const subjectsRoot = overviewTreeView.treeDataProvider
-          .getChildren()
-          .find((item) => item.id === "overview:subjects");
-        const betaUsage = overviewTreeView.treeDataProvider
-          .getChildren(subjectsRoot)
-          .find((item) => item.label === "beta (Local)");
+        const dashboard = await mocked.readyDashboard();
+        const betaUsage = dashboard.latestState()?.usage.segments.find(
+          (segment) => segment.kind === "account" && segment.label === "beta (Local)",
+        );
         assert.ok(betaUsage, "the switched account should receive the new rollout usage");
-        assert.match(betaUsage.description, /^40 tokens\b/);
+        assert.equal(betaUsage.totalTokens, 40);
       } finally {
         controlled?.release();
         controlled?.restore();

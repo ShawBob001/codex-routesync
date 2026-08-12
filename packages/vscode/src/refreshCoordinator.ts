@@ -14,7 +14,6 @@ import {
 } from "./savedEntries";
 import { StatusBarManager } from "./statusBar";
 import { UsageService } from "./tokenUsage";
-import { OverviewTreeProvider } from "./usageTree";
 import { selectionUsageSubject } from "./usageSubjects";
 
 const LOG_PREFIX = "[codex-switchbridge:vscode:refreshCoordinator]";
@@ -65,7 +64,7 @@ export class RefreshCoordinator implements vscode.Disposable {
     private readonly providerTree: ProviderTreeProvider,
     private readonly statusBar: StatusBarManager,
     private readonly usageService: UsageService,
-    private readonly overviewTree: OverviewTreeProvider,
+    private readonly invalidateDashboard: () => void,
   ) {}
 
   startAutoRefresh(context: vscode.ExtensionContext): void {
@@ -123,8 +122,8 @@ export class RefreshCoordinator implements vscode.Disposable {
     perf?.mark("account-tree-refresh");
     this.providerTree.refresh();
     perf?.mark("provider-tree-refresh");
-    this.overviewTree.refresh();
-    perf?.mark("overview-tree-refresh");
+    this.invalidateDashboard();
+    perf?.mark("dashboard-invalidate");
     if (refreshStatusBar) {
       void this.statusBar.refreshNow({ skipQuota: true, snapshot, reason }).catch((error) => {
         logWarn(LOG_PREFIX, "refresh-views-statusBar-failed", {

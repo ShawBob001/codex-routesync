@@ -55,7 +55,7 @@
           "id": "codexSwitchBridgeOverview",
           "name": "Overview",
           "icon": "resources/icon.svg",
-          "showCollapseAll": true
+          "type": "webview"
         },
         {
           "id": "codexSwitchBridgeAccounts",
@@ -153,6 +153,12 @@
         "title": "Refresh Local Token Usage",
         "category": "Codex SwitchBridge",
         "icon": "$(pulse)"
+      },
+      {
+        "command": "codex-switchbridge.refreshDashboard",
+        "title": "Refresh Dashboard",
+        "category": "Codex SwitchBridge",
+        "icon": "$(refresh)"
       },
       {
         "command": "codex-switchbridge.exportAccounts",
@@ -290,7 +296,7 @@
     "menus": {
       "view/title": [
         {
-          "command": "codex-switchbridge.refreshUsage",
+          "command": "codex-switchbridge.refreshDashboard",
           "when": "view == codexSwitchBridgeOverview",
           "group": "navigation@1"
         },
@@ -552,7 +558,7 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p webview/tsconfig.json --noEmit",
     "bundle": "node ./scripts/build.mjs",
     "build": "npm run typecheck && npm run bundle",
     "dev": "node ./scripts/build.mjs --watch",

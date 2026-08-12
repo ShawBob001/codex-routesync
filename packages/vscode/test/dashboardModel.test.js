@@ -447,6 +447,25 @@ test("rejects non-finite quota percentages instead of serializing null as a numb
   }
 });
 
+test("rejects quota percentages outside the upstream zero-to-one-hundred range", () => {
+  for (const usedPercent of [-1, 100.01]) {
+    const current = account({ isCurrent: true });
+    const candidate = account({ name: "candidate", id: "local:candidate" });
+    const model = build({
+      accounts: [current, candidate],
+      selection: { kind: "account", name: current.name, source: current.source, meta: current.meta },
+      quota: new Map([
+        [current.id, quotaState(current.id, quotaInfo(usedPercent))],
+        [candidate.id, quotaState(candidate.id, quotaInfo(usedPercent))],
+      ]),
+    });
+
+    assert.equal(model.route.quota.status, "unavailable");
+    assert.equal(model.route.quota.fiveHour, null);
+    assert.equal(model.autoSwitch.candidate, null);
+  }
+});
+
 test("excludes non-finite quota values from advisory candidates", () => {
   const current = account({ name: "current", id: "local:current", isCurrent: true });
   const malformed = account({ name: "malformed", id: "local:malformed" });

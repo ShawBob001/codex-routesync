@@ -29,6 +29,9 @@ export interface DashboardViewProviderOptions<Model extends object = DashboardMo
   getFreshTargetIds(): readonly string[];
   handlers: DashboardActionHandlers;
   onActionError?: (action: DashboardAction) => void;
+  onModelError?: () => void;
+  shouldRefreshVisibleModel?: (model: Model) => boolean;
+  requestVisibleRefresh?: () => MaybePromise;
 }
 
 export interface DashboardHostMessage<Model extends object = DashboardModel> {
@@ -46,6 +49,8 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
   private disposed = false;
   private dirty = true;
   private postQueued = false;
+  private deliveryRetryUsed = false;
+  private visibleRefreshRequested = false;
   private revision = 0;
 
   constructor(private readonly options: DashboardViewProviderOptions<Model>) {
@@ -81,6 +86,7 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
   invalidate(): void {
     if (this.disposed) return;
     this.dirty = true;
+    this.deliveryRetryUsed = false;
     if (this.ready && this.view?.visible) this.queuePost();
   }
 
@@ -107,29 +113,33 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
 
   private dispatch(message: Exclude<DashboardClientMessage, { type: "dashboard.ready" }>): void {
     const { handlers } = this.options;
-    let result: MaybePromise;
-    switch (message.action) {
-      case "setAutoSwitch":
-        result = handlers.setAutoSwitch(message.enabled);
-        break;
-      case "reloginAccount":
-      case "unlockStorage": {
-        const allowedTargets = new Set(this.options.getTargetIds(this.options.getModel()));
-        const freshTargets = new Set(this.options.getFreshTargetIds());
-        if (!allowedTargets.has(message.targetId) || !freshTargets.has(message.targetId)) return;
-        result = message.action === "reloginAccount"
-          ? handlers.reloginAccount(message.targetId)
-          : handlers.unlockStorage(message.targetId);
-        break;
+    try {
+      let result: MaybePromise;
+      switch (message.action) {
+        case "setAutoSwitch":
+          result = handlers.setAutoSwitch(message.enabled);
+          break;
+        case "reloginAccount":
+        case "unlockStorage": {
+          const allowedTargets = new Set(this.options.getTargetIds(this.options.getModel()));
+          const freshTargets = new Set(this.options.getFreshTargetIds());
+          if (!allowedTargets.has(message.targetId) || !freshTargets.has(message.targetId)) return;
+          result = message.action === "reloginAccount"
+            ? handlers.reloginAccount(message.targetId)
+            : handlers.unlockStorage(message.targetId);
+          break;
+        }
+        case "refreshDashboard": result = handlers.refreshDashboard(); break;
+        case "switchMode": result = handlers.switchMode(); break;
+        case "configureAutoSwitch": result = handlers.configureAutoSwitch(); break;
+        case "addAccount": result = handlers.addAccount(); break;
+        case "addProvider": result = handlers.addProvider(); break;
+        case "reloadWindow": result = handlers.reloadWindow(); break;
       }
-      case "refreshDashboard": result = handlers.refreshDashboard(); break;
-      case "switchMode": result = handlers.switchMode(); break;
-      case "configureAutoSwitch": result = handlers.configureAutoSwitch(); break;
-      case "addAccount": result = handlers.addAccount(); break;
-      case "addProvider": result = handlers.addProvider(); break;
-      case "reloadWindow": result = handlers.reloadWindow(); break;
+      Promise.resolve(result).catch(() => this.handleActionFailure(message.action));
+    } catch {
+      this.handleActionFailure(message.action);
     }
-    Promise.resolve(result).catch(() => this.options.onActionError?.(message.action));
   }
 
   private queuePost(): void {
@@ -138,14 +148,63 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     queueMicrotask(() => {
       this.postQueued = false;
       if (this.disposed || !this.ready || !this.view?.visible || !this.dirty) return;
+      let state: Model;
+      try {
+        state = this.options.getModel();
+      } catch {
+        this.dirty = true;
+        this.options.onModelError?.();
+        return;
+      }
       this.dirty = false;
       const message: DashboardHostMessage<Model> = {
         type: "dashboard.state",
         revision: ++this.revision,
-        state: this.options.getModel(),
+        state,
       };
-      void this.view.webview.postMessage(message);
+      const targetView = this.view;
+      Promise.resolve(targetView.webview.postMessage(message)).then(
+        (delivered) => this.handleDelivery(targetView, delivered),
+        () => this.handleDelivery(targetView, false),
+      );
+      this.maybeRequestVisibleRefresh(state);
     });
+  }
+
+  private handleDelivery(view: vscode.WebviewView, delivered: boolean): void {
+    if (this.disposed || view !== this.view) return;
+    if (delivered) {
+      this.deliveryRetryUsed = false;
+      if (this.dirty && view.visible) this.queuePost();
+      return;
+    }
+    this.dirty = true;
+    if (!this.deliveryRetryUsed && this.ready && view.visible) {
+      this.deliveryRetryUsed = true;
+      this.queuePost();
+    }
+  }
+
+  private handleActionFailure(action: DashboardAction): void {
+    this.options.onActionError?.(action);
+    this.invalidate();
+  }
+
+  private maybeRequestVisibleRefresh(model: Model): void {
+    const shouldRefresh = this.options.shouldRefreshVisibleModel?.(model) ?? false;
+    if (!shouldRefresh) {
+      this.visibleRefreshRequested = false;
+      return;
+    }
+    if (this.visibleRefreshRequested || !this.options.requestVisibleRefresh) return;
+    this.visibleRefreshRequested = true;
+    try {
+      Promise.resolve(this.options.requestVisibleRefresh()).catch(() => {
+        this.visibleRefreshRequested = false;
+      });
+    } catch {
+      this.visibleRefreshRequested = false;
+    }
   }
 
   private releaseView(): void {
@@ -153,6 +212,8 @@ implements vscode.WebviewViewProvider, vscode.Disposable {
     this.view = null;
     this.ready = false;
     this.dirty = true;
+    this.deliveryRetryUsed = false;
+    this.visibleRefreshRequested = false;
   }
 }
 

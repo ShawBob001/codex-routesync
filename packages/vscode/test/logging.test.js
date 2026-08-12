@@ -96,6 +96,9 @@ function createVscodeMock() {
       Global: 1,
     },
     window: {
+      registerWebviewViewProvider() {
+        return createDisposable();
+      },
       createTreeView() {
         return createDisposable();
       },
@@ -409,6 +412,8 @@ function loadExtensionWithMockedVscode(vscodeMock) {
 function createExtensionContext(mocked) {
   return {
     subscriptions: [],
+    extensionPath: path.join(__dirname, ".."),
+    extensionUri: mocked.vscode.Uri.file(path.join(__dirname, "..")),
     secrets: mocked.secrets,
     globalState: mocked.globalState,
     globalStorageUri: {

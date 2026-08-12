@@ -2816,6 +2816,15 @@ export function registerCommands(
       });
     }),
 
+    vscode.commands.registerCommand("codex-switchbridge.refreshDashboard", async () => {
+      await runTimedCommand("refreshDashboard", async () => {
+        await refreshCoordinator.refreshViews("manual");
+        refreshCoordinator.scheduleQuotaRefresh({ reason: "manual", fullRefresh: true });
+        refreshCoordinator.scheduleUsageRefresh("manual");
+        await refreshCoordinator.flushScheduledRefresh();
+      });
+    }),
+
     vscode.commands.registerCommand("codex-switchbridge.configureAutoSwitch", async () => {
       await configureAutoSwitchSetting();
     }),

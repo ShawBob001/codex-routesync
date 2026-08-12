@@ -66,7 +66,7 @@ test("S-Bridge brand assets are self-contained and Marketplace-ready", () => {
   );
 });
 
-test("activity view starts with an Overview and exposes local usage refresh", () => {
+test("activity view starts with a graphical Overview and keeps management trees native", () => {
   const views = manifest.contributes.views["codex-switchbridge"] ?? [];
   assert.deepEqual(
     views.map((view) => view.id),
@@ -77,17 +77,32 @@ test("activity view starts with an Overview and exposes local usage refresh", ()
     ],
   );
 
-  const refreshUsage = commands.find(
-    (command) => command.command === "codex-switchbridge.refreshUsage"
-  );
-  assert.equal(refreshUsage?.title, "Refresh Local Token Usage");
+  const overview = views.find((view) => view.id === "codexSwitchBridgeOverview");
+  const accounts = views.find((view) => view.id === "codexSwitchBridgeAccounts");
+  const providers = views.find((view) => view.id === "codexSwitchBridgeProviders");
+  assert.equal(overview?.type, "webview");
+  assert.equal(overview?.showCollapseAll, undefined);
+  assert.equal(accounts?.type, undefined);
+  assert.equal(providers?.type, undefined);
 
-  const titleItem = (manifest.contributes.menus["view/title"] ?? []).find(
-    (item) =>
-      item.command === "codex-switchbridge.refreshUsage"
-      && item.when === "view == codexSwitchBridgeOverview"
+  const overviewTitleCommands = (manifest.contributes.menus["view/title"] ?? [])
+    .filter((item) => item.when === "view == codexSwitchBridgeOverview")
+    .sort((left, right) => left.group.localeCompare(right.group))
+    .map((item) => item.command);
+  assert.deepEqual(
+    overviewTitleCommands,
+    ["codex-switchbridge.refreshDashboard", "codex-switchbridge.switchMode"],
   );
-  assert.equal(titleItem?.group, "navigation@1");
+});
+
+test("production build includes dashboard browser assets and excludes raw webview sources", () => {
+  const packageRoot = path.join(__dirname, "..");
+  assert.equal(fs.existsSync(path.join(packageRoot, "dist", "webview", "dashboard.js")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "dist", "webview", "dashboard.css")), true);
+
+  const ignored = fs.readFileSync(path.join(packageRoot, ".vscodeignore"), "utf-8");
+  assert.match(ignored, /^webview\/\*\*$/m);
+  assert.doesNotMatch(ignored, /^dist\/webview\/\*\*$/m);
 });
 
 test("Marketplace publishing rebuilds and publishes the exact versioned VSIX", () => {

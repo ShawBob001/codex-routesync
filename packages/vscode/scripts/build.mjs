@@ -30,8 +30,26 @@ const options = {
   logLevel: "info",
 };
 
+const webviewDir = path.join(distDir, "webview");
+const webviewOptions = {
+  entryPoints: [path.join(packageDir, "webview", "dashboard.ts")],
+  bundle: true,
+  format: "iife",
+  platform: "browser",
+  target: "es2020",
+  outfile: path.join(webviewDir, "dashboard.js"),
+  sourcemap: watch,
+  minify: !watch,
+  logLevel: "info",
+};
+
 rmSync(distDir, { recursive: true, force: true });
 mkdirSync(distDir, { recursive: true });
+mkdirSync(webviewDir, { recursive: true });
+copyFileSync(
+  path.join(packageDir, "webview", "dashboard.css"),
+  path.join(webviewDir, "dashboard.css"),
+);
 const scriptsDir = path.join(distDir, "scripts");
 mkdirSync(scriptsDir, { recursive: true });
 copyFileSync(
@@ -40,9 +58,9 @@ copyFileSync(
 );
 
 if (watch) {
-  const ctx = await context(options);
-  await ctx.watch();
+  const [ctx, webviewCtx] = await Promise.all([context(options), context(webviewOptions)]);
+  await Promise.all([ctx.watch(), webviewCtx.watch()]);
   console.log("Watching extension bundle...");
 } else {
-  await build(options);
+  await Promise.all([build(options), build(webviewOptions)]);
 }

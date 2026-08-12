@@ -1,4 +1,5 @@
 src/**
+webview/**
 scripts/**
 tsconfig.json
 *.tsbuildinfo
