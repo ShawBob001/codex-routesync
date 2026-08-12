@@ -34,17 +34,25 @@ export type DashboardQuotaFreshness = "fresh" | "cached" | "stale" | null;
 
 export interface DashboardQuotaWindow {
   label: string;
+  scope: "base" | "additional" | "code-review";
+  name: string | null;
   remainingPercent: number;
   resetsAt: string | null;
   windowSeconds: number | null;
+}
+
+export interface DashboardResetCredits {
+  availableCount: number;
+  applicableAvailableCount: number | null;
 }
 
 export interface DashboardQuota {
   status: DashboardQuotaStatus;
   refreshing: boolean;
   freshness: DashboardQuotaFreshness;
-  fiveHour: DashboardQuotaWindow | null;
-  secondary: DashboardQuotaWindow | null;
+  preferred: DashboardQuotaWindow | null;
+  windows: DashboardQuotaWindow[];
+  resetCredits: DashboardResetCredits | null;
   message: string | null;
   queriedAt: string | null;
   refreshAttemptedAt: string | null;
@@ -326,15 +334,15 @@ function buildQuota(
       "Quota refresh failed. Showing the last known value.",
     );
   }
-  const window = getFiveHourQuotaWindow(state.info);
+  const window = preferredQuotaWindow(state.info);
   if (!window || !isValidUsedPercent(window.usedPercent)) {
-    return quotaFromState(state, "unavailable", "A five-hour quota window is unavailable.");
+    return quotaFromState(state, "unavailable", "A usable quota window is unavailable.");
   }
   const remaining = getRemainingQuotaPercent(window);
   return quotaFromState(
     state,
     remaining <= 0 ? "exhausted" : "available",
-    remaining <= 0 ? "Five-hour quota is exhausted." : null,
+    remaining <= 0 ? "The selected quota window is exhausted." : null,
   );
 }
 
@@ -344,20 +352,19 @@ function quotaFromState(
   message: string | null,
 ): DashboardQuota {
   const info = state.info;
-  const fiveHourSource = info ? getFiveHourQuotaWindow(info) : null;
-  const otherWindow = info && fiveHourSource
-    ? (info.primaryWindow === fiveHourSource ? info.secondaryWindow : info.primaryWindow)
-    : null;
+  const sources = info ? quotaWindowSources(info) : [];
+  const preferredSource = info ? preferredQuotaWindow(info) : null;
   return {
     status,
     refreshing: state.loading,
     freshness: freshness(state),
-    fiveHour: fiveHourSource && isValidUsedPercent(fiveHourSource.usedPercent)
-      ? projectWindow(fiveHourSource)
+    preferred: preferredSource && isValidUsedPercent(preferredSource.usedPercent)
+      ? projectWindow(preferredSource, windowSourceFor(sources, preferredSource))
       : null,
-    secondary: otherWindow && isValidUsedPercent(otherWindow.usedPercent)
-      ? projectWindow(otherWindow)
-      : null,
+    windows: sources
+      .filter((source) => isValidUsedPercent(source.window.usedPercent))
+      .map((source) => projectWindow(source.window, source)),
+    resetCredits: projectResetCredits(info?.resetCredits ?? null),
     message,
     queriedAt: toIso(state.queriedAt),
     refreshAttemptedAt: toIso(state.refreshAttemptedAt),
@@ -369,17 +376,87 @@ function emptyQuota(status: DashboardQuotaStatus, message: string): DashboardQuo
     status,
     refreshing: false,
     freshness: null,
-    fiveHour: null,
-    secondary: null,
+    preferred: null,
+    windows: [],
+    resetCredits: null,
     message,
     queriedAt: null,
     refreshAttemptedAt: null,
   };
 }
 
-function projectWindow(window: WindowInfo): DashboardQuotaWindow {
+interface QuotaWindowSource {
+  window: WindowInfo;
+  scope: DashboardQuotaWindow["scope"];
+  name: string | null;
+}
+
+function quotaWindowSources(info: QuotaInfo): QuotaWindowSource[] {
+  const sources: QuotaWindowSource[] = [];
+  if (info.primaryWindow) {
+    sources.push({ window: info.primaryWindow, scope: "base", name: null });
+  }
+  if (info.secondaryWindow) {
+    sources.push({ window: info.secondaryWindow, scope: "base", name: null });
+  }
+  for (const additional of info.additional) {
+    if (additional.primary) {
+      sources.push({
+        window: additional.primary,
+        scope: "additional",
+        name: safeWindowName(additional.name),
+      });
+    }
+    if (additional.secondary) {
+      sources.push({
+        window: additional.secondary,
+        scope: "additional",
+        name: safeWindowName(additional.name),
+      });
+    }
+  }
+  if (info.codeReview) {
+    sources.push({
+      window: info.codeReview,
+      scope: "code-review",
+      name: null,
+    });
+  }
+  return sources;
+}
+
+function preferredQuotaWindow(info: QuotaInfo): WindowInfo | null {
+  const valid = quotaWindowSources(info)
+    .filter((source) => isValidUsedPercent(source.window.usedPercent));
+  return valid.find((source) => isShortQuotaWindow(source.window))?.window
+    ?? valid.find((source) => source.scope === "base")?.window
+    ?? valid[0]?.window
+    ?? null;
+}
+
+function isShortQuotaWindow(window: WindowInfo): boolean {
+  return window.windowSeconds != null
+    && Number.isFinite(window.windowSeconds)
+    && window.windowSeconds > 0
+    && window.windowSeconds <= 5 * 3_600;
+}
+
+function windowSourceFor(
+  sources: readonly QuotaWindowSource[],
+  window: WindowInfo,
+): QuotaWindowSource {
+  return sources.find((source) => source.window === window)
+    ?? { window, scope: "base", name: null };
+}
+
+function projectWindow(
+  window: WindowInfo,
+  source: Pick<QuotaWindowSource, "scope" | "name">,
+): DashboardQuotaWindow {
   return {
     label: windowLabel(window),
+    scope: source.scope,
+    name: source.name,
     remainingPercent: getRemainingQuotaPercent(window),
     resetsAt: toIso(window.resetsAt?.getTime() ?? null),
     windowSeconds: finiteOrNull(window.windowSeconds),
@@ -389,10 +466,30 @@ function projectWindow(window: WindowInfo): DashboardQuotaWindow {
 function windowLabel(window: WindowInfo): string {
   const seconds = window.windowSeconds;
   if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return "Quota";
-  const hours = seconds / 3_600;
-  if (hours <= 5) return "5h";
-  if (hours <= 24) return `${Math.round(hours)}h`;
-  return `${Math.round(hours / 24)}d`;
+  if (seconds % 86_400 === 0) return `${seconds / 86_400}d`;
+  if (seconds % 3_600 === 0) return `${seconds / 3_600}h`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${seconds}s`;
+}
+
+function safeWindowName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().replace(/\s+/g, " ");
+  return normalized === "" ? null : normalized.slice(0, 120);
+}
+
+function projectResetCredits(value: QuotaInfo["resetCredits"]): DashboardResetCredits | null {
+  if (!value || !isValidCount(value.availableCount)) return null;
+  return {
+    availableCount: value.availableCount,
+    applicableAvailableCount: isValidCount(value.applicableAvailableCount)
+      ? value.applicableAvailableCount
+      : null,
+  };
+}
+
+function isValidCount(value: number | null): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function freshness(state: Readonly<AccountQuotaState> | undefined): DashboardQuotaFreshness {
@@ -428,10 +525,10 @@ function isCandidateAccount(
 function compareDashboardAccounts(left: DashboardAccount, right: DashboardAccount): number {
   const rankDelta = quotaSortRank(left.quota.status) - quotaSortRank(right.quota.status);
   if (rankDelta !== 0) return rankDelta;
-  const remainingDelta = (right.quota.fiveHour?.remainingPercent ?? -1)
-    - (left.quota.fiveHour?.remainingPercent ?? -1);
+  const remainingDelta = (right.quota.preferred?.remainingPercent ?? -1)
+    - (left.quota.preferred?.remainingPercent ?? -1);
   if (remainingDelta !== 0) return remainingDelta;
-  const resetDelta = isoTime(left.quota.fiveHour?.resetsAt) - isoTime(right.quota.fiveHour?.resetsAt);
+  const resetDelta = isoTime(left.quota.preferred?.resetsAt) - isoTime(right.quota.preferred?.resetsAt);
   if (resetDelta !== 0) return resetDelta;
   return left.accountId.localeCompare(right.accountId);
 }

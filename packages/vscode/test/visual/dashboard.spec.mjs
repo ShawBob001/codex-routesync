@@ -146,24 +146,33 @@ function tokens(totalTokens, overrides = {}) {
   };
 }
 
+function quotaWindow(label, remainingPercent, resetsAt, windowSeconds, overrides = {}) {
+  return {
+    label,
+    scope: "base",
+    name: null,
+    remainingPercent,
+    resetsAt,
+    windowSeconds,
+    ...overrides,
+  };
+}
+
 function quota(status = "available", remainingPercent = 68, overrides = {}) {
   const hasValue = remainingPercent != null;
+  const preferred = hasValue
+    ? quotaWindow("5h", remainingPercent, "2026-08-12T12:00:00.000Z", 18_000)
+    : null;
+  const secondary = hasValue
+    ? quotaWindow("7d", 81, "2026-08-19T10:00:00.000Z", 604_800)
+    : null;
   return {
     status,
     refreshing: false,
     freshness: hasValue ? "fresh" : null,
-    fiveHour: hasValue ? {
-      label: "5h",
-      remainingPercent,
-      resetsAt: "2026-08-12T12:00:00.000Z",
-      windowSeconds: 18000,
-    } : null,
-    secondary: hasValue ? {
-      label: "7d",
-      remainingPercent: 81,
-      resetsAt: "2026-08-19T10:00:00.000Z",
-      windowSeconds: 604800,
-    } : null,
+    preferred,
+    windows: hasValue ? [preferred, secondary] : [],
+    resetCredits: null,
     message: null,
     queriedAt: "2026-08-12T09:59:00.000Z",
     refreshAttemptedAt: "2026-08-12T09:59:00.000Z",
@@ -543,20 +552,56 @@ test("all quota windows show precise reset clocks and update without rerendering
   await expect(routeName).toHaveAttribute("data-clock-identity", "preserved");
 });
 
+test("a seven-day-only account shows remaining percent, exact reset time, reset credits, and local consumption separately", async ({ page }) => {
+  const weekly = baseModel();
+  const weeklyWindow = quotaWindow("7d", 91, "2026-08-19T10:00:00.123Z", 604_800);
+  weekly.route = {
+    ...weekly.route,
+    quota: quota("available", 91, {
+      preferred: weeklyWindow,
+      windows: [weeklyWindow],
+      resetCredits: { availableCount: 4, applicableAvailableCount: 2 },
+    }),
+  };
+  weekly.otherAccounts = [];
+
+  await mount(page, weekly, {
+    width: 960,
+    theme: "dark",
+    now: "2026-08-12T10:00:00.000Z",
+  });
+  await expect(page.locator(".quota-ring")).toHaveAttribute("aria-valuenow", "91");
+  await expect(page.locator(".quota-ring")).toHaveAttribute("aria-label", "7 days quota, 91 percent remaining");
+  await expect(page.getByText("7 days left", { exact: true })).toBeVisible();
+  await expect(page.getByText("Upstream UTC: 2026-08-19T10:00:00.123Z", { exact: true })).toBeVisible();
+  await expect(page.getByText("Usage-limit resets applicable now: 2 · total available: 4", { exact: true })).toBeVisible();
+  await expect(page.getByText("Local recorded consumption: 48,290 tokens", { exact: true })).toBeVisible();
+  await expect(page.getByText("Locally recorded token consumption", { exact: true })).toBeVisible();
+
+  await sendState(page, weekly, 2, localeZh);
+  await expect(page.getByText("7 天剩余", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前适用的用量限额重置次数：2 · 总可用次数：4", { exact: true })).toBeVisible();
+  await expect(page.getByText("本地记录消耗：48,290 个 token", { exact: true })).toBeVisible();
+  await assertLayout(page);
+});
+
 test("reset clocks expose due, missing, and invalid timestamps truthfully", async ({ page }) => {
   const resetStates = baseModel();
   resetStates.route = {
     ...resetStates.route,
     quota: quota("available", 68, {
-      fiveHour: { label: "5h", remainingPercent: 68, resetsAt: "2026-08-12T09:59:59.000Z", windowSeconds: 18000 },
-      secondary: { label: "7d", remainingPercent: 81, resetsAt: null, windowSeconds: 604800 },
+      preferred: quotaWindow("5h", 68, "2026-08-12T09:59:59.000Z", 18_000),
+      windows: [
+        quotaWindow("5h", 68, "2026-08-12T09:59:59.000Z", 18_000),
+        quotaWindow("7d", 81, null, 604_800),
+      ],
     }),
   };
   resetStates.otherAccounts = [
     account("local:invalid", "Invalid reset", 42, {
       quota: quota("available", 42, {
-        fiveHour: { label: "5h", remainingPercent: 42, resetsAt: "2026-02-30T00:00:00.000Z", windowSeconds: 18000 },
-        secondary: null,
+        preferred: quotaWindow("5h", 42, "2026-02-30T00:00:00.000Z", 18_000),
+        windows: [quotaWindow("5h", 42, "2026-02-30T00:00:00.000Z", 18_000)],
       }),
     }),
   ];
@@ -574,8 +619,8 @@ test("account routes and other accounts always expose one generic reset clock wh
   noWindows.route = {
     ...noWindows.route,
     quota: quota("storage-locked", null, {
-      fiveHour: null,
-      secondary: null,
+      preferred: null,
+      windows: [],
       freshness: null,
       message: "Unlock storage to view quota.",
     }),
@@ -583,8 +628,8 @@ test("account routes and other accounts always expose one generic reset clock wh
   noWindows.otherAccounts = [
     account("local:no-window", "No reset metadata", null, {
       quota: quota("unavailable", null, {
-        fiveHour: null,
-        secondary: null,
+        preferred: null,
+        windows: [],
         freshness: null,
         message: "Quota is unavailable.",
       }),

@@ -647,24 +647,43 @@ export async function cmdQuota(name?: string): Promise<void> {
   if (info.additional.length > 0) {
     console.log();
     for (const item of info.additional) {
-      if (item.primary && item.primary.usedPercent > 0) {
+      if (item.primary) {
         printWindowLine(`${item.name} (${windowLabel(item.primary)})`, item.primary);
       }
-      if (item.secondary && item.secondary.usedPercent > 0) {
+      if (item.secondary) {
         printWindowLine(`${item.name} (${windowLabel(item.secondary)})`, item.secondary);
       }
     }
   }
 
-  if (info.codeReview && info.codeReview.usedPercent > 0) {
+  if (info.codeReview) {
     printWindowLine("code review", info.codeReview);
   }
 
-  if (info.credits) {
+  if (info.resetCredits) {
+    const available = info.resetCredits.availableCount;
+    const applicable = info.resetCredits.applicableAvailableCount;
+    const detail = applicable != null && applicable !== available
+      ? `${applicable} applicable / ${available} available`
+      : `${available} available`;
+    console.log(`\n  Rate-limit resets: ${chalk.bold(detail)}`);
+  }
+
+  if (info.credits?.hasCredits) {
     console.log(`\n  ${chalk.green("✓")} Extra purchased credits available`);
   }
 
-  if (!info.primaryWindow && !info.secondaryWindow) {
+  if (info.credits?.balance != null) {
+    console.log(`  Credit balance: ${chalk.bold(info.credits.balance)}`);
+  }
+
+  const hasAnyWindow = Boolean(
+    info.primaryWindow
+    || info.secondaryWindow
+    || info.codeReview
+    || info.additional.some((item) => item.primary || item.secondary),
+  );
+  if (!hasAnyWindow) {
     console.log(
       chalk.yellow(`\n  ${info.unavailableReason?.message ?? "Unable to load quota information (API request failed or token expired)"}`)
     );

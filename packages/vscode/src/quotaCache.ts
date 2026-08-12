@@ -15,7 +15,29 @@ import { logInfo, logWarn } from "./log";
 
 const LOG_PREFIX = "[codex-switchbridge:vscode:quotaCache]";
 const CACHE_VERSION = 1;
-const CACHE_DIR = path.join(os.tmpdir(), "codex-switchbridge");
+const CACHE_DIR_ENV_VAR = "CODEX_SWITCHBRIDGE_QUOTA_CACHE_DIR";
+const PRODUCTION_CACHE_DIR_NAME = "codex-switchbridge";
+const TEST_CACHE_DIR_NAME = "codex-switchbridge-tests";
+const ABNORMAL_CACHE_ENTRY_COUNT = 512;
+const MAX_FUTURE_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+function resolveCacheDir(): string {
+  const configured = process.env[CACHE_DIR_ENV_VAR]?.trim();
+  if (configured && path.isAbsolute(configured)) {
+    return path.normalize(configured);
+  }
+
+  // Node's test runner sets NODE_TEST_CONTEXT in every test-file child. Keeping
+  // those writes in a process-scoped directory prevents fixture accounts and
+  // temporary CODEX_HOME values from accumulating in the user's live cache.
+  if (process.env.NODE_TEST_CONTEXT) {
+    return path.join(os.tmpdir(), TEST_CACHE_DIR_NAME, String(process.pid));
+  }
+
+  return path.join(os.tmpdir(), PRODUCTION_CACHE_DIR_NAME);
+}
+
+const CACHE_DIR = resolveCacheDir();
 const CACHE_FILE = path.join(CACHE_DIR, "quota-cache-v1.json");
 const LOCK_DIR = path.join(CACHE_DIR, "quota-cache-locks");
 const LOCK_STALE_MS = 30 * 1000;
@@ -34,6 +56,7 @@ interface SerializedWindowInfo {
   usedPercent: number;
   resetsAt: string | null;
   windowSeconds: number | null;
+  resetAfterSeconds?: number | null;
 }
 
 interface SerializedQuotaInfo {
@@ -46,7 +69,16 @@ interface SerializedQuotaInfo {
     secondary: SerializedWindowInfo | null;
   }>;
   codeReview: SerializedWindowInfo | null;
-  credits: { hasCredits: boolean } | null;
+  credits: {
+    hasCredits: boolean;
+    balance?: string | null;
+    approxLocalMessages?: number | null;
+    approxCloudMessages?: number | null;
+  } | null;
+  resetCredits?: {
+    availableCount: number;
+    applicableAvailableCount?: number | null;
+  } | null;
   email: string;
   tokenExpired: boolean;
   unavailableReason: QuotaInfo["unavailableReason"];
@@ -105,17 +137,32 @@ function serializeWindowInfo(window: WindowInfo | null): SerializedWindowInfo | 
     usedPercent: window.usedPercent,
     resetsAt: window.resetsAt ? window.resetsAt.toISOString() : null,
     windowSeconds: window.windowSeconds,
+    resetAfterSeconds: window.resetAfterSeconds,
   };
 }
 
-function deserializeWindowInfo(window: SerializedWindowInfo | null): WindowInfo | null {
-  if (!window) {
+function deserializeWindowInfo(window: SerializedWindowInfo | null | undefined): WindowInfo | null {
+  if (!window || typeof window !== "object") {
     return null;
   }
+  const usedPercent = typeof window.usedPercent === "number" && Number.isFinite(window.usedPercent)
+    && window.usedPercent >= 0 && window.usedPercent <= 100
+    ? window.usedPercent
+    : null;
+  if (usedPercent === null) return null;
+  const resetEpoch = typeof window.resetsAt === "string" ? Date.parse(window.resetsAt) : Number.NaN;
   return {
-    usedPercent: window.usedPercent,
-    resetsAt: window.resetsAt ? new Date(window.resetsAt) : null,
-    windowSeconds: window.windowSeconds,
+    usedPercent,
+    resetsAt: Number.isFinite(resetEpoch) ? new Date(resetEpoch) : null,
+    windowSeconds: typeof window.windowSeconds === "number"
+      && Number.isFinite(window.windowSeconds)
+      && window.windowSeconds > 0
+      ? window.windowSeconds
+      : null,
+    resetAfterSeconds: typeof window.resetAfterSeconds === "number"
+      && Number.isFinite(window.resetAfterSeconds)
+      ? window.resetAfterSeconds
+      : null,
   };
 }
 
@@ -130,7 +177,16 @@ function serializeQuotaInfo(info: QuotaInfo): SerializedQuotaInfo {
       secondary: serializeWindowInfo(item.secondary),
     })),
     codeReview: serializeWindowInfo(info.codeReview),
-    credits: info.credits ? { hasCredits: info.credits.hasCredits } : null,
+    credits: info.credits ? {
+      hasCredits: info.credits.hasCredits,
+      balance: info.credits.balance,
+      approxLocalMessages: info.credits.approxLocalMessages,
+      approxCloudMessages: info.credits.approxCloudMessages,
+    } : null,
+    resetCredits: info.resetCredits ? {
+      availableCount: info.resetCredits.availableCount,
+      applicableAvailableCount: info.resetCredits.applicableAvailableCount,
+    } : null,
     email: info.email,
     tokenExpired: info.tokenExpired,
     unavailableReason: info.unavailableReason,
@@ -138,20 +194,52 @@ function serializeQuotaInfo(info: QuotaInfo): SerializedQuotaInfo {
 }
 
 function deserializeQuotaInfo(info: SerializedQuotaInfo): QuotaInfo {
+  const additional = Array.isArray(info.additional)
+    ? info.additional.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const name = typeof item.name === "string" ? item.name : "";
+        const primary = deserializeWindowInfo(item.primary);
+        const secondary = deserializeWindowInfo(item.secondary);
+        return primary || secondary ? [{ name, primary, secondary }] : [];
+      })
+    : [];
+  const resetAvailableCount = info.resetCredits
+    && typeof info.resetCredits.availableCount === "number"
+    && Number.isSafeInteger(info.resetCredits.availableCount)
+    && info.resetCredits.availableCount >= 0
+    ? info.resetCredits.availableCount
+    : null;
+  const resetApplicableCount = info.resetCredits
+    && typeof info.resetCredits.applicableAvailableCount === "number"
+    && Number.isSafeInteger(info.resetCredits.applicableAvailableCount)
+    && info.resetCredits.applicableAvailableCount >= 0
+    ? info.resetCredits.applicableAvailableCount
+    : null;
   return {
-    plan: info.plan,
+    plan: typeof info.plan === "string" ? info.plan : "unknown",
     primaryWindow: deserializeWindowInfo(info.primaryWindow),
     secondaryWindow: deserializeWindowInfo(info.secondaryWindow),
-    additional: info.additional.map((item) => ({
-      name: item.name,
-      primary: deserializeWindowInfo(item.primary),
-      secondary: deserializeWindowInfo(item.secondary),
-    })),
+    additional,
     codeReview: deserializeWindowInfo(info.codeReview),
-    credits: info.credits ? { hasCredits: info.credits.hasCredits } : null,
-    email: info.email,
-    tokenExpired: info.tokenExpired,
-    unavailableReason: info.unavailableReason,
+    credits: info.credits ? {
+      hasCredits: info.credits.hasCredits === true,
+      balance: typeof info.credits.balance === "string" ? info.credits.balance : null,
+      approxLocalMessages: typeof info.credits.approxLocalMessages === "number"
+        && Number.isFinite(info.credits.approxLocalMessages)
+        ? info.credits.approxLocalMessages
+        : null,
+      approxCloudMessages: typeof info.credits.approxCloudMessages === "number"
+        && Number.isFinite(info.credits.approxCloudMessages)
+        ? info.credits.approxCloudMessages
+        : null,
+    } : null,
+    resetCredits: resetAvailableCount == null ? null : {
+      availableCount: resetAvailableCount,
+      applicableAvailableCount: resetApplicableCount,
+    },
+    email: typeof info.email === "string" ? info.email : "unknown",
+    tokenExpired: info.tokenExpired === true,
+    unavailableReason: info.unavailableReason ?? null,
   };
 }
 
@@ -161,7 +249,8 @@ function hasMeaningfulQuotaInfo(info: QuotaInfo): boolean {
     || info.secondaryWindow
     || info.codeReview
     || (info.additional && info.additional.some((item) => item.primary || item.secondary))
-    || info.credits?.hasCredits
+    || info.credits != null
+    || info.resetCredits != null
   );
 }
 
@@ -190,12 +279,31 @@ function normalizeCacheFile(raw: unknown): QuotaCacheFile {
     return createEmptyCacheFile();
   }
   const now = Date.now();
-  const entries = Object.fromEntries(
-    Object.entries(record.entries as Record<string, QuotaCacheEntry>).filter(([, entry]) => {
-      const queriedAtMs = Date.parse(entry?.queriedAt ?? "");
-      return Number.isFinite(queriedAtMs) && now - queriedAtMs <= CACHE_RETENTION_MS;
-    }),
-  );
+  const retainedEntries = Object.entries(record.entries as Record<string, QuotaCacheEntry>).filter(([key, entry]) => {
+    if (!/^[a-f0-9]{40}$/i.test(key) || typeof entry !== "object" || entry == null) {
+      return false;
+    }
+    const queriedAtMs = Date.parse(entry?.queriedAt ?? "");
+    return Number.isFinite(queriedAtMs)
+      && queriedAtMs <= now + MAX_FUTURE_CLOCK_SKEW_MS
+      && now - queriedAtMs <= CACHE_RETENTION_MS;
+  });
+
+  let normalizedEntries = retainedEntries;
+  if (retainedEntries.length > ABNORMAL_CACHE_ENTRY_COUNT) {
+    const newestByIdentity = new Map<string, [string, QuotaCacheEntry]>();
+    for (const candidate of retainedEntries) {
+      const [, entry] = candidate;
+      const identity = [entry.source, entry.accountId, entry.accountName].join("\0");
+      const previous = newestByIdentity.get(identity);
+      if (!previous || Date.parse(entry.queriedAt) > Date.parse(previous[1].queriedAt)) {
+        newestByIdentity.set(identity, candidate);
+      }
+    }
+    normalizedEntries = [...newestByIdentity.values()];
+  }
+
+  const entries = Object.fromEntries(normalizedEntries);
   return {
     version: CACHE_VERSION,
     entries,

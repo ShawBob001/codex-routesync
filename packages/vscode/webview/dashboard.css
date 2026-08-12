@@ -276,7 +276,9 @@ select {
 
 .metadata-row {
   display: flex;
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
   flex-wrap: wrap;
   gap: 3px 10px;
   color: var(--vscode-descriptionForeground);
@@ -286,6 +288,7 @@ select {
 
 .metadata-item {
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -354,9 +357,15 @@ select {
 }
 
 .quota-label {
+  width: 82px;
   margin-top: 4px;
+  overflow: hidden;
   color: var(--vscode-descriptionForeground);
   font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .refresh-indicator {
@@ -484,6 +493,41 @@ select {
   color: var(--vscode-textLink-foreground);
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 9px;
+}
+
+.reset-credits {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  margin-top: 3px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--vscode-charts-blue) 55%, var(--vscode-panel-border));
+  border-radius: 6px;
+  align-items: center;
+  gap: 7px;
+  color: var(--vscode-foreground);
+  background: color-mix(in srgb, var(--vscode-charts-blue) 8%, transparent);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.reset-credits-glyph {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+  color: var(--vscode-charts-blue);
+  background: color-mix(in srgb, var(--vscode-charts-blue) 14%, transparent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.reset-credits-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .badge-row {
@@ -1062,6 +1106,7 @@ summary:focus-visible,
   .dashboard-card,
   .account-row,
   .reset-clock,
+  .reset-credits,
   .language-select,
   .quota-bar,
   .usage-bar,

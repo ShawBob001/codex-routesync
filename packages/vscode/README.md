@@ -31,7 +31,7 @@ After a successful switch, the Codex extension may still hold its old authentica
 
 ## Dashboard, quota reset time, and local token usage
 
-The Dashboard displays graphical quota status for the current and saved accounts. For every available quota window it shows a live countdown to the second, local date and time with seconds and time-zone offset, and the exact upstream UTC timestamp. Missing, invalid, or due reset times are labeled explicitly instead of being estimated.
+The Dashboard displays the remaining percentage for every quota window returned for the current and saved accounts, including accounts that expose only a 7-day window. Each window includes a live countdown to the second, local date and time with seconds and time-zone offset, and the exact upstream UTC timestamp. Available earned rate-limit resets are shown when the account service provides them. Missing, invalid, or due reset times are labeled explicitly instead of being estimated.
 
 The Dashboard also indexes cumulative `token_count` events from local Codex rollout files under the active `CODEX_HOME`. It displays the recorded total, input, output, cached input, reasoning output, attributed and unattributed usage, plus a breakdown for every tracked account and API provider.
 
@@ -39,7 +39,7 @@ The header language selector supports **Auto**, **English**, and **简体中文*
 
 SwitchBridge assigns each new token increment to the selection active when Codex recorded it, even if one conversation continues across an account/API switch. Per-selection tracking begins locally after this version is activated. Older shared `openai` sessions cannot be assigned safely and appear as **Earlier or unattributed**; uniquely identifiable older provider sessions can still be mapped to their saved profile.
 
-The dashboard is an activity view, not a bill or cost estimate. Cached input is included in input, and reasoning output is included in output. Index data remains on this device and contains counters, timestamps, fingerprints, and opaque IDs, not conversation text, file paths, labels, provider names, or credentials. Run **Refresh Local Token Usage** for an immediate rescan.
+The dashboard is an activity view, not a bill or cost estimate. The account service supplies remaining percentages rather than an absolute remaining-token allowance; API-provider routes expose only locally recorded token use unless the provider offers a compatible quota API. Cached input is included in input, and reasoning output is included in output. Account quota requests honor `HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY`. Index data remains on this device and contains counters, timestamps, fingerprints, and opaque IDs, not conversation text, file paths, labels, provider names, or credentials. Run **Refresh Local Token Usage** for an immediate rescan.
 
 ## Shared conversation history
 

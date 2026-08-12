@@ -3,6 +3,7 @@ import type {
   DashboardModel,
   DashboardQuota,
   DashboardQuotaFreshness,
+  DashboardResetCredits,
   DashboardQuotaStatus,
   DashboardQuotaWindow,
   DashboardUsageSegment,
@@ -197,7 +198,7 @@ function renderRoute(model: DashboardModel): HTMLElement {
 
 function renderQuotaRing(quota: DashboardQuota): HTMLElement {
   const wrapper = element("div", `quota-ring quota-${quota.status}`);
-  const remaining = quota.fiveHour?.remainingPercent ?? null;
+  const remaining = quota.preferred?.remainingPercent ?? null;
   wrapper.setAttribute("role", remaining == null ? "status" : "progressbar");
   wrapper.setAttribute("aria-label", quotaAriaLabel(quota));
   if (remaining != null) {
@@ -221,7 +222,9 @@ function renderQuotaRing(quota: DashboardQuota): HTMLElement {
   const center = element("div", "quota-center");
   center.append(
     element("strong", "quota-number", remaining == null ? statusSymbol(quota.status) : `${remaining}%`),
-    element("span", "quota-label", remaining == null ? shortStatus(quota.status) : tr("quota.fiveHourLeft")),
+    element("span", "quota-label", remaining == null
+      ? shortStatus(quota.status)
+      : tr("quota.windowLeft", { window: quotaWindowLabel(quota.preferred) })),
   );
   wrapper.append(svg, center);
   if (quota.refreshing) wrapper.append(element("span", "refresh-indicator", tr("quota.refreshing")));
@@ -231,12 +234,30 @@ function renderQuotaRing(quota: DashboardQuota): HTMLElement {
 function renderQuotaSummary(quota: DashboardQuota): HTMLElement {
   const summary = element("div", "quota-summary");
   summary.append(stateLine(quotaStatusLabel(quota.status), quotaTone(quota.status)));
-  if (quota.fiveHour) summary.append(renderResetClock(quota.fiveHour, quota.freshness, quota.queriedAt));
-  if (quota.secondary) summary.append(renderResetClock(quota.secondary, quota.freshness, quota.queriedAt));
-  if (!quota.fiveHour) summary.append(renderResetClock(null, quota.freshness, quota.queriedAt));
+  for (const window of quota.windows) {
+    summary.append(renderResetClock(window, quota.freshness, quota.queriedAt));
+  }
+  if (quota.windows.length === 0) summary.append(renderResetClock(null, quota.freshness, quota.queriedAt));
+  if (quota.resetCredits) summary.append(renderResetCredits(quota.resetCredits));
   const message = localizeModelMessage(quota.message);
   if (message) summary.append(element("span", "quota-message", message));
   return summary;
+}
+
+function renderResetCredits(credits: DashboardResetCredits): HTMLElement {
+  const row = element("div", "reset-credits");
+  row.setAttribute("role", "status");
+  const applicable = credits.applicableAvailableCount;
+  const label = applicable == null
+    ? tr("quota.resetCredits.available", { count: formatNumber(credits.availableCount) })
+    : applicable === credits.availableCount
+      ? tr("quota.resetCredits.applicable", { count: formatNumber(applicable) })
+      : tr("quota.resetCredits.applicableWithTotal", {
+          applicable: formatNumber(applicable),
+          available: formatNumber(credits.availableCount),
+        });
+  row.append(element("span", "reset-credits-glyph", "↻"), element("span", "reset-credits-label", label));
+  return row;
 }
 
 function renderResetClock(
@@ -301,7 +322,14 @@ function renderAutoSwitch(model: DashboardModel): HTMLElement {
     const row = element("div", "candidate-row");
     const candidateCopy = element("div", "candidate-copy");
     candidateCopy.append(overline(tr("autoSwitch.bestCandidate")), namedValue(candidate.name, localizeDisambiguator(candidate.disambiguator), "candidate-name"));
-    candidateCopy.append(renderResetClock({ label: "5h", remainingPercent: candidate.remainingPercent, resetsAt: candidate.resetsAt, windowSeconds: null }, candidate.freshness, null));
+    candidateCopy.append(renderResetClock({
+      label: "5h",
+      scope: "base",
+      name: null,
+      remainingPercent: candidate.remainingPercent,
+      resetsAt: candidate.resetsAt,
+      windowSeconds: 18_000,
+    }, candidate.freshness, null));
     row.append(candidateCopy, commandButton(tr("actions.switch"), "switchMode", "secondary compact", {}, "candidate-switch"));
     section.append(row);
   } else section.append(element("div", "candidate-empty", tr("autoSwitch.noCandidate")));
@@ -338,13 +366,18 @@ function renderAccountCard(account: DashboardAccount): HTMLElement {
   const top = element("div", "account-row-top");
   const identity = namedValue(account.name, localizeDisambiguator(account.disambiguator), "account-name");
   identity.title = account.name;
-  top.append(identity, element("span", "account-quota-value", account.quota.fiveHour ? `${account.quota.fiveHour.remainingPercent}%` : shortStatus(account.quota.status)));
+  top.append(identity, element("span", "account-quota-value", account.quota.preferred
+    ? tr("quota.remaining", { percent: account.quota.preferred.remainingPercent })
+    : shortStatus(account.quota.status)));
   row.append(top);
-  const progress = element("div", `quota-bar${account.quota.fiveHour ? "" : " quota-bar-unknown"}`);
-  if (account.quota.fiveHour) {
-    const percent = account.quota.fiveHour.remainingPercent;
+  const progress = element("div", `quota-bar${account.quota.preferred ? "" : " quota-bar-unknown"}`);
+  if (account.quota.preferred) {
+    const percent = account.quota.preferred.remainingPercent;
     progress.setAttribute("role", "progressbar");
-    progress.setAttribute("aria-label", tr("quota.accountFiveHourAria", { account: account.name }));
+    progress.setAttribute("aria-label", tr("quota.accountWindowAria", {
+      account: account.name,
+      window: quotaWindowLabel(account.quota.preferred),
+    }));
     progress.setAttribute("aria-valuemin", "0"); progress.setAttribute("aria-valuemax", "100"); progress.setAttribute("aria-valuenow", String(percent));
     const fill = element("span", "quota-bar-fill"); fill.style.width = `${percent}%`; progress.append(fill);
   } else {
@@ -355,9 +388,13 @@ function renderAccountCard(account: DashboardAccount): HTMLElement {
   const detail = element("div", "account-row-detail");
   detail.append(element("span", "account-state", localizeModelMessage(account.quota.message) ?? quotaStatusLabel(account.quota.status)), element("span", "account-meta", localTokens(account.localTokens) ?? tr("usage.indexing")));
   row.append(detail);
-  if (account.quota.fiveHour) row.append(renderResetClock(account.quota.fiveHour, account.quota.freshness, account.quota.queriedAt));
-  if (account.quota.secondary) row.append(renderResetClock(account.quota.secondary, account.quota.freshness, account.quota.queriedAt));
-  if (!account.quota.fiveHour) row.append(renderResetClock(null, account.quota.freshness, account.quota.queriedAt));
+  for (const window of account.quota.windows) {
+    row.append(renderResetClock(window, account.quota.freshness, account.quota.queriedAt));
+  }
+  if (account.quota.windows.length === 0) {
+    row.append(renderResetClock(null, account.quota.freshness, account.quota.queriedAt));
+  }
+  if (account.quota.resetCredits) row.append(renderResetCredits(account.quota.resetCredits));
   appendQuotaAction(row, account.accountId, account.quota.status, "other-account");
   return row;
 }
@@ -569,13 +606,31 @@ function restoreFocus(focusKey: string | null): void {
 
 function quotaWindowLabel(window: DashboardQuotaWindow | null): string {
   if (!window) return tr("quota.window.default");
-  if (window.windowSeconds === 18_000 || /^5\s*h(?:ours?)?$/i.test(window.label.trim())) {
-    return tr("quota.window.fiveHour");
+  const duration = quotaWindowDurationLabel(window);
+  if (window.scope === "additional" && window.name) {
+    return tr("quota.window.additional", { name: window.name, window: duration });
   }
-  if (window.windowSeconds === 604_800 || /^7\s*d(?:ays?)?$/i.test(window.label.trim())) {
-    return tr("quota.window.sevenDay");
+  if (window.scope === "code-review") {
+    return tr("quota.window.codeReview", { window: duration });
   }
-  return window.label;
+  return duration;
+}
+
+function quotaWindowDurationLabel(window: DashboardQuotaWindow): string {
+  const seconds = window.windowSeconds;
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return window.label || tr("quota.window.default");
+  if (seconds === 18_000) return tr("quota.window.fiveHour");
+  if (seconds === 604_800) return tr("quota.window.sevenDay");
+  if (seconds % 86_400 === 0) {
+    return tr("quota.window.days", { count: formatNumber(seconds / 86_400) });
+  }
+  if (seconds % 3_600 === 0) {
+    return tr("quota.window.hours", { count: formatNumber(seconds / 3_600) });
+  }
+  if (seconds % 60 === 0) {
+    return tr("quota.window.minutes", { count: formatNumber(seconds / 60) });
+  }
+  return tr("quota.window.seconds", { count: formatNumber(seconds) });
 }
 
 const quotaStatusKeys: Record<DashboardQuotaStatus, DashboardTranslationKey> = {
@@ -597,7 +652,12 @@ function statusSymbol(status: DashboardQuotaStatus): string {
 }
 function quotaTone(status: DashboardQuotaStatus): string { return status === "available" ? "ok" : status === "loading" || status === "no-data" ? "info" : "warning"; }
 function quotaAriaLabel(quota: DashboardQuota): string {
-  return quota.fiveHour ? tr("quota.remainingAria", { percent: quota.fiveHour.remainingPercent }) : quotaStatusLabel(quota.status);
+  return quota.preferred
+    ? tr("quota.remainingAria", {
+        window: quotaWindowLabel(quota.preferred),
+        percent: quota.preferred.remainingPercent,
+      })
+    : quotaStatusLabel(quota.status);
 }
 function providerStatusLabel(status: "ready" | "locked" | "pending" | "invalid" | "unmatched"): string {
   return tr({ ready: "provider.ready", locked: "provider.locked", pending: "provider.pending", invalid: "provider.invalid", unmatched: "provider.unmatched" }[status] as DashboardTranslationKey);
@@ -621,6 +681,7 @@ const modelMessages: Record<string, DashboardTranslationKey> = {
   "Refreshing quota...": "model.refreshingQuota", "Quota is unavailable.": "model.quotaUnavailable",
   "Quota refresh failed. Showing the last known value.": "model.quotaRefreshFailed", "A five-hour quota window is unavailable.": "model.fiveHourUnavailable",
   "Five-hour quota is exhausted.": "model.fiveHourExhausted", "Indexing local Codex sessions...": "model.indexingSessions",
+  "A usable quota window is unavailable.": "model.windowUnavailable", "The selected quota window is exhausted.": "model.windowExhausted",
   "Waiting to index local Codex sessions.": "model.waitingToIndexSessions", "Some local sessions could not be indexed.": "model.partialIndex",
 };
 function localizeModelMessage(message: string | null): string | null { return message == null ? null : modelMessages[message] ? tr(modelMessages[message]) : message; }

@@ -17,6 +17,8 @@ test("required dashboard message contract exactly covers both catalogs", () => {
     "source.cloud",
     "reload.afterSwitch",
     "reload.afterHistoryRepair",
+    "quota.windowLeft",
+    "quota.resetCredits.applicableWithTotal",
   ];
 
   for (const key of newlyReviewedKeys) assert.ok(required.includes(key), `missing required key: ${key}`);
@@ -50,6 +52,12 @@ test("dashboard catalogs expose editor header, language, and precise reset copy"
     "quota.queriedAt",
     "quota.window.fiveHour",
     "quota.window.sevenDay",
+    "quota.window.hours",
+    "quota.window.additional",
+    "quota.window.codeReview",
+    "quota.resetCredits.available",
+    "quota.resetCredits.applicable",
+    "quota.resetCredits.applicableWithTotal",
   ]) {
     assert.ok(required.has(key), `missing editor dashboard key: ${key}`);
   }
@@ -60,6 +68,19 @@ test("known quota windows have semantic English and Chinese labels", () => {
   assert.equal(translate("en", "quota.window.sevenDay"), "7 days");
   assert.equal(translate("zh-cn", "quota.window.fiveHour"), "5 小时");
   assert.equal(translate("zh-cn", "quota.window.sevenDay"), "7 天");
+});
+
+test("dynamic quota windows and reset-credit counts remain explicit in both languages", () => {
+  assert.equal(translate("en", "quota.window.hours", { count: 3 }), "3 hours");
+  assert.equal(
+    translate("en", "quota.resetCredits.applicableWithTotal", { applicable: 2, available: 4 }),
+    "Usage-limit resets applicable now: 2 · total available: 4",
+  );
+  assert.equal(translate("zh-cn", "quota.window.hours", { count: 3 }), "3 小时");
+  assert.equal(
+    translate("zh-cn", "quota.resetCredits.applicableWithTotal", { applicable: 2, available: 4 }),
+    "当前适用的用量限额重置次数：2 · 总可用次数：4",
+  );
 });
 
 test("English and Chinese translations use identical interpolation placeholders", () => {
