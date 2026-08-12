@@ -350,3 +350,64 @@ test("does not accept an old response after an account is removed and re-added",
   await firstRefresh;
   assert.equal(store.get(accountA.id).info.primaryWindow.usedPercent, 15);
 });
+
+test("removing an account invalidates its in-flight refresh", async () => {
+  const pending = deferred();
+  const store = new QuotaStore({
+    getCachedQuota: () => null,
+    queryQuota: async () => pending.promise,
+  });
+  const refresh = store.refreshQuota([accountA.id], { snapshot: snapshot([accountA]) });
+  await new Promise((resolve) => setImmediate(resolve));
+  store.reconcileAccounts([]);
+  pending.resolve({ kind: "ok", displayName: "a", info: quotaInfo(75) });
+  await refresh;
+  assert.equal(store.get(accountA.id), undefined);
+});
+
+test("a corrupt cache entry does not block other accounts", () => {
+  const accountB = { ...accountA, id: "local:b", name: "b" };
+  const store = new QuotaStore({
+    getCachedQuota: (account) => {
+      if (account.id === accountA.id) throw new Error("corrupt cache secret");
+      return cachedQuota;
+    },
+  });
+  assert.doesNotThrow(() => store.reconcileAccounts([accountA, accountB]));
+  assert.equal(store.get(accountA.id), undefined);
+  assert.equal(store.get(accountB.id).queriedAt, cachedQuota.queriedAtMs);
+});
+
+test("normalizes non-finite concurrency without leaving accounts loading", async () => {
+  const accounts = Array.from({ length: 6 }, (_, index) => ({
+    ...accountA,
+    id: `local:invalid-${index}`,
+    name: String(index),
+  }));
+  let active = 0;
+  let maximum = 0;
+  const store = new QuotaStore({
+    getCachedQuota: () => null,
+    queryQuota: async (account) => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return { kind: "ok", displayName: account.name, info: quotaInfo(10) };
+    },
+  });
+  await store.refreshQuota(undefined, {
+    snapshot: snapshot(accounts),
+    concurrency: Number.NaN,
+  });
+  assert.equal([...store.getSnapshot().byAccountId.values()].every((state) => !state.loading), true);
+  assert.equal(maximum, 4);
+
+  maximum = 0;
+  await store.refreshQuota(undefined, {
+    snapshot: snapshot(accounts),
+    concurrency: Number.POSITIVE_INFINITY,
+  });
+  assert.equal([...store.getSnapshot().byAccountId.values()].every((state) => !state.loading), true);
+  assert.equal(maximum, 4);
+});

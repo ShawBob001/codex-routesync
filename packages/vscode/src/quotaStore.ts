@@ -109,12 +109,19 @@ export class QuotaStore implements vscode.Disposable {
     for (const accountId of this.states.keys()) {
       if (!readyIds.has(accountId)) {
         this.states.delete(accountId);
+        this.generations.set(accountId, (this.generations.get(accountId) ?? 0) + 1);
         changed = true;
       }
     }
 
     for (const account of readyAccounts) {
-      const cached = this.dependencies.getCachedQuota(account);
+      let cached: CachedQuotaSnapshot | null;
+      try {
+        cached = this.dependencies.getCachedQuota(account);
+      } catch {
+        logWarn(LOG_PREFIX, "hydrate-cache-failed", { source: account.source });
+        continue;
+      }
       if (!cached) continue;
       const previous = this.states.get(account.id);
       if (previous?.loading) continue;
@@ -161,7 +168,7 @@ export class QuotaStore implements vscode.Disposable {
     }
 
     logInfo(LOG_PREFIX, "refresh-start", {
-      targetIds: targetSet ? [...targetSet] : null,
+      targetCount: targetSet?.size ?? null,
       reason: options.reason ?? null,
       refreshId: options.refreshId ?? null,
       effectiveCount: accounts.length,
@@ -211,6 +218,8 @@ export class QuotaStore implements vscode.Disposable {
         },
         { mode: "adaptive", slowThresholdMs: SLOW_ACCOUNT_THRESHOLD_MS },
       );
+      let resultKind = "error";
+      let resultSource = "direct";
       try {
         const result = await this.dependencies.queryQuota(account, options.queryContext, {
           reason: options.reason,
@@ -224,25 +233,23 @@ export class QuotaStore implements vscode.Disposable {
           inflightReuseCount += 1;
         }
         if (result.usedCachedQuota === true) cacheReuseCount += 1;
-        accountPerf.finish({
-          resultKind: result.kind,
-          source: (result as { source?: string }).source ?? "direct",
-          durationMs,
-        });
+        resultKind = result.kind;
+        resultSource = (result as { source?: string }).source ?? "direct";
         if (!this.isCurrent(account.id, generation)) return;
         await this.applyResult(account, result, attemptedAt, generation);
+        accountPerf.finish({ resultKind, source: resultSource, durationMs });
       } catch (error) {
         const durationMs = Math.max(0, this.dependencies.now() - startedAt);
         accountDurations.push(durationMs);
         slowestAccounts.push({ account: account.name, source: account.source, durationMs });
         errorCount += 1;
-        accountPerf.fail(error, { durationMs });
+        accountPerf.fail(error instanceof Error ? error.constructor.name : typeof error, { durationMs });
         if (!this.isCurrent(account.id, generation)) return;
         this.applyError(account.id, error, attemptedAt);
         logWarn(LOG_PREFIX, "refresh-result-error", {
-          account: account.id,
+          source: account.source,
           refreshId: options.refreshId ?? null,
-          error: error instanceof Error ? error.message : String(error),
+          errorType: error instanceof Error ? error.constructor.name : typeof error,
         });
       }
     });
@@ -251,7 +258,7 @@ export class QuotaStore implements vscode.Disposable {
     slowestAccounts.sort((left, right) => right.durationMs - left.durationMs);
     slowestAccounts.length = Math.min(slowestAccounts.length, 5);
     logInfo(LOG_PREFIX, "refresh-finish", {
-      targetIds: targetSet ? [...targetSet] : null,
+      targetCount: targetSet?.size ?? null,
       reason: options.reason ?? null,
       refreshId: options.refreshId ?? null,
     });
@@ -328,7 +335,14 @@ export class QuotaStore implements vscode.Disposable {
       || typeof result.fallbackStatusCode === "number"
       || result.fallbackReloginRequired === true
     );
-    const cached = usedCache ? this.dependencies.getCachedQuota(account) : null;
+    let cached: CachedQuotaSnapshot | null = null;
+    if (usedCache) {
+      try {
+        cached = this.dependencies.getCachedQuota(account);
+      } catch {
+        cached = null;
+      }
+    }
     if (!this.isCurrent(account.id, generation)) return;
     const reloginRequired = result.info.unavailableReason?.code === "relogin_required"
       || result.fallbackReloginRequired === true;
@@ -415,7 +429,8 @@ async function runWithConcurrency<T>(
   concurrency: number,
   worker: (item: T) => Promise<void>,
 ): Promise<void> {
-  const limit = Math.max(1, Math.floor(concurrency));
+  const requested = Number.isFinite(concurrency) ? Math.floor(concurrency) : DEFAULT_CONCURRENCY;
+  const limit = Math.max(1, Math.min(DEFAULT_CONCURRENCY, requested));
   let nextIndex = 0;
   const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (nextIndex < items.length) {
