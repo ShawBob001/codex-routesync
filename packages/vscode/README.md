@@ -6,10 +6,12 @@ Codex SwitchBridge manages the active credentials, provider route, and saved sel
 
 ## Install
 
-Download `codex-switchbridge-0.3.0.vsix` from [GitHub Releases](https://github.com/baoshichao001-dev/codex-switchbridge/releases), then run **Extensions: Install from VSIX...** or:
+Install the extension from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge). You can also open Extensions in VS Code and search for `Codex SwitchBridge` or `@id:baoshichao001-dev.codex-switchbridge`.
+
+For offline installation, download the latest `.vsix` from [GitHub Releases](https://github.com/baoshichao001-dev/codex-switchbridge/releases), then run **Extensions: Install from VSIX...**. To use the terminal instead, run the command below. Replace VERSION with the version in the downloaded filename.
 
 ```bash
-code --install-extension codex-switchbridge-0.3.0.vsix
+code --install-extension codex-switchbridge-VERSION.vsix
 ```
 
 Disable or uninstall **Codex Account Switch** before enabling Codex SwitchBridge. Both extensions write the same local Codex files.
