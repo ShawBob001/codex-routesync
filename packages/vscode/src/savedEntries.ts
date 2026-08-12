@@ -767,8 +767,9 @@ async function setCurrentAccountMarker(account: Pick<SavedAccountInfo, "name" | 
     kind: "account",
     name: account.name,
     source: account.source,
-    entryVersion: account.source === "cloud" ? account.syncVersion : undefined,
-    updatedAt: account.source === "cloud" ? account.syncUpdatedAt : undefined,
+    ...(account.source === "cloud"
+      ? { entryVersion: account.syncVersion, updatedAt: account.syncUpdatedAt }
+      : {}),
   });
 }
 
@@ -817,82 +818,40 @@ export async function restoreSavedCurrentSelectionMarker(selection: SavedSelecti
   await setMarker(null);
 }
 
-export async function restoreSavedSelectionAfterTransientLogin(
-  selection: SavedSelection,
-  previousAuth: AuthFile | null,
-): Promise<{ success: boolean; restoredLabel?: string; message?: string }> {
-  if (selection.kind === "account") {
-    const account = getSavedAccountEntry(selection.name, selection.source);
-    const authToRestore = previousAuth ?? (
-      account && account.storageState === "ready" ? account.auth : null
-    );
-    if (!authToRestore) {
-      return {
-        success: false,
-        message: account?.storageMessage ?? `Saved account "${selection.name}" is unavailable.`,
-      };
-    }
+export function activateSavedAccountAfterRelogin(
+  account: SavedAccountInfo,
+): { success: boolean; message: string; meta?: AccountMeta; runtimeChanged?: boolean } {
+  if (account.storageState !== "ready" || !account.auth) {
+    return {
+      success: false,
+      message: account.storageMessage ?? `Saved account "${account.name}" is unavailable after re-login.`,
+    };
+  }
 
+  const runtimeChanged = !isSameRuntimeAuth(readCurrentAuth(), account.auth);
+  try {
     activateAccountAuth(
-      selection.source === "cloud" && account
-        ? markCloudAuthForCurrentUse(authToRestore, { updatedAt: account.syncUpdatedAt })
-        : authToRestore,
+      account.source === "cloud"
+        ? markCloudAuthForCurrentUse(account.auth, { updatedAt: account.syncUpdatedAt })
+        : account.auth,
       {
-        source: "transient-login",
-        target: `account:${selection.source}:${selection.name}`,
+        source: "relogin",
+        target: `account:${account.source}:${account.name}`,
       },
     );
-    if (account && account.storageState === "ready") {
-      await setCurrentAccountMarker(account);
-    } else {
-      await restoreSavedCurrentSelectionMarker(selection);
-    }
+  } catch (error) {
     return {
-      success: true,
-      restoredLabel: `${selection.name} (${getSourceLabel(selection.source)})`,
+      success: false,
+      message:
+        `Account "${account.name}" was saved, but activating the refreshed login failed: `
+        + `${error instanceof Error ? error.message : String(error)}`,
     };
   }
-
-  if (selection.kind === "provider") {
-    const provider = getSavedProviderEntry(selection.name, selection.source);
-    if (!provider || !provider.profile || provider.invalid || provider.locked) {
-      return {
-        success: false,
-        message: provider?.storageMessage ?? `Provider "${selection.name}" is unavailable.`,
-      };
-    }
-
-    try {
-      activateProviderProfile(
-        provider.profile,
-        providerSwitchOptions("transient-login", `provider:${provider.source}:${provider.name}`),
-      );
-    } catch (error) {
-      return {
-        success: false,
-        message: error instanceof Error ? error.message : String(error),
-      };
-    }
-    await setMarker({
-      kind: "provider",
-      name: provider.name,
-      source: provider.source,
-      entryVersion: provider.source === "cloud" ? provider.syncVersion : undefined,
-      updatedAt: provider.source === "cloud" ? provider.syncUpdatedAt : undefined,
-    });
-    return {
-      success: true,
-      restoredLabel: getModeDisplayName(provider.name),
-    };
-  }
-
-  if (previousAuth) {
-    writeCurrentAuth(previousAuth);
-  }
-  await setMarker(null);
   return {
-    success: Boolean(previousAuth),
-    restoredLabel: previousAuth ? "previous auth" : undefined,
+    success: true,
+    message: `Activated updated auth for account "${account.name}"`,
+    meta: account.meta ?? extractMeta(account.auth),
+    runtimeChanged,
   };
 }
 

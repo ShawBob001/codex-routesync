@@ -4,6 +4,7 @@ import { AccountTreeProvider } from "./accountTree";
 import { isFiveHourQuotaExhausted } from "./autoSwitch";
 import { logWarn, startPerformanceLog } from "./log";
 import { ProviderTreeProvider } from "./providerTree";
+import { QuotaStore } from "./quotaStore";
 import {
   createSavedEntriesSnapshot,
   querySavedAccountQuota,
@@ -13,7 +14,6 @@ import {
 } from "./savedEntries";
 import { StatusBarManager } from "./statusBar";
 import { UsageService } from "./tokenUsage";
-import { OverviewTreeProvider } from "./usageTree";
 import { selectionUsageSubject } from "./usageSubjects";
 
 const LOG_PREFIX = "[codex-switchbridge:vscode:refreshCoordinator]";
@@ -60,10 +60,11 @@ export class RefreshCoordinator implements vscode.Disposable {
 
   constructor(
     private readonly accountTree: AccountTreeProvider,
+    private readonly quotaStore: QuotaStore,
     private readonly providerTree: ProviderTreeProvider,
     private readonly statusBar: StatusBarManager,
     private readonly usageService: UsageService,
-    private readonly overviewTree: OverviewTreeProvider,
+    private readonly invalidateDashboard: () => void,
   ) {}
 
   startAutoRefresh(context: vscode.ExtensionContext): void {
@@ -121,8 +122,8 @@ export class RefreshCoordinator implements vscode.Disposable {
     perf?.mark("account-tree-refresh");
     this.providerTree.refresh();
     perf?.mark("provider-tree-refresh");
-    this.overviewTree.refresh();
-    perf?.mark("overview-tree-refresh");
+    this.invalidateDashboard();
+    perf?.mark("dashboard-invalidate");
     if (refreshStatusBar) {
       void this.statusBar.refreshNow({ skipQuota: true, snapshot, reason }).catch((error) => {
         logWarn(LOG_PREFIX, "refresh-views-statusBar-failed", {
@@ -424,7 +425,7 @@ export class RefreshCoordinator implements vscode.Disposable {
       || (currentSelectionAccountId != null && targetIds.includes(currentSelectionAccountId));
 
     const refreshPromise = Promise.all([
-      this.accountTree.refreshQuota(targetIds, {
+      this.quotaStore.refreshQuota(targetIds, {
         snapshot,
         queryContext,
         reason: pendingReason,
@@ -617,7 +618,7 @@ export class RefreshCoordinator implements vscode.Disposable {
       }
 
       if (isReloginRequiredRefreshError(result.message)) {
-        this.accountTree.markReloginRequired([account.id]);
+        this.quotaStore.markReloginRequired([account.id]);
         perf.finish({
           result: "relogin-required",
         });

@@ -15,6 +15,7 @@ import { getCodexAuthPath, getCodexConfigDir, getCodexConfigPath } from "./paths
 import { AuthFile, ProviderProfile, SharedHistoryRouteState, SharedHistorySwitchOptions } from "./types";
 
 const ROUTE_STATE_FILE = "switchbridge-shared-history.json";
+const LEGACY_ROUTE_STATE_FILE = "account-switch-shared-history.json";
 const BACKUP_ROOT = "switchbridge-backups";
 const SWITCH_LOCK_DIR = ".switchbridge-live-switch.lock";
 const SWITCH_LOCK_OWNER_FILE = "owner.json";
@@ -69,6 +70,10 @@ const heldSwitchLocks = new Map<string, HeldSwitchLock>();
 
 function routeStatePath(): string {
   return path.join(getCodexConfigDir(), ROUTE_STATE_FILE);
+}
+
+function legacyRouteStatePath(): string {
+  return path.join(getCodexConfigDir(), LEGACY_ROUTE_STATE_FILE);
 }
 
 function backupRootPath(): string {
@@ -373,21 +378,43 @@ function isOptionalTopLevelString(value: unknown): value is SharedHistoryRouteSt
   return false;
 }
 
-export function getSharedHistoryRouteState(): SharedHistoryRouteState | null {
-  const filePath = routeStatePath();
-  if (!fs.existsSync(filePath)) {
-    return null;
+function readSharedHistoryRouteState(filePath: string): SharedHistoryRouteState {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (error) {
+    const invalid = new Error(`Invalid shared-history route state: ${filePath}`);
+    (invalid as Error & { cause?: unknown }).cause = error;
+    throw invalid;
   }
 
-  const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
   if (
-    parsed?.version !== 1 ||
-    typeof parsed.activeProvider !== "string" ||
-    !isOptionalTopLevelString(parsed.originalOpenAIBaseUrl)
+    !parsed
+    || typeof parsed !== "object"
+    || (parsed as Record<string, unknown>).version !== 1
+    || typeof (parsed as Record<string, unknown>).activeProvider !== "string"
+    || !isOptionalTopLevelString((parsed as Record<string, unknown>).originalOpenAIBaseUrl)
   ) {
     throw new Error(`Invalid shared-history route state: ${filePath}`);
   }
-  return parsed;
+  return parsed as SharedHistoryRouteState;
+}
+
+export function getSharedHistoryRouteState(): SharedHistoryRouteState | null {
+  const currentPath = routeStatePath();
+  if (fs.existsSync(currentPath)) {
+    return readSharedHistoryRouteState(currentPath);
+  }
+
+  const legacyPath = legacyRouteStatePath();
+  if (!fs.existsSync(legacyPath)) {
+    return null;
+  }
+
+  const legacy = readSharedHistoryRouteState(legacyPath);
+  writeJsonAtomic(currentPath, legacy);
+  removeFileIfExists(legacyPath);
+  return legacy;
 }
 
 export function getSharedHistoryActiveProvider(): string | null {
@@ -435,9 +462,12 @@ function createBackup(options: Pick<SharedHistorySwitchOptions, "source" | "targ
   fs.mkdirSync(dir, { mode: 0o700 });
   let snapshots: Snapshot[];
   try {
-    snapshots = [getCodexAuthPath(), getCodexConfigPath(), routeStatePath()].map((source) =>
-      copySnapshot(source, path.join(dir, path.basename(source)))
-    );
+    snapshots = [
+      getCodexAuthPath(),
+      getCodexConfigPath(),
+      routeStatePath(),
+      legacyRouteStatePath(),
+    ].map((source) => copySnapshot(source, path.join(dir, path.basename(source))));
 
     writeJsonAtomic(path.join(dir, "manifest.json"), {
       version: 1,
@@ -526,10 +556,12 @@ function retainBackups(root: string): void {
 
 function writeSharedHistoryRouteState(state: SharedHistoryRouteState): void {
   writeJsonAtomic(routeStatePath(), state);
+  removeFileIfExists(legacyRouteStatePath());
 }
 
 function clearSharedHistoryRouteState(): void {
   removeFileIfExists(routeStatePath());
+  removeFileIfExists(legacyRouteStatePath());
 }
 
 function validateSharedProviderProfile(profile: ProviderProfile): void {

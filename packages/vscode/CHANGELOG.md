@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.0 - 2026-08-12
+
+- Moved the graphical Dashboard from the narrow sidebar into a reusable editor panel while keeping native account and API-provider management views.
+- Added responsive wide-screen cards for the current route, automatic switching, saved accounts, quota, and local token usage.
+- Added live quota reset countdowns with local time-zone details and exact upstream UTC timestamps, including explicit unavailable and due states.
+- Added immediate English and Simplified Chinese Dashboard switching, automatic VS Code language following, and localized commands, views, welcome text, and settings.
+
+## 0.4.1 - 2026-08-12
+
+- Migrated legacy provider route state so switching back to a Codex account reliably removes stale API routing.
+- Made account re-login use an isolated Codex home and reject missing or identity-mismatched login results without changing the live session.
+- Applied refreshed credentials immediately for the active account and reused the configured reload policy to clear cached revoked tokens.
+- Warned when another active extension can concurrently overwrite Codex auth or configuration files.
+
+## 0.4.0 - 2026-08-12
+
+- Replaced the Overview tree with a graphical quota-first sidebar dashboard.
+- Added direct auto-switch controls, comparable account quota bars, token-use visualization, and stable reload guidance.
+- Unified live quota presentation state across the dashboard and native account view without duplicate requests.
+
 ## 0.3.1 - 2026-08-12
 
 - Replaced the generic lightning icon with the S-Bridge identity across the Marketplace and VS Code Activity Bar.

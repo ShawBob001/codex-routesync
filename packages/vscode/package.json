@@ -1,8 +1,8 @@
 {
   "name": "codex-switchbridge",
-  "displayName": "Codex SwitchBridge",
-  "description": "Switch Codex accounts and API providers with shared local conversation history and per-selection local token usage",
-  "version": "0.3.1",
+  "displayName": "%extension.displayName%",
+  "description": "%extension.description%",
+  "version": "0.5.0",
   "publisher": "baoshichao001-dev",
   "repository": {
     "type": "git",
@@ -44,7 +44,7 @@
       "activitybar": [
         {
           "id": "codex-switchbridge",
-          "title": "Codex SwitchBridge",
+          "title": "%viewContainer.title%",
           "icon": "resources/icon.svg"
         }
       ]
@@ -53,19 +53,18 @@
       "codex-switchbridge": [
         {
           "id": "codexSwitchBridgeOverview",
-          "name": "Overview",
-          "icon": "resources/icon.svg",
-          "showCollapseAll": true
+          "name": "%view.dashboard.name%",
+          "icon": "resources/icon.svg"
         },
         {
           "id": "codexSwitchBridgeAccounts",
-          "name": "Accounts",
+          "name": "%view.accounts.name%",
           "icon": "resources/icon.svg",
           "showCollapseAll": true
         },
         {
           "id": "codexSwitchBridgeProviders",
-          "name": "API Providers",
+          "name": "%view.providers.name%",
           "icon": "resources/icon.svg",
           "showCollapseAll": true
         }
@@ -74,230 +73,237 @@
     "viewsWelcome": [
       {
         "view": "codexSwitchBridgeAccounts",
-        "contents": "No accounts to display yet.\n[Import accounts](command:codex-switchbridge.importAccounts)\n[Add account](command:codex-switchbridge.addAccount)"
+        "contents": "%viewsWelcome.accounts%"
       },
       {
         "view": "codexSwitchBridgeProviders",
-        "contents": "No API provider profiles to display yet.\n[Add API provider](command:codex-switchbridge.addProvider)"
+        "contents": "%viewsWelcome.providers%"
       }
     ],
     "commands": [
       {
+        "command": "codex-switchbridge.openDashboard",
+        "title": "%command.openDashboard.title%",
+        "category": "%command.category%",
+        "icon": "$(open-preview)"
+      },
+      {
         "command": "codex-switchbridge.importAccounts",
-        "title": "Import Accounts",
-        "category": "Codex SwitchBridge",
+        "title": "%command.importAccounts.title%",
+        "category": "%command.category%",
         "icon": "$(folder-opened)"
       },
       {
         "command": "codex-switchbridge.addAccount",
-        "title": "Add Account",
-        "category": "Codex SwitchBridge",
+        "title": "%command.addAccount.title%",
+        "category": "%command.category%",
         "icon": "$(add)"
       },
       {
         "command": "codex-switchbridge.addProvider",
-        "title": "Add API Provider",
-        "category": "Codex SwitchBridge",
+        "title": "%command.addProvider.title%",
+        "category": "%command.category%",
         "icon": "$(add)"
       },
       {
         "command": "codex-switchbridge.reloginAccount",
-        "title": "Re-login Account",
-        "category": "Codex SwitchBridge",
+        "title": "%command.reloginAccount.title%",
+        "category": "%command.category%",
         "icon": "$(sign-in)"
       },
       {
         "command": "codex-switchbridge.renameAccount",
-        "title": "Rename Account",
-        "category": "Codex SwitchBridge",
+        "title": "%command.renameAccount.title%",
+        "category": "%command.category%",
         "icon": "$(edit)"
       },
       {
         "command": "codex-switchbridge.removeAccount",
-        "title": "Remove Account",
-        "category": "Codex SwitchBridge",
+        "title": "%command.removeAccount.title%",
+        "category": "%command.category%",
         "icon": "$(trash)"
       },
       {
         "command": "codex-switchbridge.useAccount",
-        "title": "Switch Account",
-        "category": "Codex SwitchBridge",
+        "title": "%command.useAccount.title%",
+        "category": "%command.category%",
         "icon": "$(arrow-swap)"
       },
       {
         "command": "codex-switchbridge.switchMode",
-        "title": "Switch Mode",
-        "category": "Codex SwitchBridge",
+        "title": "%command.switchMode.title%",
+        "category": "%command.category%",
         "icon": "$(plug)"
       },
       {
         "command": "codex-switchbridge.switchProvider",
-        "title": "Switch API Provider",
-        "category": "Codex SwitchBridge",
+        "title": "%command.switchProvider.title%",
+        "category": "%command.category%",
         "icon": "$(arrow-swap)"
       },
       {
         "command": "codex-switchbridge.refreshToken",
-        "title": "Refresh Token",
-        "category": "Codex SwitchBridge",
+        "title": "%command.refreshToken.title%",
+        "category": "%command.category%",
         "icon": "$(refresh)"
       },
       {
         "command": "codex-switchbridge.refreshQuota",
-        "title": "Refresh Quota",
-        "category": "Codex SwitchBridge",
+        "title": "%command.refreshQuota.title%",
+        "category": "%command.category%",
         "icon": "$(refresh)"
       },
       {
         "command": "codex-switchbridge.refreshUsage",
-        "title": "Refresh Local Token Usage",
-        "category": "Codex SwitchBridge",
+        "title": "%command.refreshUsage.title%",
+        "category": "%command.category%",
         "icon": "$(pulse)"
       },
       {
+        "command": "codex-switchbridge.refreshDashboard",
+        "title": "%command.refreshDashboard.title%",
+        "category": "%command.category%",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "codex-switchbridge.exportAccounts",
-        "title": "Export Accounts",
-        "category": "Codex SwitchBridge",
+        "title": "%command.exportAccounts.title%",
+        "category": "%command.category%",
         "icon": "$(export)"
       },
       {
         "command": "codex-switchbridge.refreshList",
-        "title": "Refresh List",
-        "category": "Codex SwitchBridge",
+        "title": "%command.refreshList.title%",
+        "category": "%command.category%",
         "icon": "$(refresh)"
       },
       {
         "command": "codex-switchbridge.refresh",
-        "title": "Refresh",
-        "category": "Codex SwitchBridge",
+        "title": "%command.refresh.title%",
+        "category": "%command.category%",
         "icon": "$(refresh)"
       },
       {
         "command": "codex-switchbridge.enableAutoSwitch",
-        "title": "Enable Auto-Switch",
-        "category": "Codex SwitchBridge",
+        "title": "%command.enableAutoSwitch.title%",
+        "category": "%command.category%",
         "icon": "$(check)"
       },
       {
         "command": "codex-switchbridge.disableAutoSwitch",
-        "title": "Disable Auto-Switch",
-        "category": "Codex SwitchBridge",
+        "title": "%command.disableAutoSwitch.title%",
+        "category": "%command.category%",
         "icon": "$(circle-slash)"
       },
       {
         "command": "codex-switchbridge.configureAutoSwitch",
-        "title": "Auto-Switch Settings",
-        "category": "Codex SwitchBridge",
+        "title": "%command.configureAutoSwitch.title%",
+        "category": "%command.category%",
         "icon": "$(sync-ignored)"
       },
       {
         "command": "codex-switchbridge.reloadWindow",
-        "title": "Reload Window",
-        "category": "Codex SwitchBridge",
+        "title": "%command.reloadWindow.title%",
+        "category": "%command.category%",
         "icon": "$(debug-restart)"
       },
       {
         "command": "codex-switchbridge.repairSharedHistory",
-        "title": "Repair Shared Conversation History",
-        "category": "Codex SwitchBridge",
+        "title": "%command.repairSharedHistory.title%",
+        "category": "%command.category%",
         "icon": "$(history)"
       },
       {
         "command": "codex-switchbridge.showLogs",
-        "title": "Show Logs",
-        "category": "Codex SwitchBridge",
+        "title": "%command.showLogs.title%",
+        "category": "%command.category%",
         "icon": "$(output)"
       },
       {
         "command": "codex-switchbridge.unlockStorage",
-        "title": "Unlock Storage",
-        "category": "Codex SwitchBridge",
+        "title": "%command.unlockStorage.title%",
+        "category": "%command.category%",
         "icon": "$(unlock)"
       },
       {
         "command": "codex-switchbridge.setStoragePassword",
-        "title": "Set Storage Password",
-        "category": "Codex SwitchBridge",
+        "title": "%command.setStoragePassword.title%",
+        "category": "%command.category%",
         "icon": "$(lock)"
       },
       {
         "command": "codex-switchbridge.changeStoragePassword",
-        "title": "Change Storage Password",
-        "category": "Codex SwitchBridge",
+        "title": "%command.changeStoragePassword.title%",
+        "category": "%command.category%",
         "icon": "$(key)"
       },
       {
         "command": "codex-switchbridge.forgetStoragePassword",
-        "title": "Forget Local Storage Password",
-        "category": "Codex SwitchBridge",
+        "title": "%command.forgetStoragePassword.title%",
+        "category": "%command.category%",
         "icon": "$(unlock)"
       },
       {
         "command": "codex-switchbridge.copyProviderField",
-        "title": "Copy API Provider Value",
-        "category": "Codex SwitchBridge",
+        "title": "%command.copyProviderField.title%",
+        "category": "%command.category%",
         "icon": "$(copy)"
       },
       {
         "command": "codex-switchbridge.copyAccountField",
-        "title": "Copy Account Value",
-        "category": "Codex SwitchBridge",
+        "title": "%command.copyAccountField.title%",
+        "category": "%command.category%",
         "icon": "$(copy)"
       },
       {
         "command": "codex-switchbridge.moveAccountToCloud",
-        "title": "Move Account To Cloud",
-        "category": "Codex SwitchBridge",
+        "title": "%command.moveAccountToCloud.title%",
+        "category": "%command.category%",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "codex-switchbridge.restoreCloudAccountPayload",
-        "title": "Restore Cloud Payload From Protected Backup",
-        "category": "Codex SwitchBridge",
+        "title": "%command.restoreCloudAccountPayload.title%",
+        "category": "%command.category%",
         "icon": "$(cloud-download)"
       },
       {
         "command": "codex-switchbridge.moveAccountToLocal",
-        "title": "Move Account To Local",
-        "category": "Codex SwitchBridge",
+        "title": "%command.moveAccountToLocal.title%",
+        "category": "%command.category%",
         "icon": "$(cloud-download)"
       },
       {
         "command": "codex-switchbridge.moveProviderToCloud",
-        "title": "Move API Provider To Cloud",
-        "category": "Codex SwitchBridge",
+        "title": "%command.moveProviderToCloud.title%",
+        "category": "%command.category%",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "codex-switchbridge.moveProviderToLocal",
-        "title": "Move API Provider To Local",
-        "category": "Codex SwitchBridge",
+        "title": "%command.moveProviderToLocal.title%",
+        "category": "%command.category%",
         "icon": "$(cloud-download)"
       },
       {
         "command": "codex-switchbridge.removeProvider",
-        "title": "Remove API Provider",
-        "category": "Codex SwitchBridge",
+        "title": "%command.removeProvider.title%",
+        "category": "%command.category%",
         "icon": "$(trash)"
       },
       {
         "command": "codex-switchbridge.expandAllAccounts",
-        "title": "Expand All Accounts",
-        "category": "Codex SwitchBridge",
+        "title": "%command.expandAllAccounts.title%",
+        "category": "%command.category%",
         "icon": "$(expand-all)"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "codex-switchbridge.refreshUsage",
+          "command": "codex-switchbridge.openDashboard",
           "when": "view == codexSwitchBridgeOverview",
           "group": "navigation@1"
-        },
-        {
-          "command": "codex-switchbridge.switchMode",
-          "when": "view == codexSwitchBridgeOverview",
-          "group": "navigation@2"
         },
         {
           "command": "codex-switchbridge.refresh",
@@ -459,44 +465,60 @@
       ]
     },
     "configuration": {
-      "title": "Codex SwitchBridge",
+      "title": "%configuration.title%",
       "properties": {
+        "codex-switchbridge.language": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "en",
+            "zh-cn"
+          ],
+          "enumDescriptions": [
+            "%configuration.language.enum.auto%",
+            "%configuration.language.enum.en%",
+            "%configuration.language.enum.zhCn%"
+          ],
+          "scope": "window",
+          "description": "%configuration.language.description%"
+        },
         "codex-switchbridge.quotaRefreshInterval": {
           "type": "number",
           "default": 30,
           "minimum": 5,
-          "description": "Background maintenance interval, in seconds. Each interval checks one saved account for token refresh when enabled and refreshes one saved account quota in rotation."
+          "description": "%configuration.quotaRefreshInterval.description%"
         },
         "codex-switchbridge.tokenAutoUpdate": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically refresh saved account tokens during background timer maintenance when the token is expired or close to expiring."
+          "description": "%configuration.tokenAutoUpdate.description%"
         },
         "codex-switchbridge.autoSwitchOnZeroQuota": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically switch away from the currently selected saved account when its 5-hour quota reaches 0%, but only if another saved account has freshly confirmed 5-hour quota remaining."
+          "description": "%configuration.autoSwitchOnZeroQuota.description%"
         },
         "codex-switchbridge.autoSwitchCooldownSeconds": {
           "type": "number",
           "default": 90,
           "minimum": 15,
-          "description": "Minimum time to wait before retrying automatic switching for the same exhausted account after no eligible replacement was found or a switch attempt failed."
+          "description": "%configuration.autoSwitchCooldownSeconds.description%"
         },
         "codex-switchbridge.shareHistoryAcrossProviders": {
           "type": "boolean",
           "default": true,
-          "description": "Keep new local Codex conversation history available across account mode and Responses-compatible API-provider modes. Enabled by default; run Repair Shared Conversation History once for older provider-tagged threads."
+          "description": "%configuration.shareHistoryAcrossProviders.description%"
         },
         "codex-switchbridge.showStatusBar": {
           "type": "boolean",
           "default": true,
-          "description": "Show the current account quota in the status bar"
+          "description": "%configuration.showStatusBar.description%"
         },
         "codex-switchbridge.detailedPerformanceLogging": {
           "type": "boolean",
           "default": false,
-          "description": "Debug-only. Emit performance logs for account list refresh and quota operations."
+          "description": "%configuration.detailedPerformanceLogging.description%"
         },
         "codex-switchbridge.reloadWindowAfterSwitch": {
           "type": "string",
@@ -507,21 +529,21 @@
             "always"
           ],
           "enumDescriptions": [
-            "Do not show a reload recommendation or reload the window after switching",
-            "Show a clickable Reload recommended item in the status bar without interrupting your work",
-            "Always reload the window after switching so the Codex extension can re-read auth"
+            "%configuration.reloadWindowAfterSwitch.enum.never%",
+            "%configuration.reloadWindowAfterSwitch.enum.statusBar%",
+            "%configuration.reloadWindowAfterSwitch.enum.always%"
           ],
-          "description": "How VS Code window reload should be handled after switching accounts or API providers"
+          "description": "%configuration.reloadWindowAfterSwitch.description%"
         },
         "codex-switchbridge.authDirectory": {
           "type": "string",
           "default": "",
-          "description": "Directory used to save and load auth_{name}.json files. Leave empty to use the default Codex config directory."
+          "description": "%configuration.authDirectory.description%"
         },
         "codex-switchbridge.useDeviceAuthForLogin": {
           "type": "boolean",
           "default": false,
-          "description": "Use `codex login --device-auth` for add/re-login. Enable this only after turning on device code authorization for Codex in ChatGPT Security Settings."
+          "description": "%configuration.useDeviceAuthForLogin.description%"
         },
         "codex-switchbridge.defaultSaveTarget": {
           "type": "string",
@@ -531,10 +553,10 @@
             "cloud"
           ],
           "enumDescriptions": [
-            "Save new accounts and API providers to local files by default",
-            "Save new accounts and API providers to synced extension storage by default"
+            "%configuration.defaultSaveTarget.enum.local%",
+            "%configuration.defaultSaveTarget.enum.cloud%"
           ],
-          "description": "Default storage target used when saving accounts or API-provider profiles."
+          "description": "%configuration.defaultSaveTarget.description%"
         },
         "codex-switchbridge.syncedStorage": {
           "type": "object",
@@ -545,26 +567,27 @@
             "providers": {},
             "providerNames": []
           },
-          "markdownDeprecationMessage": "Legacy migration-only setting. Cloud data now lives in synced extension storage managed by the extension.",
-          "description": "Legacy migration-only backup of encrypted cloud accounts and API providers. Managed internally by the extension."
+          "markdownDeprecationMessage": "%configuration.syncedStorage.markdownDeprecationMessage%",
+          "description": "%configuration.syncedStorage.description%"
         }
       }
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p webview/tsconfig.json --noEmit",
     "bundle": "node ./scripts/build.mjs",
     "build": "npm run typecheck && npm run bundle",
     "dev": "node ./scripts/build.mjs --watch",
     "test": "npm run build && node --test test/**/*.test.js",
+    "test:visual": "npm run build && playwright test test/visual/dashboard.spec.mjs --reporter=line",
     "package": "npm --prefix ../.. run build:core && npm run build && npx @vscode/vsce package --no-dependencies --allow-missing-repository",
     "publish:openvsx": "npm run package && node ./scripts/publish-openvsx.mjs",
     "prepublish:marketplace": "npm run package",
     "publish:marketplace": "node ./scripts/publish-marketplace.mjs",
     "publish:preview": "npx @vscode/vsce publish --no-dependencies --pre-release"
   },
-  "dependencies": {},
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.25.12",

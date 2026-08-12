@@ -19,6 +19,12 @@ function createVscodeMock() {
   const registeredCommands = new Map();
   const configurationListeners = new Set();
   const createdChannels = [];
+  const createdPanels = [];
+  const extensionLookups = [];
+  const extensionLookupErrors = new Map();
+  const installedExtensions = new Map();
+  const warningMessages = [];
+  let warningMessageResult = Promise.resolve(undefined);
   const globalStoragePath = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-logging-global-storage-"));
   const globalStateValues = new Map([
     [SYNCED_CLOUD_STATE_KEY, {
@@ -95,7 +101,17 @@ function createVscodeMock() {
     ConfigurationTarget: {
       Global: 1,
     },
+    ViewColumn: {
+      Active: -1,
+    },
     window: {
+      registerWebviewViewProvider() {
+        assert.fail("activation must not register a WebviewView provider");
+      },
+      createWebviewPanel() {
+        createdPanels.push({});
+        assert.fail("activation must not create the dashboard panel");
+      },
       createTreeView() {
         return createDisposable();
       },
@@ -152,8 +168,9 @@ function createVscodeMock() {
       async showInputBox() {
         return undefined;
       },
-      async showWarningMessage() {
-        return undefined;
+      showWarningMessage(message, ...items) {
+        warningMessages.push({ message, items });
+        return warningMessageResult;
       },
       async showInformationMessage() {
         return undefined;
@@ -203,7 +220,18 @@ function createVscodeMock() {
         return command ? command(...args) : undefined;
       },
     },
+    extensions: {
+      getExtension(extensionId) {
+        extensionLookups.push(extensionId);
+        const error = extensionLookupErrors.get(extensionId);
+        if (error) {
+          throw error;
+        }
+        return installedExtensions.get(extensionId);
+      },
+    },
     env: {
+      language: "en",
       clipboard: {
         async writeText() {},
       },
@@ -219,6 +247,14 @@ function createVscodeMock() {
     vscode,
     registeredCommands,
     createdChannels,
+    createdPanels,
+    extensionLookups,
+    extensionLookupErrors,
+    installedExtensions,
+    warningMessages,
+    setWarningMessageResult(result) {
+      warningMessageResult = result;
+    },
     config,
     globalStoragePath,
     secrets: {
@@ -409,6 +445,8 @@ function loadExtensionWithMockedVscode(vscodeMock) {
 function createExtensionContext(mocked) {
   return {
     subscriptions: [],
+    extensionPath: path.join(__dirname, ".."),
+    extensionUri: mocked.vscode.Uri.file(path.join(__dirname, "..")),
     secrets: mocked.secrets,
     globalState: mocked.globalState,
     globalStorageUri: {
@@ -427,6 +465,7 @@ test("activate creates a dedicated VS Code log channel and writes startup logs i
   });
 
   assert.equal(mocked.createdChannels.length, 1);
+  assert.equal(mocked.createdPanels.length, 0);
   assert.equal(mocked.createdChannels[0].name, "Codex SwitchBridge");
   assert.deepEqual(mocked.createdChannels[0].options, { log: true });
   assert.ok(mocked.createdChannels[0].entries.length > 0);
@@ -438,6 +477,96 @@ test("activate creates a dedicated VS Code log channel and writes startup logs i
 
   extension.deactivate();
   assert.equal(mocked.createdChannels[0].disposed, true);
+});
+
+test("activate aggregates active auth-writing extensions into one non-blocking warning", async () => {
+  const mocked = createVscodeMock();
+  mocked.installedExtensions.set("wannanbigpig.codex-accounts-manager", { isActive: true });
+  mocked.installedExtensions.set("techfetch-dev.codex-account-switch-vscode", { isActive: true });
+  mocked.setWarningMessageResult(new Promise(() => {}));
+  const extension = loadExtensionWithMockedVscode(mocked.vscode);
+  const context = createExtensionContext(mocked);
+
+  await withDisabledIntervals(async () => {
+    await Promise.race([
+      extension.activate(context),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("activation waited for warning dismissal")), 250)),
+    ]);
+  });
+
+  assert.deepEqual(mocked.extensionLookups, [
+    "wannanbigpig.codex-accounts-manager",
+    "techfetch-dev.codex-account-switch-vscode",
+  ]);
+  assert.equal(mocked.warningMessages.length, 1);
+  assert.match(mocked.warningMessages[0].message, /auth\/config/i);
+  assert.match(mocked.warningMessages[0].message, /unauthorized/i);
+  assert.match(mocked.warningMessages[0].message, /disable or uninstall/i);
+  assert.match(mocked.warningMessages[0].message, /Reload Window/);
+  assert.match(mocked.warningMessages[0].message, /wannanbigpig\.codex-accounts-manager/);
+  assert.match(mocked.warningMessages[0].message, /techfetch-dev\.codex-account-switch-vscode/);
+  assert.ok(
+    mocked.createdChannels[0].entries.some((entry) =>
+      entry.level === "warn"
+      && entry.line.includes("conflicting-extensions-detected")
+      && entry.line.includes('"extensionIds":["wannanbigpig.codex-accounts-manager","techfetch-dev.codex-account-switch-vscode"]')
+    )
+  );
+
+  extension.deactivate();
+});
+
+test("activate ignores installed auth-writing extensions that are not active", async () => {
+  const mocked = createVscodeMock();
+  mocked.installedExtensions.set("wannanbigpig.codex-accounts-manager", { isActive: false });
+  mocked.installedExtensions.set("techfetch-dev.codex-account-switch-vscode", { isActive: false });
+  const extension = loadExtensionWithMockedVscode(mocked.vscode);
+  const context = createExtensionContext(mocked);
+
+  await withDisabledIntervals(async () => {
+    await extension.activate(context);
+  });
+
+  assert.equal(mocked.warningMessages.length, 0);
+  assert.equal(
+    mocked.createdChannels[0].entries.some((entry) => entry.line.includes("conflicting-extensions-detected")),
+    false
+  );
+
+  extension.deactivate();
+});
+
+test("activate continues conflict detection when one extension lookup throws", async () => {
+  const mocked = createVscodeMock();
+  mocked.extensionLookupErrors.set(
+    "wannanbigpig.codex-accounts-manager",
+    new Error("extension registry unavailable")
+  );
+  mocked.installedExtensions.set("techfetch-dev.codex-account-switch-vscode", { isActive: true });
+  const extension = loadExtensionWithMockedVscode(mocked.vscode);
+  const context = createExtensionContext(mocked);
+
+  await withDisabledIntervals(async () => {
+    await extension.activate(context);
+  });
+
+  assert.deepEqual(mocked.extensionLookups, [
+    "wannanbigpig.codex-accounts-manager",
+    "techfetch-dev.codex-account-switch-vscode",
+  ]);
+  assert.equal(mocked.warningMessages.length, 1);
+  assert.doesNotMatch(mocked.warningMessages[0].message, /wannanbigpig\.codex-accounts-manager/);
+  assert.match(mocked.warningMessages[0].message, /techfetch-dev\.codex-account-switch-vscode/);
+  assert.ok(
+    mocked.createdChannels[0].entries.some((entry) =>
+      entry.level === "warn"
+      && entry.line.includes("conflicting-extension-check-failed")
+      && entry.line.includes('"extensionId":"wannanbigpig.codex-accounts-manager"')
+      && entry.line.includes('"error":"extension registry unavailable"')
+    )
+  );
+
+  extension.deactivate();
 });
 
 test("showLogs command reveals the dedicated VS Code log channel", async () => {

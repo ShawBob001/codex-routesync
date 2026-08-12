@@ -18,7 +18,7 @@ Disable or uninstall **Codex Account Switch** before enabling Codex SwitchBridge
 
 ## Account and API-provider switching
 
-Open **Codex SwitchBridge** from the Activity Bar. The Overview shows the active mode, shared-history state, and local token usage. The Accounts and API Providers views use the same guarded switching workflow.
+Open **Codex SwitchBridge** from the Activity Bar, then select **Open Dashboard**. The graphical Dashboard opens in the central editor area and shows the active mode, shared-history state, quota reset time, and local token usage without squeezing them into the sidebar. The Accounts and API Providers views use the same guarded switching workflow.
 
 | When you select | SwitchBridge applies |
 | --- | --- |
@@ -29,9 +29,13 @@ Before applying the next selection, SwitchBridge writes the latest active creden
 
 After a successful switch, the Codex extension may still hold its old authentication in memory. The default **Reload recommended** status-bar action lets you reload when needed without repeated notification popups.
 
-## Local token usage
+## Dashboard, quota reset time, and local token usage
 
-The Overview indexes cumulative `token_count` events from local Codex rollout files under the active `CODEX_HOME`. It displays the recorded total, input, output, cached input, reasoning output, attributed and unattributed usage, plus a breakdown for every tracked account and API provider.
+The Dashboard displays graphical quota status for the current and saved accounts. For every available quota window it shows a live countdown to the second, local date and time with seconds and time-zone offset, and the exact upstream UTC timestamp. Missing, invalid, or due reset times are labeled explicitly instead of being estimated.
+
+The Dashboard also indexes cumulative `token_count` events from local Codex rollout files under the active `CODEX_HOME`. It displays the recorded total, input, output, cached input, reasoning output, attributed and unattributed usage, plus a breakdown for every tracked account and API provider.
+
+The header language selector supports **Auto**, **English**, and **简体中文**. Auto follows the VS Code display language; explicit choices take effect immediately and persist without a window reload. VS Code command, view, welcome, and setting text is also localized in English and Simplified Chinese.
 
 SwitchBridge assigns each new token increment to the selection active when Codex recorded it, even if one conversation continues across an account/API switch. Per-selection tracking begins locally after this version is activated. Older shared `openai` sessions cannot be assigned safely and appear as **Earlier or unattributed**; uniquely identifiable older provider sessions can still be mapped to their saved profile.
 
@@ -64,7 +68,8 @@ See [Conversation history across modes](https://github.com/baoshichao001-dev/cod
 - Shared local conversation history across both modes, enabled by default for new threads
 - Local or VS Code Settings Sync storage for accounts and provider profiles
 - Account quota display in the tree and status bar
-- Overview dashboard with total and per-account/API local token usage
+- Wide editor Dashboard with graphical quota, precise reset clocks, and total/per-account/API local token usage
+- Immediate English/Simplified Chinese Dashboard switching and localized VS Code contributions
 - Manual token refresh and rotating background token maintenance
 - Shared local quota cache across VS Code windows
 - Optional encryption for saved authentication data
@@ -90,6 +95,7 @@ See [Conversation history across modes](https://github.com/baoshichao001-dev/cod
 
 | Setting | Default | Description |
 | --- | --- | --- |
+| `codex-switchbridge.language` | `auto` | Follow VS Code or use English/Simplified Chinese in the Dashboard |
 | `codex-switchbridge.shareHistoryAcrossProviders` | `true` | Keep new local conversation history available across account and Responses-compatible API-provider modes |
 | `codex-switchbridge.reloadWindowAfterSwitch` | `statusBar` | Show a non-blocking reload action, never notify, or reload automatically after a switch |
 | `codex-switchbridge.quotaRefreshInterval` | `30` | Check one saved account per interval for token maintenance and quota refresh |

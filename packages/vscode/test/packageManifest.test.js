@@ -3,17 +3,114 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const manifest = JSON.parse(
+const rawManifest = JSON.parse(
   fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8")
 );
 
+const englishNlsPath = path.join(__dirname, "..", "package.nls.json");
+const chineseNlsPath = path.join(__dirname, "..", "package.nls.zh-cn.json");
+
+function readCatalogIfPresent(catalogPath) {
+  return fs.existsSync(catalogPath)
+    ? JSON.parse(fs.readFileSync(catalogPath, "utf-8"))
+    : {};
+}
+
+function nlsKey(value) {
+  return typeof value === "string" && /^%([^%]+)%$/.exec(value)?.[1];
+}
+
+function localizeManifest(value, catalog) {
+  if (Array.isArray(value)) return value.map((item) => localizeManifest(item, catalog));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, localizeManifest(item, catalog)]),
+    );
+  }
+  if (typeof value !== "string") return value;
+  const key = nlsKey(value);
+  return key ? catalog[key] ?? value : value;
+}
+
+const manifest = localizeManifest(rawManifest, readCatalogIfPresent(englishNlsPath));
+
 const commands = manifest.contributes.commands;
 
-test("extension identity is Codex SwitchBridge 0.3.1", () => {
+test("VS Code-owned user-visible contributions use complete English and Chinese NLS catalogs", () => {
+  assert.equal(fs.existsSync(englishNlsPath), true, "package.nls.json must exist");
+  assert.equal(fs.existsSync(chineseNlsPath), true, "package.nls.zh-cn.json must exist");
+
+  const english = readCatalogIfPresent(englishNlsPath);
+  const chinese = readCatalogIfPresent(chineseNlsPath);
+  assert.deepEqual(Object.keys(chinese).sort(), Object.keys(english).sort());
+  const languageNeutralBrandKeys = new Set([
+    "extension.displayName",
+    "viewContainer.title",
+    "command.category",
+    "configuration.title",
+  ]);
+
+  const localizedValues = [
+    ["displayName", rawManifest.displayName],
+    ["description", rawManifest.description],
+  ];
+
+  for (const [index, container] of
+    (rawManifest.contributes.viewsContainers.activitybar ?? []).entries()) {
+    localizedValues.push([`viewsContainers.activitybar[${index}].title`, container.title]);
+  }
+  for (const [containerId, views] of Object.entries(rawManifest.contributes.views ?? {})) {
+    for (const [index, view] of views.entries()) {
+      localizedValues.push([`views.${containerId}[${index}].name`, view.name]);
+    }
+  }
+  for (const [index, welcome] of (rawManifest.contributes.viewsWelcome ?? []).entries()) {
+    localizedValues.push([`viewsWelcome[${index}].contents`, welcome.contents]);
+  }
+  for (const [index, command] of (rawManifest.contributes.commands ?? []).entries()) {
+    localizedValues.push([`commands[${index}].title`, command.title]);
+    localizedValues.push([`commands[${index}].category`, command.category]);
+  }
+
+  const configuration = rawManifest.contributes.configuration;
+  localizedValues.push(["configuration.title", configuration.title]);
+  for (const [settingId, setting] of Object.entries(configuration.properties ?? {})) {
+    for (const property of [
+      "description",
+      "markdownDescription",
+      "deprecationMessage",
+      "markdownDeprecationMessage",
+    ]) {
+      if (setting[property] !== undefined) {
+        localizedValues.push([`configuration.${settingId}.${property}`, setting[property]]);
+      }
+    }
+    for (const [index, description] of (setting.enumDescriptions ?? []).entries()) {
+      localizedValues.push([
+        `configuration.${settingId}.enumDescriptions[${index}]`,
+        description,
+      ]);
+    }
+  }
+
+  for (const [location, value] of localizedValues) {
+    const key = nlsKey(value);
+    assert.ok(key, `${location} must contain one complete %key% placeholder`);
+    assert.equal(typeof english[key], "string", `${location} is missing English key ${key}`);
+    assert.ok(english[key].trim().length > 0, `${key} must have a default English value`);
+    assert.equal(typeof chinese[key], "string", `${location} is missing Chinese key ${key}`);
+    assert.ok(chinese[key].trim().length > 0, `${key} must have a Chinese value`);
+    if (!languageNeutralBrandKeys.has(key)) {
+      assert.match(chinese[key], /[\u3400-\u9fff]/u, `${key} must be translated into Chinese`);
+    }
+  }
+});
+
+test("extension identity is Codex SwitchBridge 0.5.0", () => {
   assert.equal(manifest.name, "codex-switchbridge");
   assert.equal(manifest.displayName, "Codex SwitchBridge");
   assert.equal(manifest.publisher, "baoshichao001-dev");
-  assert.equal(manifest.version, "0.3.1");
+  assert.equal(manifest.version, "0.5.0");
   assert.match(manifest.description, /accounts and API providers/i);
   assert.match(manifest.description, /shared local conversation history/i);
   assert.match(manifest.description, /token usage/i);
@@ -66,7 +163,7 @@ test("S-Bridge brand assets are self-contained and Marketplace-ready", () => {
   );
 });
 
-test("activity view starts with an Overview and exposes local usage refresh", () => {
+test("activity view uses a native Dashboard launcher and keeps management trees native", () => {
   const views = manifest.contributes.views["codex-switchbridge"] ?? [];
   assert.deepEqual(
     views.map((view) => view.id),
@@ -77,17 +174,47 @@ test("activity view starts with an Overview and exposes local usage refresh", ()
     ],
   );
 
-  const refreshUsage = commands.find(
-    (command) => command.command === "codex-switchbridge.refreshUsage"
-  );
-  assert.equal(refreshUsage?.title, "Refresh Local Token Usage");
+  const overview = views.find((view) => view.id === "codexSwitchBridgeOverview");
+  const accounts = views.find((view) => view.id === "codexSwitchBridgeAccounts");
+  const providers = views.find((view) => view.id === "codexSwitchBridgeProviders");
+  assert.equal(overview?.name, "Dashboard");
+  assert.equal(overview?.type, undefined);
+  assert.equal(overview?.showCollapseAll, undefined);
+  assert.equal(accounts?.type, undefined);
+  assert.equal(providers?.type, undefined);
 
-  const titleItem = (manifest.contributes.menus["view/title"] ?? []).find(
-    (item) =>
-      item.command === "codex-switchbridge.refreshUsage"
-      && item.when === "view == codexSwitchBridgeOverview"
+  const overviewTitleCommands = (manifest.contributes.menus["view/title"] ?? [])
+    .filter((item) => item.when === "view == codexSwitchBridgeOverview")
+    .sort((left, right) => left.group.localeCompare(right.group))
+    .map((item) => item.command);
+  assert.deepEqual(
+    overviewTitleCommands,
+    ["codex-switchbridge.openDashboard"],
   );
-  assert.equal(titleItem?.group, "navigation@1");
+
+  const openDashboard = commands.find(
+    (command) => command.command === "codex-switchbridge.openDashboard",
+  );
+  assert.equal(openDashboard?.title, "Open Dashboard");
+  assert.equal(openDashboard?.category, "Codex SwitchBridge");
+  assert.equal(openDashboard?.icon, "$(open-preview)");
+});
+
+test("production build includes dashboard browser assets and excludes raw webview sources", () => {
+  const packageRoot = path.join(__dirname, "..");
+  assert.equal(fs.existsSync(path.join(packageRoot, "dist", "webview", "dashboard.js")), true);
+  assert.equal(fs.existsSync(path.join(packageRoot, "dist", "webview", "dashboard.css")), true);
+
+  const ignored = fs.readFileSync(path.join(packageRoot, ".vscodeignore"), "utf-8");
+  assert.match(ignored, /^webview\/\*\*$/m);
+  assert.doesNotMatch(ignored, /^dist\/webview\/\*\*$/m);
+});
+
+test("visual tests rebuild dashboard assets before launching Playwright", () => {
+  assert.match(
+    manifest.scripts["test:visual"],
+    /^npm run build && playwright test /,
+  );
 });
 
 test("Marketplace publishing rebuilds and publishes the exact versioned VSIX", () => {
@@ -151,6 +278,23 @@ test("device auth login setting is opt-in", () => {
   assert.equal(setting?.type, "boolean");
   assert.equal(setting?.default, false);
   assert.match(setting?.description ?? "", /device code authorization/i);
+});
+
+test("dashboard language setting supports automatic, English, and Simplified Chinese", () => {
+  const setting =
+    manifest.contributes.configuration.properties[
+      "codex-switchbridge.language"
+    ];
+
+  assert.equal(setting?.type, "string");
+  assert.equal(setting?.default, "auto");
+  assert.deepEqual(setting?.enum, ["auto", "en", "zh-cn"]);
+  assert.equal(setting?.scope, "window");
+  assert.match(setting?.description ?? "", /dashboard language/i);
+  assert.equal(setting?.enumDescriptions?.length, 3);
+  assert.match(setting?.enumDescriptions?.[0] ?? "", /follow VS Code/i);
+  assert.match(setting?.enumDescriptions?.[1] ?? "", /English/i);
+  assert.match(setting?.enumDescriptions?.[2] ?? "", /Simplified Chinese/i);
 });
 
 test("storage password commands are contributed", () => {

@@ -1,4 +1,5 @@
 src/**
+webview/**
 scripts/**
 tsconfig.json
 *.tsbuildinfo
@@ -6,6 +7,8 @@ dist/**/*.map
 node_modules/**
 .vscode-test/**
 test/**
+test-results/**
+playwright-report/**
 .env*
 .npmrc
 *.vsix

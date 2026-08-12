@@ -4,6 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   exportAccounts,
+  getAccountIdentity,
   importAccounts,
   ExportData,
   ProviderProfile,
@@ -16,6 +17,7 @@ import {
 import { AccountDetailItem, AccountGroupItem, AccountTreeProvider, AccountTreeItem, AccountTreeNode } from "./accountTree";
 import { getRemainingQuotaPercent, isFiveHourQuotaExhausted, rankAutoSwitchCandidates } from "./autoSwitch";
 import { ProviderDetailItem, ProviderTreeItem, ProviderTreeProvider } from "./providerTree";
+import { QuotaStore } from "./quotaStore";
 import { StatusBarManager } from "./statusBar";
 import { buildCompletedProviderProfile } from "./providerProfile";
 import { RefreshCoordinator } from "./refreshCoordinator";
@@ -34,6 +36,7 @@ import {
   unlockSavedAuthStorage,
 } from "./storagePassword";
 import {
+  activateSavedAccountAfterRelogin,
   buildProviderProfileForSource,
   createSavedEntriesSnapshot,
   getSavedAccountEntry,
@@ -51,13 +54,11 @@ import {
   restoreCloudAccountPayloadFromProtectedBackup,
   restoreSavedCurrentSelectionMarker,
   saveAuthAsAccount,
-  saveCurrentAuthAsAccount,
   saveProviderProfileToSource,
   SavedAccountInfo,
   querySavedAccountQuota,
   SavedProviderInfo,
   StorageSource,
-  syncCurrentAuthToSavedSelection,
   switchToSavedProviderEntry,
   useSavedAccountEntry,
 } from "./savedEntries";
@@ -222,6 +223,7 @@ async function retireTrackedUsage(
 
 async function refreshTokenAndQuota(
   accountTree: AccountTreeProvider,
+  quotaStore: QuotaStore,
   statusBar: StatusBarManager,
   accountIds?: Iterable<string>,
 ) {
@@ -237,7 +239,7 @@ async function refreshTokenAndQuota(
     sharedQueries: new Map(),
   };
   await Promise.all([
-    accountTree.refreshQuota(normalizedAccountIds, {
+    quotaStore.refreshQuota(normalizedAccountIds, {
       snapshot,
       queryContext,
       reason: "manual",
@@ -473,41 +475,19 @@ function showAccountSavedAfterAdd(accountName: string, email?: string) {
   );
 }
 
-async function runCodexLogin(options?: { useDeviceAuth?: boolean }): Promise<boolean> {
-  const useDeviceAuth = options?.useDeviceAuth ?? getUseDeviceAuthForLogin();
-  const loginCommand = getCodexLoginCommand(useDeviceAuth);
-  logCommandInfo("login", "terminal-started", {
-    useDeviceAuth,
-    command: loginCommand,
-  });
-  const terminal = vscode.window.createTerminal("Codex Login");
-  terminal.show();
-  terminal.sendText(loginCommand);
-
-  const message = useDeviceAuth
-    ? `Complete \`${loginCommand}\` in the terminal, then click Done. If Codex says "Enable device code authorization for Codex in ChatGPT Security Settings, then run \\"codex login --device-auth\\" again.", enable it in ChatGPT Security Settings first.`
-    : `Complete \`${loginCommand}\` in the terminal, then click Done.`;
-
-  const action = await vscode.window.showInformationMessage(message, "Done", "Cancel");
-  logCommandInfo("login", action === "Done" ? "confirmed" : "cancelled", {
-    useDeviceAuth,
-  });
-
-  return action === "Done";
-}
-
 async function runTransientCodexLogin(options?: { useDeviceAuth?: boolean }) {
   const useDeviceAuth = options?.useDeviceAuth ?? getUseDeviceAuthForLogin();
   const loginCommand = getCodexLoginCommand(useDeviceAuth);
   const tempCodexHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-switchbridge-login-"));
-  logCommandInfo("login", "terminal-started", {
-    useDeviceAuth,
-    command: loginCommand,
-    transient: true,
-  });
+  let terminal: vscode.Terminal | undefined;
 
   try {
-    const terminal = vscode.window.createTerminal({
+    logCommandInfo("login", "terminal-started", {
+      useDeviceAuth,
+      command: loginCommand,
+      transient: true,
+    });
+    terminal = vscode.window.createTerminal({
       name: "Codex Login",
       env: {
         CODEX_HOME: tempCodexHome,
@@ -535,7 +515,15 @@ async function runTransientCodexLogin(options?: { useDeviceAuth?: boolean }) {
       auth: readAuthFile(path.join(tempCodexHome, "auth.json")),
     };
   } finally {
-    fs.rmSync(tempCodexHome, { recursive: true, force: true });
+    try {
+      terminal?.dispose();
+    } catch (error) {
+      logCommandWarn("login", "terminal-dispose-failed", {
+        error: toErrorMessage(error),
+      });
+    } finally {
+      fs.rmSync(tempCodexHome, { recursive: true, force: true });
+    }
   }
 }
 
@@ -756,99 +744,6 @@ async function pickSavedProvider(item: ProviderTreeItem | undefined, placeHolder
   );
 
   return picked?.provider;
-}
-
-async function exitProviderModeForLogin(): Promise<{
-  previousSelection: ReturnType<typeof getSavedCurrentSelection>;
-  switched: boolean;
-} | null> {
-  const previousSelection = getSavedCurrentSelection();
-  if (previousSelection.kind !== "provider") {
-    return { previousSelection, switched: false };
-  }
-
-  const syncResult = await syncCurrentAuthToSavedSelection();
-  if (!syncResult.success) {
-    logCommandWarn("login", "sync-provider-before-exit-failed", {
-      provider: previousSelection.name,
-      source: previousSelection.source,
-      conflict: syncResult.conflict ?? false,
-      message: syncResult.message ?? null,
-    });
-    if (syncResult.conflict && syncResult.message) {
-      await showSyncConflictWarning(syncResult.message);
-    } else {
-      void vscode.window.showErrorMessage(
-        syncResult.message ?? "Failed to save the current API provider auth before login.",
-      );
-    }
-    return null;
-  }
-
-  const switched = switchMode("account", {
-    ...providerSwitchOptions(
-      `provider:${previousSelection.source}:${previousSelection.name}`,
-      "account:login",
-    ),
-    syncCurrentProviderAuth: false,
-  });
-  if (!switched.success) {
-    logCommandWarn("login", "exit-provider-mode-failed", {
-      provider: previousSelection.name,
-      source: previousSelection.source,
-      message: switched.message,
-    });
-    void vscode.window.showErrorMessage(switched.message);
-    return null;
-  }
-
-  logCommandInfo("login", "exited-provider-mode", {
-    provider: previousSelection.name,
-    source: previousSelection.source,
-  });
-  void vscode.window.showInformationMessage(
-    `Exited provider mode "${getModeDisplayName(previousSelection.name)}" before login so Codex can create an account auth.json.`
-  );
-  return { previousSelection, switched: true };
-}
-
-async function restoreProviderModeAfterFailedLogin(previousSelection: ReturnType<typeof getSavedCurrentSelection>, switched: boolean) {
-  if (!switched || previousSelection.kind !== "provider") {
-    return;
-  }
-
-  const restored =
-    previousSelection.source === "local"
-      ? switchMode(
-          previousSelection.name,
-          {
-            ...providerSwitchOptions("account", `provider:local:${previousSelection.name}`),
-            syncCurrentProviderAuth: false,
-          },
-        )
-      : await switchToSavedProviderEntry(
-          getSavedProviderEntry(previousSelection.name, "cloud") ?? {
-            id: `cloud:${previousSelection.name}`,
-            name: previousSelection.name,
-            source: "cloud",
-            isCurrent: false,
-            invalid: true,
-            locked: false,
-            pending: false,
-            encrypted: false,
-            auth: {},
-            config: {},
-            profile: null,
-            syncVersion: null,
-            syncUpdatedAt: null,
-            lastWriterAction: null,
-          },
-        );
-  if (!restored.success) {
-    void vscode.window.showWarningMessage(
-      `Restoring mode "${getModeDisplayName(previousSelection.name)}" failed: ${restored.message}`
-    );
-  }
 }
 
 async function promptLoginMethod(
@@ -1096,54 +991,6 @@ async function switchSavedProviderForCommand(
   return true;
 }
 
-async function restoreSelectionAfterLogin(
-  previousSelection: ReturnType<typeof getSavedCurrentSelection>,
-  targetAccount: SavedAccountInfo,
-) {
-  if (
-    previousSelection.kind === "account"
-    && previousSelection.name === targetAccount.name
-    && previousSelection.source === targetAccount.source
-  ) {
-    return { restored: false, restoredLabel: undefined as string | undefined };
-  }
-
-  if (previousSelection.kind === "account") {
-    const previousAccount = getSavedAccountEntry(previousSelection.name, previousSelection.source);
-    if (!previousAccount) {
-      return { restored: false, restoredLabel: undefined as string | undefined };
-    }
-    const restored = await useSavedAccountEntry(previousAccount);
-    if (!restored.success) {
-      vscode.window.showWarningMessage(
-        `Saved account "${targetAccount.name}" was updated, but restoring account "${previousSelection.name}" failed: ${restored.message}`,
-      );
-      return { restored: false, restoredLabel: undefined as string | undefined };
-    }
-    return { restored: true, restoredLabel: `${previousSelection.name} (${getSourceLabel(previousSelection.source)})` };
-  }
-
-  if (previousSelection.kind === "provider") {
-    const previousProvider = getSavedProviderEntry(previousSelection.name, previousSelection.source);
-    if (!previousProvider) {
-      return { restored: false, restoredLabel: undefined as string | undefined };
-    }
-    const restored = await switchToSavedProviderEntry(previousProvider);
-    if (!restored.success) {
-      vscode.window.showWarningMessage(
-        `Saved account "${targetAccount.name}" was updated, but restoring mode "${getModeDisplayName(previousSelection.name)}" failed: ${restored.message}`,
-      );
-      return { restored: false, restoredLabel: undefined as string | undefined };
-    }
-    return {
-      restored: true,
-      restoredLabel: getModeDisplayName(previousSelection.name),
-    };
-  }
-
-  return { restored: false, restoredLabel: undefined as string | undefined };
-}
-
 function refreshFailureSupportsRelogin(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
@@ -1297,11 +1144,13 @@ async function ensureProviderProfileWithExpectedVersion(
 export function registerCommands(
   context: vscode.ExtensionContext,
   accountTree: AccountTreeProvider,
+  quotaStore: QuotaStore,
   providerTree: ProviderTreeProvider,
   statusBar: StatusBarManager,
   accountTreeView: vscode.TreeView<AccountTreeNode>,
   refreshCoordinator: RefreshCoordinator,
   usageService: UsageService,
+  openDashboard: () => void,
 ) {
   let autoSwitchInFlight: Promise<void> | null = null;
   let lastAutoSwitchState: AutoSwitchState | null = null;
@@ -1318,6 +1167,7 @@ export function registerCommands(
 
   context.subscriptions.push(
     autoSwitchConfigListener,
+    vscode.commands.registerCommand("codex-switchbridge.openDashboard", openDashboard),
     vscode.commands.registerCommand("codex-switchbridge.maybeAutoSwitchExhaustedAccount", async (request?: AutoSwitchRequest) => {
       if (!isAutoSwitchOnZeroQuotaEnabled() || !request?.exhaustedAccountId) {
         return;
@@ -1527,7 +1377,7 @@ export function registerCommands(
               account: trimmedName,
               target,
             });
-            await refreshTokenAndQuota(accountTree, statusBar, existing.id);
+            await refreshTokenAndQuota(accountTree, quotaStore, statusBar, existing.id);
             vscode.window.showInformationMessage(`Account "${trimmedName}" already exists in ${getSourceLabel(target)} storage. Token refreshed.`);
             refreshAll(refreshCoordinator);
             return;
@@ -1756,58 +1606,117 @@ export function registerCommands(
             return;
           }
 
-          const loginState = await exitProviderModeForLogin();
-          if (!loginState) return;
-
-          const previousSelection = loginState.previousSelection;
-          const completed = await runCodexLogin({ useDeviceAuth: loginMethod === "device-auth" });
-          if (!completed) {
+          const loginResult = await runTransientCodexLogin({ useDeviceAuth: loginMethod === "device-auth" });
+          if (!loginResult.completed) {
             logCommandInfo("relogin-account", "login-cancelled", {
               account: account.name,
               source: account.source,
             });
-            await restoreProviderModeAfterFailedLogin(previousSelection, loginState.switched);
+            return;
+          }
+          if (!loginResult.auth) {
+            const message = "auth.json was not found in the transient login result. Complete `codex login` and try again.";
+            logCommandWarn("relogin-account", "login-result-missing", {
+              account: account.name,
+              source: account.source,
+            });
+            void vscode.window.showErrorMessage(message);
             return;
           }
 
-          const result = await saveCurrentAuthAsAccount(account.name, account.source, {
+          const savedIdentity = getAccountIdentity(account.auth);
+          const loginIdentity = getAccountIdentity(loginResult.auth);
+          if (!savedIdentity || !loginIdentity || savedIdentity !== loginIdentity) {
+            const message = !savedIdentity
+              ? `Saved account "${account.name}" does not contain a stable identity, so re-login cannot safely overwrite it.`
+              : !loginIdentity
+                ? `The login result for "${account.name}" does not contain a stable identity, so it was rejected.`
+                : `The login result belongs to a different account, so saved account "${account.name}" was not overwritten.`;
+            logCommandWarn("relogin-account", "identity-rejected", {
+              account: account.name,
+              source: account.source,
+              savedIdentityAvailable: Boolean(savedIdentity),
+              loginIdentityAvailable: Boolean(loginIdentity),
+              identityMismatch: Boolean(savedIdentity && loginIdentity && savedIdentity !== loginIdentity),
+            });
+            void vscode.window.showErrorMessage(message);
+            return;
+          }
+
+          const result = await saveAuthAsAccount(loginResult.auth, account.name, account.source, {
             expectedEntryVersion: account.syncVersion,
             expectedUpdatedAt: account.syncUpdatedAt,
+            selectAfterSave: false,
           });
-          perf.mark("save-current-auth-as-account", {
+          perf.mark("save-relogin-auth-as-account", {
             success: result.success,
             conflict: result.conflict ?? false,
           });
-          const updatedAccount = getSavedAccountEntry(account.name, account.source) ?? account;
-          const shouldRestore =
-            previousSelection.kind !== "unknown" &&
-            !(
-              previousSelection.kind === "account"
-              && previousSelection.name === account.name
-              && previousSelection.source === account.source
-            );
-          const restoreResult = shouldRestore
-            ? await restoreSelectionAfterLogin(previousSelection, updatedAccount)
-            : { restored: false, restoredLabel: undefined as string | undefined };
 
           if (result.success) {
+            let currentSelection = getSavedCurrentSelection();
+            let targetIsStillActive =
+              currentSelection.kind === "account"
+              && currentSelection.name === account.name
+              && currentSelection.source === account.source;
+            let runtimeChanged = false;
+            if (targetIsStillActive) {
+              const updatedAccount = getSavedAccountEntry(account.name, account.source);
+              if (!updatedAccount) {
+                void vscode.window.showErrorMessage(
+                  `Account "${account.name}" was updated, but its saved login result could not be loaded for activation.`,
+                );
+                return;
+              }
+              const activated = activateSavedAccountAfterRelogin(updatedAccount);
+              if (!activated.success) {
+                void vscode.window.showErrorMessage(activated.message);
+                return;
+              }
+              runtimeChanged = activated.runtimeChanged === true;
+              const selectionAfterActivation = getSavedCurrentSelection();
+              const targetIsActiveAfterActivation =
+                selectionAfterActivation.kind === "account"
+                && selectionAfterActivation.name === account.name
+                && selectionAfterActivation.source === account.source;
+              if (!targetIsActiveAfterActivation) {
+                logCommandWarn("relogin-account", "selection-changed-during-activation", {
+                  account: account.name,
+                  source: account.source,
+                  currentKind: selectionAfterActivation.kind,
+                  currentName: "name" in selectionAfterActivation ? selectionAfterActivation.name : null,
+                  currentSource: "source" in selectionAfterActivation ? selectionAfterActivation.source : null,
+                });
+                currentSelection = selectionAfterActivation;
+                targetIsStillActive = false;
+                runtimeChanged = false;
+              }
+            }
             logCommandInfo("relogin-account", "saved", {
               account: account.name,
               source: account.source,
               email: result.meta?.email ?? null,
-              restoredSelection: restoreResult.restoredLabel ?? null,
+              active: targetIsStillActive,
             });
             refreshAll(refreshCoordinator);
-            if (restoreResult.restored) {
+            if (!targetIsStillActive) {
+              const activeLabel = currentSelection.kind === "account"
+                ? `${currentSelection.name} (${getSourceLabel(currentSelection.source)})`
+                : currentSelection.kind === "provider"
+                  ? getModeDisplayName(currentSelection.name)
+                  : "the current selection";
               const savedMessage = result.meta?.email
-                ? `✓ Account "${account.name}" was updated (${result.meta.email}). Active selection stayed on "${restoreResult.restoredLabel}".`
-                : `✓ Account "${account.name}" was updated. Active selection stayed on "${restoreResult.restoredLabel}".`;
-              vscode.window.showInformationMessage(savedMessage);
+                ? `✓ Account "${account.name}" was updated (${result.meta.email}). Active selection stayed on "${activeLabel}".`
+                : `✓ Account "${account.name}" was updated. Active selection stayed on "${activeLabel}".`;
+              void vscode.window.showInformationMessage(savedMessage);
             } else {
               const savedMessage = result.meta?.email
                 ? `✓ Account "${account.name}" was updated (${result.meta.email}).`
                 : `✓ Account "${account.name}" was updated.`;
-              vscode.window.showInformationMessage(savedMessage);
+              void vscode.window.showInformationMessage(savedMessage);
+              if (runtimeChanged) {
+                await maybeReloadWindowAfterSwitch(statusBar, account.name, "account");
+              }
             }
           } else {
             logCommandWarn("relogin-account", "save-failed", {
@@ -1816,9 +1725,6 @@ export function registerCommands(
               conflict: result.conflict ?? false,
               message: result.message,
             });
-            if (restoreResult.restored) {
-              refreshAll(refreshCoordinator);
-            }
             if (result.conflict) {
               await showSyncConflictWarning(result.message);
             } else {
@@ -2114,7 +2020,7 @@ export function registerCommands(
                 }
                 if (outcome.status === "success") {
                   try {
-                    await refreshTokenAndQuota(accountTree, statusBar, [outcome.account.id]);
+                    await refreshTokenAndQuota(accountTree, quotaStore, statusBar, [outcome.account.id]);
                     perf.mark("refresh-token-and-quota");
                   } catch (error) {
                     logWarn(LOG_PREFIX, "refresh-token-quota-followup-failed", {
@@ -2153,7 +2059,7 @@ export function registerCommands(
                   return;
                 }
                 if (outcome.status === "reloginRequired") {
-                  accountTree.markReloginRequired([outcome.account.id]);
+                  quotaStore.markReloginRequired([outcome.account.id]);
                   logCommandWarn("refresh-token", "relogin-required", {
                     account: outcome.account.name,
                     source: outcome.account.source,
@@ -2220,13 +2126,13 @@ export function registerCommands(
                 unavailableCount: unavailableAccounts.length,
               });
               if (reloginAccountIds.length > 0) {
-                accountTree.markReloginRequired(reloginAccountIds);
+                quotaStore.markReloginRequired(reloginAccountIds);
               }
 
               let quotaRefreshError: string | null = null;
               if (successfulAccountIds.length > 0) {
                 try {
-                  await refreshTokenAndQuota(accountTree, statusBar, successfulAccountIds);
+                  await refreshTokenAndQuota(accountTree, quotaStore, statusBar, successfulAccountIds);
                   perf.mark("refresh-token-and-quota");
                 } catch (error) {
                   quotaRefreshError = toErrorMessage(error);
@@ -2639,6 +2545,7 @@ export function registerCommands(
             ? [item.account.id]
             : undefined;
         const snapshot = createSavedEntriesSnapshot();
+        accountTree.refresh(snapshot);
         const queryContext = {
           snapshot,
           sharedQueries: new Map(),
@@ -2651,7 +2558,7 @@ export function registerCommands(
           || (currentSelectionId != null && targetIds.includes(currentSelectionId));
         logCommandInfo("refresh-quota", "started");
         await Promise.all([
-          accountTree.refreshQuota(targetIds, {
+          quotaStore.refreshQuota(targetIds, {
             snapshot,
             queryContext,
             reason: "manual",
@@ -2809,6 +2716,15 @@ export function registerCommands(
     vscode.commands.registerCommand("codex-switchbridge.refreshUsage", async () => {
       await runTimedCommand("refreshUsage", async () => {
         await refreshCoordinator.refreshUsage("manual");
+      });
+    }),
+
+    vscode.commands.registerCommand("codex-switchbridge.refreshDashboard", async () => {
+      await runTimedCommand("refreshDashboard", async () => {
+        await refreshCoordinator.refreshViews("manual");
+        refreshCoordinator.scheduleQuotaRefresh({ reason: "manual", fullRefresh: true });
+        refreshCoordinator.scheduleUsageRefresh("manual");
+        await refreshCoordinator.flushScheduledRefresh();
       });
     }),
 

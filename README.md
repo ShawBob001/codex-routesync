@@ -4,7 +4,7 @@
 
 Codex SwitchBridge updates credentials and provider routing as one guarded switch. Account mode and compatible API-provider mode use the same local history bucket, so changing how Codex authenticates does not split new conversations into separate timelines.
 
-The VS Code extension adds a compact Overview for the active mode, shared-history state, total local token usage, and the amount attributed to each saved account or API provider.
+The VS Code extension opens a graphical Dashboard in the editor area for the active mode, shared-history state, account quota reset clocks, total local token usage, and the amount attributed to each saved account or API provider. The Dashboard can follow VS Code's display language or switch immediately between English and Simplified Chinese.
 
 Codex SwitchBridge runs on Windows, macOS, and Linux. Use it from VS Code or from the command line.
 
@@ -43,7 +43,7 @@ For offline installation, download the latest `.vsix` from [GitHub Releases](htt
 code --install-extension codex-switchbridge-VERSION.vsix
 ```
 
-Open the **Codex SwitchBridge** Activity Bar view. The Overview shows the current mode and local token totals; the Accounts and API Providers views handle one-click switching.
+Open the **Codex SwitchBridge** Activity Bar view, then select **Open Dashboard**. The Dashboard opens in the central editor area so quota, reset-time, account, provider, and token-usage information has room to breathe. The Accounts and API Providers views continue to handle one-click switching.
 
 ### CLI
 
@@ -82,14 +82,21 @@ Returning to a named account uses `codex-switchbridge use <name>`. If `mode acco
 
 An API-provider profile stores the authentication payload for `auth.json` and the provider configuration for `config.toml`. Shared history requires `wire_api = "responses"` and a valid provider `base_url`.
 
-## Local token usage dashboard
+## Editor dashboard, quota reset time, and local token usage
 
-The VS Code Overview reads cumulative `token_count` events from local Codex rollout files under the current `CODEX_HOME`. It shows:
+The VS Code Dashboard reads account quota metadata and cumulative `token_count` events from local Codex rollout files under the current `CODEX_HOME`. It shows:
 
+- each available quota reset as a live seconds-level countdown;
+- the same reset as local time with seconds and time-zone offset;
+- the exact upstream UTC timestamp, including milliseconds when present;
 - recorded total, input, output, cached input, and reasoning output tokens;
 - attributed and unattributed totals;
 - per-account and per-API-provider usage and session counts;
 - index coverage, session count, tracking start, and last refresh time.
+
+Reset clocks use the timestamp returned by the quota service. Missing, invalid, or already-due timestamps are shown explicitly; SwitchBridge does not invent a replacement reset time. The countdown is recalculated from the wall clock and updates without refreshing the entire Dashboard.
+
+Use the language selector in the Dashboard header to choose **Auto**, **English**, or **简体中文**. Auto follows the VS Code display language, while either explicit choice is saved as a window setting and takes effect without reloading VS Code.
 
 Input and output make up the recorded total. Cached input is already part of input, and reasoning output is already part of output, so those two values are not added again.
 
@@ -128,7 +135,8 @@ See [Conversation history across modes](./docs/shared-history.md) for the exact 
 - One-click switching between local or synced Codex accounts and API providers in VS Code
 - One-command account and API-provider switching from the CLI
 - Shared local conversation history for Responses-compatible provider routes
-- Overview dashboard with total and per-selection local token usage
+- Wide editor Dashboard with graphical quota, precise reset clocks, and total/per-selection local token usage
+- Runtime English/Simplified Chinese Dashboard switching, plus localized VS Code commands and settings
 - Account quota display, token refresh, and rotating background maintenance
 - Local or VS Code Settings Sync storage for saved accounts and providers
 - Optional encryption for saved authentication data
@@ -158,6 +166,7 @@ Use `--auth-dir <path>` or `CODEX_SWITCHBRIDGE_AUTH_DIR` to place saved entries 
 
 | Setting | Default | Description |
 | --- | --- | --- |
+| `codex-switchbridge.language` | `auto` | Follow VS Code or use English/Simplified Chinese in the Dashboard |
 | `codex-switchbridge.shareHistoryAcrossProviders` | `true` | Keep new local conversation history available across account mode and compatible API-provider modes |
 | `codex-switchbridge.reloadWindowAfterSwitch` | `statusBar` | Show a reload action, never notify, or reload automatically after a switch |
 | `codex-switchbridge.quotaRefreshInterval` | `30` | Check one saved account per interval for token maintenance and quota refresh |
@@ -184,6 +193,15 @@ npm install
 npm run build
 npm run verify
 ```
+
+Dashboard visual tests also need Playwright Chromium and its Linux system dependencies:
+
+```bash
+npx playwright install --with-deps chromium
+npm run test:visual -w packages/vscode
+```
+
+Minimal Linux images without `/etc/fonts/fonts.conf` must expose a valid Fontconfig configuration through `FONTCONFIG_FILE` and `FONTCONFIG_PATH`; otherwise Chromium cannot measure or render text.
 
 Project layout:
 
