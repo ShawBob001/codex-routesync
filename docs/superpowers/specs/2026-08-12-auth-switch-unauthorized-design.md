@@ -8,7 +8,7 @@ Switching from an API provider to a saved Codex account can leave Codex routed t
 
 ### Legacy route migration
 
-The core live-switch layer will recognize `account-switch-shared-history.json` as the single legacy route-state filename. It will validate it with the same schema used for the current file, migrate it atomically to `switchbridge-shared-history.json`, and remove the legacy file only after the current file is written. If both files exist, the current file remains authoritative and the legacy file is left untouched. Live-switch backups will snapshot both filenames so rollback restores the exact pre-switch state.
+The core live-switch layer will recognize `account-switch-shared-history.json` as the single legacy route-state filename. It will validate it with the same schema used for the current file, migrate it atomically to `switchbridge-shared-history.json`, and remove the legacy file only after the current file is written. If both files exist, the current file remains authoritative. A successful route write or clear removes the stale legacy file so it cannot be migrated later and revive an obsolete provider route. Live-switch backups will snapshot both filenames so rollback restores the exact pre-switch state.
 
 Account activation will then consume the migrated route state and restore its recorded original `openai_base_url`. This avoids deleting a user-defined account base URL when no SwitchBridge route state exists.
 

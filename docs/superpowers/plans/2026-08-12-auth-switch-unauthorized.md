@@ -17,7 +17,7 @@
 - Test: `packages/core/test/shared-history.test.js`
 
 - [ ] Add a failing test that writes `account-switch-shared-history.json`, a provider `openai_base_url`, and provider auth, then calls `activateAccountAuth()` and expects the recorded original URL to be restored and both route files to be absent.
-- [ ] Add failing coverage for current-file precedence and rollback snapshots of both filenames.
+- [ ] Add failing coverage for current-file precedence, successful cleanup of both filenames, and rollback snapshots of both filenames.
 - [ ] Run `PATH=/tmp/csb-node.cfY4xx/bin:$PATH npm run test -w packages/core -- --test-name-pattern='legacy shared route'` and confirm the missing migration fails.
 - [ ] Add a shared parser, atomically migrate a valid legacy file when no current file exists, and include both route files in transaction snapshots.
 - [ ] Re-run the focused core tests and then `PATH=/tmp/csb-node.cfY4xx/bin:$PATH npm run test -w packages/core`.
