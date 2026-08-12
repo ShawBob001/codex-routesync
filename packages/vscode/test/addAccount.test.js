@@ -5724,7 +5724,6 @@ test("refresh quota command reuses one saved entries snapshot for tree and statu
   try {
     core.setNamedAuthDir(authDir);
     core.writeSavedAuthFile(path.join(authDir, "auth_alpha.json"), makeAuthFile("acct-alpha"));
-    core.writeSavedAuthFile(path.join(authDir, "auth_beta.json"), makeAuthFile("acct-beta"));
     core.setNamedAuthDir(undefined);
     fs.writeFileSync(
       path.join(codexHome, "auth.json"),
@@ -5750,8 +5749,18 @@ test("refresh quota command reuses one saved entries snapshot for tree and statu
           channel.entries.length = 0;
         });
 
+        core.writeSavedAuthFile(path.join(authDir, "auth_beta.json"), makeAuthFile("acct-beta"));
+
         await mocked.registeredCommands.get("codex-switchbridge.refreshQuota")();
         await waitForRefreshCoordinatorIdle(context);
+
+        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        assert.equal(
+          getAccountTreeItems(accountTreeView.treeDataProvider)
+            .some((item) => item.account.name === "beta"),
+          true,
+          "refreshQuota should reconcile the account tree with its fresh saved-entry snapshot",
+        );
 
         const lines = mocked.createdChannels.flatMap((channel) => channel.entries.map((entry) => entry.line));
         assert.equal(countOperationLogs(lines, "listSavedAccounts"), 1);

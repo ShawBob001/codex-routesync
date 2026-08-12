@@ -2642,6 +2642,7 @@ export function registerCommands(
             ? [item.account.id]
             : undefined;
         const snapshot = createSavedEntriesSnapshot();
+        accountTree.refresh(snapshot);
         const queryContext = {
           snapshot,
           sharedQueries: new Map(),
