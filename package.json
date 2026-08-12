@@ -1,6 +1,6 @@
 {
   "name": "codex-switchbridge-monorepo",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "private": true,
   "description": "Seamless Codex account and API-provider switching with shared local history and per-selection token usage",
   "repository": {

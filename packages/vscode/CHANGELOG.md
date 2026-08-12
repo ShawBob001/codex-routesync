@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0 - 2026-08-13
+
+- Added an official-inspired orange usage chart with daily, weekly, and monthly grouping, account/API-provider filters, date ranges, and selected-range totals, averages, peaks, and estimates.
+- Preserved zero-usage dates and marked older or undated local observations explicitly instead of presenting them as authoritative billing data.
+- Added a machine-only, non-synced `codex-switchbridge.proxy` with fallback to VS Code and extension-host proxy settings so remote quota requests work even when the extension host does not inherit the interactive shell environment.
+- Normalized legacy quota cache data during activation and added actionable, redacted network diagnostics when remaining quota cannot be reached.
+- Isolated quota caches by authentication scope and serialized cross-window cache maintenance so one VS Code window cannot remove or overwrite another window's valid entry.
+- Kept the last cached quota visible after a refresh failure while showing a fixed bilingual warning instead of hiding the failed refresh or exposing raw network details.
+- Kept quota reset timestamps, earned reset counts, local token history controls, and error states fully available in English and Simplified Chinese.
+
 ## 0.5.1 - 2026-08-13
 
 - Fixed account quota requests on remote hosts that require `HTTP_PROXY` or `HTTPS_PROXY`, while respecting `NO_PROXY` exclusions.

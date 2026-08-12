@@ -186,6 +186,8 @@ test("keeps cached info while loading and replaces it after a network success", 
 });
 
 test("marks cached fallback stale and keeps the cache query timestamp", async () => {
+  outputLines.length = 0;
+  const secret = "raw-proxy-secret";
   const store = new QuotaStore({
     now: () => 1700000010000,
     getCachedQuota: () => cachedQuota,
@@ -194,17 +196,52 @@ test("marks cached fallback stale and keeps the cache query timestamp", async ()
       displayName: "a",
       info: quotaInfo(25),
       usedCachedQuota: true,
-      fallbackErrorMessage: "service unavailable",
+      fallbackRefreshFailed: true,
+      fallbackErrorMessage: `service unavailable through http://alice:${secret}@proxy.example:3128`,
       fallbackStatusCode: 503,
+      fallbackReasonCode: "request_failed",
     }),
   });
   await store.refreshQuota([accountA.id], { snapshot: snapshot([accountA]) });
   const state = store.get(accountA.id);
   assert.equal(state.provenance, "cache-fallback");
   assert.equal(state.queriedAt, cachedQuota.queriedAtMs);
-  assert.equal(state.errorMessage, "service unavailable");
+  assert.equal(state.errorMessage, "Refresh failed");
   assert.equal(state.errorStatusCode, 503);
-  assert.equal(state.cacheReason, "HTTP 503: service unavailable");
+  assert.equal(state.fallbackReasonCode, "request_failed");
+  assert.equal(state.cacheReason, "HTTP 503");
+
+  const resultLine = outputLines.find((line) => line.includes("quota-result"));
+  assert.ok(resultLine);
+  assert.match(resultLine, /\"unavailableReason\":\"request_failed\"/);
+  assert.match(resultLine, /\"statusCode\":503/);
+  assert.doesNotMatch(resultLine, /windowCount/);
+  assert.doesNotMatch(outputLines.join("\n"), new RegExp(`${secret}|proxy\\.example|service unavailable`));
+});
+
+test("rejects non-allowlisted cached fallback diagnostics", async () => {
+  outputLines.length = 0;
+  const store = new QuotaStore({
+    getCachedQuota: () => cachedQuota,
+    queryQuota: async () => ({
+      kind: "ok",
+      displayName: "a",
+      info: quotaInfo(25),
+      usedCachedQuota: true,
+      fallbackRefreshFailed: true,
+      fallbackErrorMessage: "RAW_FALLBACK_SECRET",
+      fallbackStatusCode: 999,
+      fallbackReasonCode: "raw_fallback_secret",
+    }),
+  });
+
+  await store.refreshQuota([accountA.id], { snapshot: snapshot([accountA]) });
+  const state = store.get(accountA.id);
+  assert.equal(state.provenance, "cache-fallback");
+  assert.equal(state.fallbackReasonCode, null);
+  assert.equal(state.errorStatusCode, null);
+  assert.equal(state.cacheReason, "Refresh failed");
+  assert.doesNotMatch(outputLines.join("\n"), /RAW_FALLBACK_SECRET|raw_fallback_secret|999/);
 });
 
 test("records a failed query without inventing quota data", async () => {
@@ -331,6 +368,41 @@ test("preserves a quota unavailable result without treating it as zero", async (
   assert.equal(state.info.primaryWindow, null);
   assert.equal(state.info.unavailableReason.code, "request_failed");
   assert.equal(state.reloginRequired, false);
+});
+
+test("logs only sanitized quota result diagnostics", async () => {
+  outputLines.length = 0;
+  const secret = "proxy-secret-value";
+  const unavailable = quotaInfo(0);
+  unavailable.primaryWindow = null;
+  unavailable.secondaryWindow = {
+    usedPercent: 12,
+    resetsAt: new Date("2026-08-13T00:00:00.000Z"),
+    windowSeconds: 604800,
+  };
+  unavailable.unavailableReason = {
+    code: "request_failed",
+    message: `Quota unavailable through http://alice:${secret}@proxy.example:3128`,
+    statusCode: 503,
+  };
+  const store = new QuotaStore({
+    getCachedQuota: () => null,
+    queryQuota: async () => ({ kind: "ok", displayName: "secret-account", info: unavailable }),
+  });
+
+  await store.refreshQuota([accountA.id], {
+    snapshot: snapshot([accountA]),
+    reason: "manual",
+    refreshId: "diagnostic-test",
+  });
+
+  const resultLine = outputLines.find((line) => line.includes("quota-result"));
+  assert.ok(resultLine);
+  assert.match(resultLine, /\"resultKind\":\"ok\"/);
+  assert.match(resultLine, /\"unavailableReason\":\"request_failed\"/);
+  assert.match(resultLine, /\"statusCode\":503/);
+  assert.doesNotMatch(resultLine, /windowCount/);
+  assert.doesNotMatch(outputLines.join("\n"), new RegExp(`${secret}|proxy\\.example|secret-account`));
 });
 
 test("limits concurrent account queries", async () => {

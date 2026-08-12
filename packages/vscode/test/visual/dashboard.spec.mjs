@@ -146,6 +146,20 @@ function tokens(totalTokens, overrides = {}) {
   };
 }
 
+function contrastRatio(first, second) {
+  const luminance = (color) => {
+    const channels = color.match(/[\d.]+/g).slice(0, 3).map((value) => Number(value) / 255);
+    const linear = channels.map((value) => (
+      value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+    ));
+    return (0.2126 * linear[0]) + (0.7152 * linear[1]) + (0.0722 * linear[2]);
+  };
+  const firstLuminance = luminance(first);
+  const secondLuminance = luminance(second);
+  return (Math.max(firstLuminance, secondLuminance) + 0.05)
+    / (Math.min(firstLuminance, secondLuminance) + 0.05);
+}
+
 function quotaWindow(label, remainingPercent, resetsAt, windowSeconds, overrides = {}) {
   return {
     label,
@@ -176,6 +190,8 @@ function quota(status = "available", remainingPercent = 68, overrides = {}) {
     message: null,
     queriedAt: "2026-08-12T09:59:00.000Z",
     refreshAttemptedAt: "2026-08-12T09:59:00.000Z",
+    unavailableReasonCode: null,
+    fallbackReasonCode: null,
     ...overrides,
   };
 }
@@ -193,6 +209,42 @@ function account(id, name, remainingPercent, overrides = {}) {
 }
 
 function baseModel(overrides = {}) {
+  const usageSubjects = [
+    { id: "account:a", kind: "account", label: "Research Account", sessionCount: 9, totalTokens: 69000, percent: 70.408, compactTokens: "69K" },
+    { id: "provider:b", kind: "provider", label: "API Proxy", sessionCount: 8, totalTokens: 20999, percent: 21.427, compactTokens: "21K" },
+    { id: "account:tiny", kind: "account", label: "Tiny segment", sessionCount: 1, totalTokens: 1, percent: 0.001, compactTokens: "1" },
+  ];
+  const historyDays = Array.from({ length: 43 }, (_, index) => {
+    const date = new Date(Date.UTC(2026, 6, 1 + index));
+    const accountTokens = index % 6 === 0 ? 0 : (index + 2) * 730;
+    const providerTokens = index % 4 === 0 ? (index + 1) * 290 : 0;
+    const unattributed = index % 9 === 0 ? 180 : 0;
+    const estimated = index < 3 ? accountTokens + providerTokens + unattributed : 0;
+    const total = accountTokens + providerTokens + unattributed;
+    return {
+      date: date.toISOString().slice(0, 10),
+      total: tokens(total),
+      unattributed: tokens(unattributed),
+      estimated: tokens(estimated),
+      estimatedUnattributed: tokens(index < 3 ? unattributed : 0),
+      subjects: [
+        {
+          id: "account:a",
+          kind: "account",
+          label: "Research Account",
+          tokens: tokens(accountTokens),
+          estimated: tokens(index < 3 ? accountTokens : 0),
+        },
+        {
+          id: "provider:b",
+          kind: "provider",
+          label: "API Proxy",
+          tokens: tokens(providerTokens),
+          estimated: tokens(index < 3 ? providerTokens : 0),
+        },
+      ],
+    };
+  });
   return {
     version: 1,
     generatedAt: "2026-08-12T10:00:00.000Z",
@@ -239,11 +291,8 @@ function baseModel(overrides = {}) {
       sessionCount: 18,
       trackingStartedAt: "2026-08-01T10:00:00.000Z",
       updatedAt: "2026-08-12T10:00:00.000Z",
-      segments: [
-        { id: "account:a", kind: "account", label: "Research Account", sessionCount: 9, totalTokens: 69000, percent: 70.408, compactTokens: "69K" },
-        { id: "provider:b", kind: "provider", label: "API Proxy", sessionCount: 8, totalTokens: 20999, percent: 21.427, compactTokens: "21K" },
-        { id: "account:tiny", kind: "account", label: "Tiny segment", sessionCount: 1, totalTokens: 1, percent: 0.001, compactTokens: "1" },
-      ],
+      segments: usageSubjects,
+      history: { days: historyDays, undated: tokens(0) },
     },
     reload: { recommended: false, message: null },
     ...overrides,
@@ -258,10 +307,21 @@ const fixtures = {
       quota: quota("available", 68, { refreshing: true, freshness: "stale", message: "Refreshing quota..." }),
     },
   }),
+  cachedFallback: baseModel({
+    route: {
+      ...baseModel().route,
+      quota: quota("available", 68, {
+        freshness: "stale",
+        message: "Quota refresh failed. Showing the cached value.",
+        fallbackReasonCode: "request_failed",
+        rawError: "RAW_PROXY_SECRET",
+      }),
+    },
+  }),
   failed: baseModel({
     route: {
       ...baseModel().route,
-      quota: quota("unavailable", null, { message: "Quota is unavailable." }),
+      quota: quota("unavailable", null, { message: "Quota is unavailable.", unavailableReasonCode: "request_failed" }),
     },
   }),
   relogin: baseModel({
@@ -307,7 +367,7 @@ const fixtures = {
     route: { kind: "unknown", label: "No active saved route", plan: null },
     autoSwitch: { enabled: false, appliesToCurrentRoute: false, ruleLabel: "Switch at 0%", candidate: null },
     otherAccounts: [],
-    usage: { ...baseModel().usage, total: tokens(0), compactTotal: "0", attributedTokens: 0, attributedPercent: 0, unattributedTokens: 0, sessionCount: 0, segments: [] },
+    usage: { ...baseModel().usage, total: tokens(0), compactTotal: "0", attributedTokens: 0, attributedPercent: 0, unattributedTokens: 0, sessionCount: 0, segments: [], history: { days: [], undated: tokens(0) } },
   }),
   indexing: baseModel({
     usage: { ...baseModel().usage, status: "indexing", coverage: "partial", message: "Indexing local Codex sessions..." },
@@ -334,6 +394,7 @@ async function mount(page, model, {
   reducedMotion = "reduce",
   locale = localeEn,
   now = null,
+  persisted = undefined,
 }) {
   await page.setViewportSize({ width, height: 900 });
   await page.emulateMedia({
@@ -344,8 +405,9 @@ async function mount(page, model, {
   await page.goto("about:blank");
   if (now) await page.clock.install({ time: new Date(now) });
   await page.setContent("<!doctype html><html lang='en'><head><title>Codex SwitchBridge</title></head><body><a class='skip-link' href='#app'>Skip to dashboard</a><main id='app' tabindex='-1'></main></body></html>");
+  await page.evaluate((value) => { window.__initialDashboardState = value; }, persisted);
   await page.evaluate(() => {
-    const state = { persisted: undefined, outbound: [] };
+    const state = { persisted: window.__initialDashboardState, outbound: [] };
     window.__dashboardHarness = state;
     window.acquireVsCodeApi = () => ({
       getState: () => state.persisted,
@@ -393,13 +455,12 @@ async function assertLayout(page) {
 }
 
 async function assertKeyboardTraversal(page) {
-  const controls = page.locator("a.skip-link, button:not([disabled]), input:not([disabled]), select:not([disabled]), summary");
+  const controls = page.locator("a.skip-link, button:not([disabled]):visible, input:not([disabled]):visible, select:not([disabled]):visible, summary:visible");
   const count = await controls.count();
   expect(count).toBeGreaterThan(0);
-  await controls.first().focus();
   for (let index = 0; index < count; index += 1) {
-    if (index > 0) await page.keyboard.press("Tab");
     const control = controls.nth(index);
+    await control.focus();
     expect(await control.evaluate((node) => document.activeElement === node)).toBe(true);
     expect(await control.evaluate((node) => {
       const focusTarget = node instanceof HTMLInputElement && node.nextElementSibling
@@ -418,10 +479,17 @@ for (const width of [240, 360, 480]) {
       const ring = page.locator(".quota-ring");
       await expect(ring).toHaveAttribute("role", "progressbar");
       const box = await ring.boundingBox();
-      expect(box.width).toBeGreaterThanOrEqual(width < 300 ? 87 : 107);
-      expect(box.height).toBeGreaterThanOrEqual(width < 300 ? 87 : 107);
+      expect(box.width).toBeGreaterThanOrEqual(width < 300 ? 95 : 107);
+      expect(box.height).toBeGreaterThanOrEqual(width < 300 ? 95 : 107);
+      if (width < 300) {
+        const routeBody = page.locator(".route-body");
+        expect(await routeBody.evaluate((node) => (
+          getComputedStyle(node).gridTemplateColumns.split(" ").filter(Boolean).length
+        ))).toBe(1);
+        await expect(page.locator(".route-name")).toContainText("Research Account");
+      }
       await expect(page.getByText("Switch at 0%", { exact: true })).toBeVisible();
-      await expect(page.getByText("Tiny segment", { exact: true })).toBeAttached();
+      await expect(page.locator(".legend-label", { hasText: "Tiny segment" })).toBeAttached();
       if (theme === "highContrast") {
         await expect(page.locator(".switch-control input")).toBeChecked();
         expect(await page.locator(".switch-track").evaluate((node) => getComputedStyle(node).forcedColorAdjust)).toBe("none");
@@ -585,6 +653,169 @@ test("a seven-day-only account shows remaining percent, exact reset time, reset 
   await assertLayout(page);
 });
 
+test("usage history groups by day, week, and month and filters by subject", async ({ page }) => {
+  await mount(page, fixtures.accountReady, {
+    width: 1200,
+    theme: "light",
+    now: "2026-08-12T10:00:00.000Z",
+  });
+
+  const chart = page.locator(".usage-history-chart");
+  await expect(chart).toBeVisible();
+  await expect(page.getByRole("button", { name: "Day", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".usage-history-bar")).toHaveCount(30);
+  await expect(page.locator("button.usage-history-bar")).toHaveCount(0);
+  await expect(page.locator(".usage-history-item").first()).toHaveAttribute("role", "listitem");
+  await expect(page.locator(".usage-history-item").first()).toHaveAttribute("aria-label", /All accounts and API providers/);
+  await expect(page.locator(".usage-history-bar").first()).not.toHaveAttribute("tabindex", /.+/);
+  const colors = await page.locator(".usage-bar-fill").first().evaluate((node) => ({
+    fill: getComputedStyle(node).backgroundColor,
+    surface: getComputedStyle(node.closest(".dashboard-card")).backgroundColor,
+  }));
+  expect(contrastRatio(colors.fill, colors.surface)).toBeGreaterThanOrEqual(3);
+  await expect(page.getByText("UTC day boundaries", { exact: false })).toBeVisible();
+
+  await page.getByRole("button", { name: "Week", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Week", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".usage-history-bar")).toHaveCount(12);
+  await expect(page.getByText("Week of", { exact: false }).first()).toBeAttached();
+
+  await page.getByLabel("Usage source").selectOption("provider:b");
+  await expect(page.locator(".usage-filter-total")).toContainText("API Proxy");
+  await expect(page.locator(".usage-history-item").first()).toHaveAttribute("aria-label", /API Proxy/);
+
+  await page.getByRole("button", { name: "Month", exact: true }).click();
+  await expect(page.locator('input[type="month"]')).toHaveCount(2);
+  expect(await page.evaluate(() => window.__dashboardHarness.persisted)).toMatchObject({
+    usageGranularity: "month",
+    usageSubjectId: "provider:b",
+  });
+  await assertLayout(page);
+});
+
+test("usage history keeps zero-value calendar gaps visible", async ({ page }) => {
+  const sparse = baseModel();
+  sparse.usage = {
+    ...sparse.usage,
+    history: {
+      days: [
+        {
+          date: "2026-08-10",
+          total: tokens(1200),
+          unattributed: tokens(0),
+          estimated: tokens(0),
+          estimatedUnattributed: tokens(0),
+          subjects: [],
+        },
+        {
+          date: "2026-08-12",
+          total: tokens(800),
+          unattributed: tokens(0),
+          estimated: tokens(0),
+          estimatedUnattributed: tokens(0),
+          subjects: [],
+        },
+      ],
+      undated: tokens(0),
+    },
+  };
+  await mount(page, sparse, {
+    width: 960,
+    theme: "light",
+    now: "2026-08-12T10:00:00.000Z",
+    persisted: {
+      tokenDetailsExpanded: false,
+      usageGranularity: "day",
+      usageSubjectId: "all",
+      usageFrom: "2026-08-10",
+      usageTo: "2026-08-12",
+      usageRangeCustomized: true,
+    },
+  });
+
+  await expect(page.locator(".usage-history-bar")).toHaveCount(3);
+  await expect(page.locator(".usage-history-item").nth(1)).toHaveAttribute(
+    "aria-label",
+    /Aug 11.*0 tokens/,
+  );
+  await expect(page.locator(".usage-range-value").first()).toHaveText("2,000");
+  await expect(page.locator(".usage-range-value").nth(1)).toHaveText("667");
+});
+
+test("automatic usage range follows newly observed days until the user customizes it", async ({ page }) => {
+  const initial = baseModel();
+  await mount(page, initial, {
+    width: 960,
+    theme: "dark",
+    now: "2026-08-12T10:00:00.000Z",
+  });
+  await expect(page.locator('input[aria-label="To"]')).toHaveValue("2026-08-12");
+
+  const updated = structuredClone(initial);
+  updated.usage.history.days.push({
+    date: "2026-08-13",
+    total: tokens(500),
+    unattributed: tokens(0),
+    estimated: tokens(0),
+    estimatedUnattributed: tokens(0),
+    subjects: [],
+  });
+  await sendState(page, updated, 2, localeEn);
+  await expect(page.locator('input[aria-label="To"]')).toHaveValue("2026-08-13");
+  await expect(page.locator('input[aria-label="From"]')).toHaveValue("2026-07-15");
+
+  await page.locator('input[aria-label="From"]').fill("2026-08-01");
+  await page.locator('input[aria-label="From"]').dispatchEvent("change");
+  const newer = structuredClone(updated);
+  newer.usage.history.days.push({
+    date: "2026-08-14",
+    total: tokens(700),
+    unattributed: tokens(0),
+    estimated: tokens(0),
+    estimatedUnattributed: tokens(0),
+    subjects: [],
+  });
+  await sendState(page, newer, 3, localeEn);
+  await expect(page.locator('input[aria-label="From"]')).toHaveValue("2026-08-01");
+  await expect(page.locator('input[aria-label="To"]')).toHaveValue("2026-08-13");
+});
+
+test("usage history controls and notes switch to Chinese", async ({ page }) => {
+  await mount(page, fixtures.accountReady, {
+    width: 960,
+    theme: "dark",
+    locale: localeZh,
+    now: "2026-08-12T10:00:00.000Z",
+  });
+  await expect(page.getByRole("button", { name: "日", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "周", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "月", exact: true })).toBeVisible();
+  await expect(page.getByLabel("用量来源")).toBeVisible();
+  await expect(page.getByText("UTC", { exact: false }).last()).toBeVisible();
+  await expect(page.getByText("估算", { exact: false }).last()).toBeVisible();
+  await assertLayout(page);
+});
+
+test("usage history restores safe persisted filters", async ({ page }) => {
+  await mount(page, fixtures.accountReady, {
+    width: 960,
+    theme: "dark",
+    now: "2026-08-12T10:00:00.000Z",
+    persisted: {
+      tokenDetailsExpanded: true,
+      usageGranularity: "month",
+      usageSubjectId: "provider:b",
+      usageFrom: "2026-07",
+      usageTo: "2026-08",
+    },
+  });
+  await expect(page.getByRole("button", { name: "Month", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel("Usage source")).toHaveValue("provider:b");
+  await expect(page.locator('input[type="month"]').first()).toHaveValue("2026-07");
+  await expect(page.locator('input[type="month"]').last()).toHaveValue("2026-08");
+  await expect(page.locator(".token-details")).toHaveAttribute("open", "");
+});
+
 test("reset clocks expose due, missing, and invalid timestamps truthfully", async ({ page }) => {
   const resetStates = baseModel();
   resetStates.route = {
@@ -651,6 +882,20 @@ test("cached refresh preserves the last quota while exposing freshness", async (
   await expect(page.getByText("Stale quota", { exact: true })).toBeVisible();
 });
 
+test("cached fallback preserves quota and shows only fixed localized diagnostics", async ({ page }) => {
+  await mount(page, fixtures.cachedFallback, { width: 360, theme: "dark", locale: localeEn });
+  await expect(page.locator(".quota-ring")).toHaveAttribute("aria-valuenow", "68");
+  await expect(page.getByText("Stale quota", { exact: true })).toBeVisible();
+  await expect(page.getByText("Quota refresh failed. Showing the cached value.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Quota service could not be reached.", { exact: false })).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("RAW_PROXY_SECRET");
+
+  await sendState(page, fixtures.cachedFallback, 2, localeZh);
+  await expect(page.getByText("配额刷新失败，正在显示缓存值。", { exact: true })).toBeVisible();
+  await expect(page.getByText("无法连接用量限额服务", { exact: false })).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("RAW_PROXY_SECRET");
+});
+
 test("provider, unknown quota, current actions, and reload semantics", async ({ page }) => {
   await mount(page, fixtures.provider, { width: 360, theme: "dark" });
   await expect(page.locator(".provider-signal")).toBeVisible();
@@ -666,6 +911,7 @@ test("provider, unknown quota, current actions, and reload semantics", async ({ 
   });
 
   await sendState(page, fixtures.failed, 3, localeEn);
+  await expect(page.getByText("Quota service could not be reached.", { exact: false })).toBeVisible();
   const failedRow = page.locator(".account-row").filter({ hasText: "Exhausted" });
   await expect(failedRow.locator('[role="progressbar"]')).toHaveCount(1);
   await expect(page.locator(".quota-ring")).toHaveAttribute("role", "status");

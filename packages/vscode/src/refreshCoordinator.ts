@@ -15,6 +15,7 @@ import {
 import { StatusBarManager } from "./statusBar";
 import { UsageService } from "./tokenUsage";
 import { selectionUsageSubject } from "./usageSubjects";
+import { createQuotaQueryContext } from "./quotaProxy";
 
 const LOG_PREFIX = "[codex-switchbridge:vscode:refreshCoordinator]";
 const TOKEN_REFRESH_THRESHOLD_MS = 120 * 60 * 60 * 1000;
@@ -373,10 +374,7 @@ export class RefreshCoordinator implements vscode.Disposable {
       currentSelectionAccountId = this.getCurrentSelectionAccountId(snapshot);
     }
 
-    const queryContext: SavedAccountQuotaQueryContext = {
-      snapshot,
-      sharedQueries: new Map(),
-    };
+    const queryContext: SavedAccountQuotaQueryContext = createQuotaQueryContext(snapshot);
     const shouldEvaluateAutoSwitch =
       this.isAutoSwitchEnabled()
       && currentSelectionAccountId != null

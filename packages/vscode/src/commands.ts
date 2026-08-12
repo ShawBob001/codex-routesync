@@ -64,6 +64,7 @@ import {
 } from "./savedEntries";
 import { stableSubjectId, UsageService, UsageSubjectKind } from "./tokenUsage";
 import { savedEntryUsageSubject } from "./usageSubjects";
+import { createQuotaQueryContext } from "./quotaProxy";
 const LOG_PREFIX = "[codex-switchbridge:vscode:commands]";
 const AUTO_SWITCH_ENABLED_CONTEXT_KEY = "codexSwitchBridge.autoSwitchEnabled";
 
@@ -234,10 +235,7 @@ async function refreshTokenAndQuota(
   const snapshot = createSavedEntriesSnapshot();
   accountTree.refresh(snapshot);
   perf.mark("account-tree-refresh");
-  const queryContext = {
-    snapshot,
-    sharedQueries: new Map(),
-  };
+  const queryContext = createQuotaQueryContext(snapshot);
   await Promise.all([
     quotaStore.refreshQuota(normalizedAccountIds, {
       snapshot,
@@ -1213,12 +1211,10 @@ export function registerCommands(
           return;
         }
 
+        const autoSwitchQueryContext = createQuotaQueryContext(snapshot);
         const currentResult = await querySavedAccountQuota(
           currentAccount,
-          {
-            snapshot,
-            sharedQueries: new Map(),
-          },
+          autoSwitchQueryContext,
           {
             reason: "auto-switch",
             forceFetch: true,
@@ -1240,10 +1236,7 @@ export function registerCommands(
             try {
               const result = await querySavedAccountQuota(
                 candidate,
-                {
-                  snapshot,
-                  sharedQueries: new Map(),
-                },
+                autoSwitchQueryContext,
                 {
                   reason: "auto-switch",
                   forceFetch: true,
@@ -2546,10 +2539,7 @@ export function registerCommands(
             : undefined;
         const snapshot = createSavedEntriesSnapshot();
         accountTree.refresh(snapshot);
-        const queryContext = {
-          snapshot,
-          sharedQueries: new Map(),
-        };
+        const queryContext = createQuotaQueryContext(snapshot);
         const currentSelection = getSavedCurrentSelection(snapshot);
         const currentSelectionId = currentSelection.kind === "account"
           ? snapshot.bySourceAndName.get(`${currentSelection.source}:${currentSelection.name}`)?.id ?? null

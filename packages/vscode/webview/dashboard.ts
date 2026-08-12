@@ -6,6 +6,8 @@ import type {
   DashboardResetCredits,
   DashboardQuotaStatus,
   DashboardQuotaWindow,
+  DashboardUsage,
+  DashboardUsageHistoryDay,
   DashboardUsageSegment,
 } from "../src/dashboardModel";
 import {
@@ -37,7 +39,23 @@ interface DashboardHostMessage {
   state: DashboardModel;
 }
 
-interface PersistedState { tokenDetailsExpanded: boolean }
+type UsageGranularity = "day" | "week" | "month";
+
+interface PersistedState {
+  tokenDetailsExpanded: boolean;
+  usageGranularity: UsageGranularity;
+  usageSubjectId: string;
+  usageFrom: string;
+  usageTo: string;
+  usageRangeCustomized: boolean;
+}
+
+interface UsageChartBucket {
+  key: string;
+  label: string;
+  tokens: number;
+  estimatedTokens: number;
+}
 
 declare function acquireVsCodeApi(): VsCodeApi;
 
@@ -47,6 +65,11 @@ if (!(root instanceof HTMLElement)) throw new Error("Dashboard root is unavailab
 const app: HTMLElement = root;
 const restored = parsePersistedState(vscode.getState());
 let tokenDetailsExpanded = restored.tokenDetailsExpanded;
+let usageGranularity = restored.usageGranularity;
+let usageSubjectId = restored.usageSubjectId;
+let usageFrom = restored.usageFrom;
+let usageTo = restored.usageTo;
+let usageRangeCustomized = restored.usageRangeCustomized;
 let locale: SupportedLocale = "en";
 let lastRevision = -1;
 let togglePending = false;
@@ -241,6 +264,12 @@ function renderQuotaSummary(quota: DashboardQuota): HTMLElement {
   if (quota.resetCredits) summary.append(renderResetCredits(quota.resetCredits));
   const message = localizeModelMessage(quota.message);
   if (message) summary.append(element("span", "quota-message", message));
+  if (
+    quota.unavailableReasonCode === "request_failed"
+    || quota.fallbackReasonCode === "request_failed"
+  ) {
+    summary.append(element("span", "quota-diagnostic", tr("quota.diagnostic.network")));
+  }
   return summary;
 }
 
@@ -417,14 +446,352 @@ function renderUsage(model: DashboardModel): HTMLElement {
     fill.style.width = `${model.usage.total.totalTokens > 0 ? (model.usage.unattributedTokens / model.usage.total.totalTokens) * 100 : 0}%`;
     fill.title = tr("usage.unattributedTooltip", { tokens: formatNumber(model.usage.unattributedTokens) }); bar.append(fill);
   }
-  section.append(bar);
+  section.append(bar, renderUsageHistory(model.usage));
   const message = localizeModelMessage(model.usage.message);
   if (message) section.append(stateLine(message, model.usage.status === "indexing" ? "info" : "warning"));
   const details = document.createElement("details"); details.className = "token-details"; details.open = tokenDetailsExpanded;
-  details.addEventListener("toggle", () => { tokenDetailsExpanded = details.open; vscode.setState({ tokenDetailsExpanded } satisfies PersistedState); });
+  details.addEventListener("toggle", () => { tokenDetailsExpanded = details.open; persistUiState(); });
   const detailsSummary = document.createElement("summary"); detailsSummary.textContent = tr("usage.details"); detailsSummary.dataset.focusKey = "usage-details";
   details.append(detailsSummary, renderTokenMetrics(model), renderUsageLegend(model.usage.segments)); section.append(details);
   return section;
+}
+
+function renderUsageHistory(usage: DashboardUsage): HTMLElement {
+  const panel = element("div", "usage-history");
+  const header = element("div", "usage-history-header");
+  header.append(element("h3", "usage-history-title", tr("usage.history.title")));
+  const grouping = element("div", "usage-granularity");
+  grouping.setAttribute("role", "group");
+  grouping.setAttribute("aria-label", tr("usage.history.title"));
+  for (const granularity of ["day", "week", "month"] as const) {
+    const button = element("button", "usage-granularity-button", tr(`usage.history.${granularity}`));
+    button.type = "button";
+    button.dataset.focusKey = `usage-granularity:${granularity}`;
+    button.setAttribute("aria-pressed", String(usageGranularity === granularity));
+    button.addEventListener("click", () => {
+      usageGranularity = granularity;
+      usageFrom = "";
+      usageTo = "";
+      usageRangeCustomized = false;
+      persistUiState();
+      rerenderUsageHistory(usage);
+    });
+    grouping.append(button);
+  }
+  header.append(grouping);
+  panel.append(header);
+
+  const filters = element("div", "usage-history-filters");
+  const sourceLabel = element("label", "usage-filter usage-source-filter");
+  sourceLabel.append(element("span", "usage-filter-label", tr("usage.history.source")));
+  const source = document.createElement("select");
+  source.className = "usage-source-select";
+  source.dataset.focusKey = "usage-source";
+  source.setAttribute("aria-label", tr("usage.history.source"));
+  const allOption = document.createElement("option");
+  allOption.value = "all";
+  allOption.textContent = tr("usage.history.allSources");
+  source.append(allOption);
+  for (const segment of usage.segments) {
+    const option = document.createElement("option");
+    option.value = segment.id;
+    option.textContent = segment.label;
+    source.append(option);
+  }
+  const unattributed = document.createElement("option");
+  unattributed.value = "unattributed";
+  unattributed.textContent = tr("usage.history.unattributed");
+  source.append(unattributed);
+  if (!Array.from(source.options).some((option) => option.value === usageSubjectId)) usageSubjectId = "all";
+  source.value = usageSubjectId;
+  source.addEventListener("change", () => {
+    usageSubjectId = source.value;
+    persistUiState();
+    rerenderUsageHistory(usage);
+  });
+  sourceLabel.append(source);
+  filters.append(sourceLabel);
+
+  const bounds = defaultUsageBounds(usage.history.days, usageGranularity);
+  if (!usageRangeCustomized || !usageFrom || !usageTo) {
+    usageFrom = bounds.from;
+    usageTo = bounds.to;
+  }
+  if (usageFrom > usageTo) usageFrom = usageTo;
+  const inputType = usageGranularity === "month" ? "month" : "date";
+  const normalizeBound = (value: string): string => inputType === "month" ? value.slice(0, 7) : value;
+  usageFrom = normalizeBound(usageFrom);
+  usageTo = normalizeBound(usageTo);
+  for (const [side, key, current] of [
+    ["from", "usage.history.from", usageFrom],
+    ["to", "usage.history.to", usageTo],
+  ] as const) {
+    const label = element("label", "usage-filter usage-date-filter");
+    label.append(element("span", "usage-filter-label", tr(key)));
+    const input = document.createElement("input");
+    input.type = inputType;
+    input.value = current;
+    input.dataset.focusKey = `usage-${side}`;
+    input.setAttribute("aria-label", tr(key));
+    input.addEventListener("change", () => {
+      if (side === "from") usageFrom = input.value;
+      else usageTo = input.value;
+      usageRangeCustomized = true;
+      if (usageFrom && usageTo && usageFrom > usageTo) {
+        if (side === "from") usageTo = usageFrom;
+        else usageFrom = usageTo;
+      }
+      persistUiState();
+      rerenderUsageHistory(usage);
+    });
+    label.append(input);
+    filters.append(label);
+  }
+  panel.append(filters);
+
+  const days = filterHistoryDays(usage.history.days);
+  const buckets = aggregateUsageDays(days, usageGranularity, usageSubjectId);
+  const selectedTotal = buckets.reduce((sum, bucket) => safeAdd(sum, bucket.tokens), 0);
+  const estimatedTotal = buckets.reduce((sum, bucket) => safeAdd(sum, bucket.estimatedTokens), 0);
+  const peak = Math.max(0, ...buckets.map((bucket) => bucket.tokens));
+  const sourceName = usageSourceName(usage, usageSubjectId);
+  const summary = element("div", "usage-range-summary");
+  summary.append(
+    usageMetric(tr("usage.history.selectedTotal"), formatNumber(selectedTotal)),
+    usageMetric(tr("usage.history.average"), formatNumber(buckets.length ? Math.round(selectedTotal / buckets.length) : 0)),
+    usageMetric(tr("usage.history.peak"), formatNumber(peak)),
+    usageMetric(tr("usage.history.estimated"), formatNumber(estimatedTotal)),
+  );
+  panel.append(summary);
+  panel.append(element("div", "usage-filter-total", tr("usage.history.filterTotal", {
+    label: sourceName,
+    tokens: formatNumber(selectedTotal),
+  })));
+
+  if (buckets.length === 0) {
+    panel.append(element("div", "usage-history-empty", tr("usage.history.empty")));
+  } else {
+    panel.append(renderUsageChart(buckets, sourceName));
+  }
+
+  const note = element("div", "usage-history-notes");
+  note.append(element("span", "usage-history-note", tr("usage.history.note")));
+  note.append(element("span", "usage-history-disclaimer", tr("usage.history.localDisclaimer")));
+  if (usage.history.undated.totalTokens > 0) {
+    note.append(element("span", "usage-history-undated", tr("usage.history.undated", {
+      tokens: formatNumber(usage.history.undated.totalTokens),
+    })));
+  }
+  panel.append(note);
+  persistUiState();
+  return panel;
+}
+
+function rerenderUsageHistory(usage: DashboardUsage): void {
+  const previous = app.querySelector<HTMLElement>(".usage-history");
+  if (!previous) return;
+  const focusKey = captureFocusKey();
+  previous.replaceWith(renderUsageHistory(usage));
+  restoreFocus(focusKey);
+}
+
+function renderUsageChart(buckets: UsageChartBucket[], sourceName: string): HTMLElement {
+  const scroll = element("div", "usage-history-scroll");
+  const chart = element("div", "usage-history-chart");
+  chart.setAttribute("role", "list");
+  const peak = Math.max(1, ...buckets.map((bucket) => bucket.tokens));
+  const topAxis = element("span", "usage-axis usage-axis-top", compactAxisTokens(peak));
+  const zeroAxis = element("span", "usage-axis usage-axis-zero", "0");
+  const plot = element("div", "usage-history-plot");
+  const bars = element("div", "usage-history-bars");
+  for (const [index, bucket] of buckets.entries()) {
+    const item = element("div", "usage-history-item");
+    item.setAttribute("role", "listitem");
+    const bar = element("span", "usage-history-bar");
+    bar.style.setProperty("--usage-height", `${bucket.tokens > 0 ? Math.max(2, (bucket.tokens / peak) * 100) : 0}%`);
+    const estimatedSuffix = bucket.estimatedTokens > 0
+      ? tr("usage.history.estimatedSuffix", { tokens: formatNumber(bucket.estimatedTokens) })
+      : "";
+    const aria = tr("usage.history.barAria", {
+      label: bucket.label,
+      source: sourceName,
+      tokens: formatNumber(bucket.tokens),
+      estimated: estimatedSuffix,
+    });
+    item.setAttribute("aria-label", aria);
+    item.title = aria;
+    if (bucket.estimatedTokens > 0) bar.dataset.estimated = "true";
+    const visual = element("span", "usage-bar-visual");
+    if (bucket.tokens > 0) visual.append(element("span", "usage-bar-fill"));
+    bar.append(visual);
+    const showLabel = buckets.length <= 12 || index === 0 || index === buckets.length - 1 || index % Math.max(1, Math.ceil(buckets.length / 6)) === 0;
+    item.append(bar, element("span", `usage-bar-label${showLabel ? "" : " usage-label-hidden"}`, showLabel ? bucket.label : ""));
+    bars.append(item);
+  }
+  plot.append(bars);
+  chart.append(topAxis, zeroAxis, plot);
+  scroll.append(chart);
+  return scroll;
+}
+
+function usageMetric(label: string, value: string): HTMLElement {
+  const metric = element("div", "usage-range-metric");
+  metric.append(element("span", "usage-range-label", label), element("strong", "usage-range-value", value));
+  return metric;
+}
+
+function filterHistoryDays(days: DashboardUsageHistoryDay[]): DashboardUsageHistoryDay[] {
+  const from = usageGranularity === "month" ? `${usageFrom}-01` : usageFrom;
+  const to = usageGranularity === "month" ? `${usageTo}-31` : usageTo;
+  return days.filter((day) => (!from || day.date >= from) && (!to || day.date <= to));
+}
+
+function aggregateUsageDays(
+  days: DashboardUsageHistoryDay[],
+  granularity: UsageGranularity,
+  subjectId: string,
+): UsageChartBucket[] {
+  if (days.length === 0) return [];
+  const buckets = new Map<string, UsageChartBucket>();
+  for (const day of days) {
+    const key = granularity === "month" ? day.date.slice(0, 7) : granularity === "week" ? utcWeekStart(day.date) : day.date;
+    const label = usageBucketLabel(key, granularity);
+    const selected = usageTokensForDay(day, subjectId);
+    const previous = buckets.get(key) ?? { key, label, tokens: 0, estimatedTokens: 0 };
+    previous.tokens = safeAdd(previous.tokens, selected.tokens);
+    previous.estimatedTokens = safeAdd(previous.estimatedTokens, selected.estimatedTokens);
+    buckets.set(key, previous);
+  }
+  for (const key of usageBucketKeys(usageFrom, usageTo, granularity)) {
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        key,
+        label: usageBucketLabel(key, granularity),
+        tokens: 0,
+        estimatedTokens: 0,
+      });
+    }
+  }
+  return [...buckets.values()].sort((left, right) => left.key.localeCompare(right.key));
+}
+
+function usageBucketKeys(
+  fromValue: string,
+  toValue: string,
+  granularity: UsageGranularity,
+): string[] {
+  const month = granularity === "month";
+  const fromDate = parseUtcDate(month ? `${fromValue}-01` : fromValue);
+  const toDate = parseUtcDate(month ? `${toValue}-01` : toValue);
+  if (!fromDate || !toDate || fromDate > toDate) return [];
+
+  if (granularity === "week") {
+    const start = parseUtcDate(utcWeekStart(fromValue));
+    const end = parseUtcDate(utcWeekStart(toValue));
+    if (!start || !end) return [];
+    return utcDateSequence(start, end, 7, (date) => date.toISOString().slice(0, 10));
+  }
+  if (month) {
+    const keys: string[] = [];
+    const cursor = new Date(fromDate);
+    while (cursor <= toDate && keys.length < 10_000) {
+      keys.push(cursor.toISOString().slice(0, 7));
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+    return keys;
+  }
+  return utcDateSequence(fromDate, toDate, 1, (date) => date.toISOString().slice(0, 10));
+}
+
+function utcDateSequence(
+  from: Date,
+  to: Date,
+  stepDays: number,
+  project: (date: Date) => string,
+): string[] {
+  const keys: string[] = [];
+  const cursor = new Date(from);
+  while (cursor <= to && keys.length < 10_000) {
+    keys.push(project(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + stepDays);
+  }
+  return keys;
+}
+
+function usageTokensForDay(day: DashboardUsageHistoryDay, subjectId: string): { tokens: number; estimatedTokens: number } {
+  if (subjectId === "all") return { tokens: day.total.totalTokens, estimatedTokens: day.estimated.totalTokens };
+  if (subjectId === "unattributed") {
+    return {
+      tokens: day.unattributed.totalTokens,
+      estimatedTokens: day.estimatedUnattributed?.totalTokens ?? Math.min(day.unattributed.totalTokens, day.estimated.totalTokens),
+    };
+  }
+  const subject = day.subjects.find((candidate) => candidate.id === subjectId);
+  return {
+    tokens: subject?.tokens.totalTokens ?? 0,
+    estimatedTokens: subject?.estimated?.totalTokens ?? 0,
+  };
+}
+
+function defaultUsageBounds(days: DashboardUsageHistoryDay[], granularity: UsageGranularity): { from: string; to: string } {
+  const last = days.at(-1)?.date ?? new Date().toISOString().slice(0, 10);
+  const lastDate = parseUtcDate(last) ?? new Date();
+  if (granularity === "month") {
+    const to = last.slice(0, 7);
+    const fromDate = new Date(Date.UTC(lastDate.getUTCFullYear(), lastDate.getUTCMonth() - 11, 1));
+    return { from: fromDate.toISOString().slice(0, 7), to };
+  }
+  if (granularity === "week") {
+    const lastWeekStart = parseUtcDate(utcWeekStart(last)) ?? lastDate;
+    const fromDate = new Date(lastWeekStart.getTime() - 11 * 7 * 86_400_000);
+    return { from: fromDate.toISOString().slice(0, 10), to: last };
+  }
+  const fromDate = new Date(lastDate.getTime() - 29 * 86_400_000);
+  return { from: fromDate.toISOString().slice(0, 10), to: last };
+}
+
+function usageBucketLabel(key: string, granularity: UsageGranularity): string {
+  if (granularity === "month") {
+    const date = parseUtcDate(`${key}-01`);
+    return date ? new Intl.DateTimeFormat(dashboardLocaleTag(locale), { year: "numeric", month: "short", timeZone: "UTC" }).format(date) : key;
+  }
+  const date = parseUtcDate(key);
+  const formatted = date
+    ? new Intl.DateTimeFormat(dashboardLocaleTag(locale), { month: "short", day: "numeric", timeZone: "UTC" }).format(date)
+    : key;
+  return granularity === "week" ? tr("usage.history.weekOf", { date: formatted }) : formatted;
+}
+
+function utcWeekStart(dateValue: string): string {
+  const date = parseUtcDate(dateValue);
+  if (!date) return dateValue;
+  const offset = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - offset);
+  return date.toISOString().slice(0, 10);
+}
+
+function parseUtcDate(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function usageSourceName(usage: DashboardUsage, subjectId: string): string {
+  if (subjectId === "all") return tr("usage.history.allSources");
+  if (subjectId === "unattributed") return tr("usage.history.unattributed");
+  return usage.segments.find((segment) => segment.id === subjectId)?.label ?? tr("usage.history.allSources");
+}
+
+function compactAxisTokens(value: number): string {
+  const formatter = new Intl.NumberFormat(dashboardLocaleTag(locale), {
+    notation: value >= 1_000 ? "compact" : "standard",
+    maximumFractionDigits: 1,
+  });
+  return formatter.format(value);
+}
+
+function safeAdd(left: number, right: number): number {
+  return Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, left) + Math.max(0, right));
 }
 
 function renderTokenMetrics(model: DashboardModel): HTMLElement {
@@ -561,8 +928,50 @@ function stateLine(text: string, tone: string): HTMLElement {
   const line = element("span", `state-line tone-${tone}`); line.append(element("span", "state-dot"), document.createTextNode(text)); return line;
 }
 function parsePersistedState(value: unknown): PersistedState {
-  if (!value || typeof value !== "object") return { tokenDetailsExpanded: false };
-  return { tokenDetailsExpanded: (value as { tokenDetailsExpanded?: unknown }).tokenDetailsExpanded === true };
+  if (!value || typeof value !== "object") return defaultPersistedState();
+  const candidate = value as Partial<PersistedState>;
+  const usageGranularity = candidate.usageGranularity === "week" || candidate.usageGranularity === "month"
+    ? candidate.usageGranularity
+    : "day";
+  return {
+    tokenDetailsExpanded: candidate.tokenDetailsExpanded === true,
+    usageGranularity,
+    usageSubjectId: typeof candidate.usageSubjectId === "string" && candidate.usageSubjectId.length <= 128
+      ? candidate.usageSubjectId
+      : "all",
+    usageFrom: validPersistedDate(candidate.usageFrom) ? candidate.usageFrom : "",
+    usageTo: validPersistedDate(candidate.usageTo) ? candidate.usageTo : "",
+    usageRangeCustomized: candidate.usageRangeCustomized === true
+      || (candidate.usageRangeCustomized !== false
+        && validPersistedDate(candidate.usageFrom)
+        && validPersistedDate(candidate.usageTo)),
+  };
+}
+
+function defaultPersistedState(): PersistedState {
+  return {
+    tokenDetailsExpanded: false,
+    usageGranularity: "day",
+    usageSubjectId: "all",
+    usageFrom: "",
+    usageTo: "",
+    usageRangeCustomized: false,
+  };
+}
+
+function validPersistedDate(value: unknown): value is string {
+  return typeof value === "string" && (/^\d{4}-\d{2}-\d{2}$/.test(value) || /^\d{4}-\d{2}$/.test(value));
+}
+
+function persistUiState(): void {
+  vscode.setState({
+    tokenDetailsExpanded,
+    usageGranularity,
+    usageSubjectId,
+    usageFrom,
+    usageTo,
+    usageRangeCustomized,
+  } satisfies PersistedState);
 }
 function isDashboardHostMessage(value: unknown): value is DashboardHostMessage {
   if (!isPlainRecord(value) || !hasExactKeys(value, ["type", "revision", "locale", "state"])) return false;
@@ -594,7 +1003,7 @@ function captureTokenDetailsState(): void {
   const details = app.querySelector<HTMLDetailsElement>(".token-details");
   if (!details) return;
   tokenDetailsExpanded = details.open;
-  vscode.setState({ tokenDetailsExpanded } satisfies PersistedState);
+  persistUiState();
 }
 
 function restoreFocus(focusKey: string | null): void {
@@ -680,6 +1089,7 @@ const modelMessages: Record<string, DashboardTranslationKey> = {
   "Sign in again to refresh quota.": "model.signInAgain", "Quota has not been loaded yet.": "model.quotaNotLoaded",
   "Refreshing quota...": "model.refreshingQuota", "Quota is unavailable.": "model.quotaUnavailable",
   "Quota refresh failed. Showing the last known value.": "model.quotaRefreshFailed", "A five-hour quota window is unavailable.": "model.fiveHourUnavailable",
+  "Quota refresh failed. Showing the cached value.": "model.quotaRefreshFailedCached",
   "Five-hour quota is exhausted.": "model.fiveHourExhausted", "Indexing local Codex sessions...": "model.indexingSessions",
   "A usable quota window is unavailable.": "model.windowUnavailable", "The selected quota window is exhausted.": "model.windowExhausted",
   "Waiting to index local Codex sessions.": "model.waitingToIndexSessions", "Some local sessions could not be indexed.": "model.partialIndex",

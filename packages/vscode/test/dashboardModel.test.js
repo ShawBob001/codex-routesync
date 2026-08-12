@@ -98,6 +98,7 @@ function quotaState(accountId, info, overrides = {}) {
     loading: false,
     errorMessage: null,
     errorStatusCode: null,
+    fallbackReasonCode: null,
     refreshAttemptedAt: NOW - 1_000,
     queriedAt: NOW - 2_000,
     provenance: "network",
@@ -130,6 +131,10 @@ function usage(subjects = [], overrides = {}) {
     total: tokens(subjects.reduce((sum, subject) => sum + subject.tokens.totalTokens, 0)),
     unattributed: tokens(0),
     subjects,
+    history: {
+      days: [],
+      undated: tokens(0),
+    },
     scan: {
       discoveredFiles: 2,
       rescannedFiles: 2,
@@ -191,7 +196,18 @@ function assertSecretFree(value) {
     }
     assert.equal(Object.getPrototypeOf(entry), Object.prototype);
     for (const [key, child] of Object.entries(entry)) {
-      assert.equal(forbiddenKeys.has(key), false, `forbidden DTO key: ${key}`);
+      const projectedTokenTotals = key === "tokens"
+        && child
+        && typeof child === "object"
+        && !Array.isArray(child)
+        && Object.keys(child).sort().join(",") === [
+          "cachedInputTokens",
+          "inputTokens",
+          "outputTokens",
+          "reasoningOutputTokens",
+          "totalTokens",
+        ].sort().join(",");
+      assert.equal(forbiddenKeys.has(key) && !projectedTokenTotals, false, `forbidden DTO key: ${key}`);
       visit(child);
     }
   };
@@ -376,11 +392,20 @@ test("distinguishes cached quota provenance and a failed refresh with retained d
       selection: { kind: "account", name: current.name, source: current.source, meta: current.meta },
       quota: new Map([[current.id, quotaState(current.id, quotaInfo(20), {
         provenance,
-        ...(provenance === "cache-fallback" ? { errorMessage: "SECRET_FALLBACK_ERROR" } : {}),
+        ...(provenance === "cache-fallback" ? {
+          errorMessage: "SECRET_FALLBACK_ERROR",
+          fallbackReasonCode: "request_failed",
+        } : {}),
       })]]),
     });
     assert.equal(model.route.quota.status, "available");
     assert.equal(model.route.quota.freshness, expected);
+    if (provenance === "cache-fallback") {
+      assert.equal(model.route.quota.preferred.remainingPercent, 80);
+      assert.equal(model.route.quota.message, "Quota refresh failed. Showing the cached value.");
+      assert.equal(model.route.quota.fallbackReasonCode, "request_failed");
+      assert.equal(model.route.quota.unavailableReasonCode, null);
+    }
     assert.doesNotMatch(JSON.stringify(model), /SECRET_FALLBACK_ERROR/);
   }
 
@@ -508,6 +533,58 @@ test("maps loading, errors, relogin, and storage states without raw messages", (
   }
 });
 
+test("relogin-required cached fallback keeps the action but uses fixed cache copy", () => {
+  const current = account({ isCurrent: true });
+  const model = build({
+    accounts: [current],
+    selection: { kind: "account", name: current.name, source: current.source, meta: current.meta },
+    quota: new Map([[current.id, quotaState(current.id, quotaInfo(5), {
+      provenance: "cache-fallback",
+      errorMessage: "SECRET_RELOGIN_FALLBACK",
+      reloginRequired: true,
+      reloginMessage: "SECRET_RELOGIN_MESSAGE",
+      fallbackReasonCode: "relogin_required",
+    })]]),
+  });
+
+  assert.equal(model.route.quota.status, "relogin-required");
+  assert.equal(model.route.quota.preferred.remainingPercent, 95);
+  assert.equal(model.route.quota.message, "Quota refresh failed. Showing the cached value.");
+  assert.equal(model.route.quota.fallbackReasonCode, "relogin_required");
+  assert.doesNotMatch(JSON.stringify(model), /SECRET_/);
+});
+
+test("projects only a sanitized unavailable-reason code for actionable quota diagnostics", () => {
+  const current = account({ isCurrent: true });
+  const state = quotaState(current.id, quotaInfo(0, {
+    primaryWindow: null,
+    unavailableReason: {
+      code: "request_failed",
+      message: "secret upstream detail",
+      statusCode: null,
+    },
+  }));
+  const model = build({
+    accounts: [current],
+    selection: { kind: "account", name: current.name, source: current.source, meta: current.meta },
+    quota: new Map([[current.id, state]]),
+  });
+
+  assert.equal(model.route.quota.unavailableReasonCode, "request_failed");
+  assert.doesNotMatch(JSON.stringify(model), /secret upstream detail/);
+
+  state.info.unavailableReason.code = "secret_runtime_code";
+  state.fallbackReasonCode = "another_secret_code";
+  const unsafe = build({
+    accounts: [current],
+    selection: { kind: "account", name: current.name, source: current.source, meta: current.meta },
+    quota: new Map([[current.id, state]]),
+  });
+  assert.equal(unsafe.route.quota.unavailableReasonCode, null);
+  assert.equal(unsafe.route.quota.fallbackReasonCode, null);
+  assert.doesNotMatch(JSON.stringify(unsafe), /secret_runtime_code|another_secret_code/);
+});
+
 test("rejects non-finite quota percentages instead of serializing null as a number", () => {
   for (const usedPercent of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
     const current = account({ isCurrent: true });
@@ -605,6 +682,72 @@ test("keeps all token totals and tiny segments with finite zero percentages", ()
   assert.deepEqual(zero.usage.segments, []);
   assert.equal(Number.isFinite(zero.usage.attributedPercent), true);
   assert.equal(zero.usage.attributedPercent, 0);
+});
+
+test("projects daily usage history with display-only subject metadata and safe fallbacks", () => {
+  const known = {
+    id: stableSubjectId("provider", "history-known"),
+    kind: "provider",
+    label: "Visible provider",
+    legacyProviderIds: ["SECRET_LEGACY_PROVIDER_ID"],
+    sessionCount: 1,
+    tokens: tokens(70),
+  };
+  const retiredId = stableSubjectId("account", "history-retired");
+  const model = build({
+    usageSnapshot: usage([known], {
+      total: tokens(100),
+      unattributed: tokens(10),
+      history: {
+        days: [
+          {
+            date: "2026-08-11",
+            total: tokens(100),
+            unattributed: tokens(10),
+            estimated: tokens(30),
+            estimatedUnattributed: tokens(10),
+            subjects: [
+              { id: known.id, tokens: tokens(70), estimated: tokens(20) },
+              { id: retiredId, tokens: tokens(20), estimated: tokens(0) },
+            ],
+          },
+        ],
+        undated: tokens(0),
+      },
+    }),
+  });
+
+  assert.deepEqual(model.usage.history, {
+    days: [
+      {
+        date: "2026-08-11",
+        total: tokens(100),
+        unattributed: tokens(10),
+        estimated: tokens(30),
+        estimatedUnattributed: tokens(10),
+        subjects: [
+          {
+            id: known.id,
+            kind: "provider",
+            label: "Visible provider",
+            tokens: tokens(70),
+            estimated: tokens(20),
+          },
+          {
+            id: retiredId,
+            kind: "account",
+            label: "Codex account",
+            tokens: tokens(20),
+            estimated: tokens(0),
+          },
+        ],
+      },
+    ],
+    undated: tokens(0),
+  });
+  assert.doesNotMatch(JSON.stringify(model.usage.history), /SECRET_LEGACY_PROVIDER_ID/);
+  assert.doesNotMatch(JSON.stringify(model.usage.history), /history-retired/);
+  assertSecretFree(model);
 });
 
 test("uses fixed safe messages for partial and indexing usage states", () => {

@@ -33,13 +33,13 @@ After a successful switch, the Codex extension may still hold its old authentica
 
 The Dashboard displays the remaining percentage for every quota window returned for the current and saved accounts, including accounts that expose only a 7-day window. Each window includes a live countdown to the second, local date and time with seconds and time-zone offset, and the exact upstream UTC timestamp. Available earned rate-limit resets are shown when the account service provides them. Missing, invalid, or due reset times are labeled explicitly instead of being estimated.
 
-The Dashboard also indexes cumulative `token_count` events from local Codex rollout files under the active `CODEX_HOME`. It displays the recorded total, input, output, cached input, reasoning output, attributed and unattributed usage, plus a breakdown for every tracked account and API provider.
+The Dashboard also indexes cumulative `token_count` events from local Codex rollout files under the active `CODEX_HOME`. It displays the recorded total, input, output, cached input, reasoning output, attributed and unattributed usage, plus a breakdown for every tracked account and API provider. The orange history chart groups activity by day, week, or month; it supports source and date filters and shows the selected total, average, peak, and estimated amount.
 
 The header language selector supports **Auto**, **English**, and **简体中文**. Auto follows the VS Code display language; explicit choices take effect immediately and persist without a window reload. VS Code command, view, welcome, and setting text is also localized in English and Simplified Chinese.
 
 SwitchBridge assigns each new token increment to the selection active when Codex recorded it, even if one conversation continues across an account/API switch. Per-selection tracking begins locally after this version is activated. Older shared `openai` sessions cannot be assigned safely and appear as **Earlier or unattributed**; uniquely identifiable older provider sessions can still be mapped to their saved profile.
 
-The dashboard is an activity view, not a bill or cost estimate. The account service supplies remaining percentages rather than an absolute remaining-token allowance; API-provider routes expose only locally recorded token use unless the provider offers a compatible quota API. Cached input is included in input, and reasoning output is included in output. Account quota requests honor `HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY`. Index data remains on this device and contains counters, timestamps, fingerprints, and opaque IDs, not conversation text, file paths, labels, provider names, or credentials. Run **Refresh Local Token Usage** for an immediate rescan.
+The dashboard is an activity view, not a bill or cost estimate. The account service supplies remaining percentages rather than an absolute remaining-token allowance; API-provider routes expose only locally recorded token use unless the provider offers a compatible quota API. Older activity that cannot be dated exactly is marked estimated or kept outside the chart. Cached input is included in input, and reasoning output is included in output. Account quota requests use `codex-switchbridge.proxy`, VS Code's `http.proxy`, or the extension-host proxy environment in that order; environment resolution honors `NO_PROXY`. The dedicated setting is machine-scoped and excluded from Settings Sync. VS Code stores its value in local settings, so prefer an unauthenticated local proxy or protect the settings file if the URL contains credentials. Index data remains on this device and contains counters, timestamps, fingerprints, and opaque IDs, not conversation text, file paths, labels, provider names, or credentials. Run **Refresh Local Token Usage** for an immediate rescan.
 
 ## Shared conversation history
 
@@ -68,7 +68,7 @@ See [Conversation history across modes](https://github.com/baoshichao001-dev/cod
 - Shared local conversation history across both modes, enabled by default for new threads
 - Local or VS Code Settings Sync storage for accounts and provider profiles
 - Account quota display in the tree and status bar
-- Wide editor Dashboard with graphical quota, precise reset clocks, and total/per-account/API local token usage
+- Wide editor Dashboard with graphical quota, precise reset clocks, and filterable daily/weekly/monthly local token history
 - Immediate English/Simplified Chinese Dashboard switching and localized VS Code contributions
 - Manual token refresh and rotating background token maintenance
 - Shared local quota cache across VS Code windows
@@ -96,6 +96,7 @@ See [Conversation history across modes](https://github.com/baoshichao001-dev/cod
 | Setting | Default | Description |
 | --- | --- | --- |
 | `codex-switchbridge.language` | `auto` | Follow VS Code or use English/Simplified Chinese in the Dashboard |
+| `codex-switchbridge.proxy` | `""` | Machine-only HTTP(S) proxy for account quota requests; excluded from Settings Sync; empty uses VS Code and extension-host proxy settings |
 | `codex-switchbridge.shareHistoryAcrossProviders` | `true` | Keep new local conversation history available across account and Responses-compatible API-provider modes |
 | `codex-switchbridge.reloadWindowAfterSwitch` | `statusBar` | Show a non-blocking reload action, never notify, or reload automatically after a switch |
 | `codex-switchbridge.quotaRefreshInterval` | `30` | Check one saved account per interval for token maintenance and quota refresh |

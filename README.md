@@ -4,7 +4,7 @@
 
 Codex SwitchBridge updates credentials and provider routing as one guarded switch. Account mode and compatible API-provider mode use the same local history bucket, so changing how Codex authenticates does not split new conversations into separate timelines.
 
-The VS Code extension opens a graphical Dashboard in the editor area for the active mode, shared-history state, account quota reset clocks, total local token usage, and the amount attributed to each saved account or API provider. The Dashboard can follow VS Code's display language or switch immediately between English and Simplified Chinese.
+The VS Code extension opens a graphical Dashboard in the editor area for the active mode, shared-history state, account quota reset clocks, and total local token usage. Its orange history chart groups local observations by day, week, or month and filters them by saved account, API provider, and date range. The Dashboard can follow VS Code's display language or switch immediately between English and Simplified Chinese.
 
 Codex SwitchBridge runs on Windows, macOS, and Linux. Use it from VS Code or from the command line.
 
@@ -24,7 +24,7 @@ Codex account mode  <->  Codex SwitchBridge  <->  Responses API-provider mode
 | --- | --- |
 | Account and API switching | Applies the selected account credentials or API-provider profile together with the matching Codex configuration |
 | Shared conversation history | Keeps new local threads visible in both modes by using one Codex history bucket |
-| Local token usage | Indexes Codex rollout counters locally and breaks tracked usage down by saved account or API provider |
+| Local token usage | Indexes Codex rollout counters locally, charts daily/weekly/monthly activity, and breaks tracked usage down by saved account or API provider |
 | State preservation | Saves the outgoing account or provider credentials before applying the next mode |
 | Safe transitions | Serializes concurrent switches, writes authentication atomically, and keeps rollback backups |
 | Reload handling | Shows a non-blocking reload action by default when the Codex extension needs to read the new authentication state |
@@ -94,9 +94,11 @@ The VS Code Dashboard reads account quota metadata and cumulative `token_count` 
 - recorded total, input, output, cached input, and reasoning output tokens;
 - attributed and unattributed totals;
 - per-account and per-API-provider usage and session counts;
+- an orange daily, weekly, or monthly usage chart with source and date filters;
+- selected-range total, average, peak, and estimated usage;
 - index coverage, session count, tracking start, and last refresh time.
 
-Reset clocks prefer the absolute timestamp returned by the quota service. If only its relative reset countdown is available, SwitchBridge derives the corresponding timestamp at query time. Missing, invalid, or already-due reset metadata is shown explicitly. The countdown is recalculated from the wall clock and updates without refreshing the entire Dashboard. Account quota requests honor `HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY`, which keeps quota lookup working in remote development environments that require an outbound proxy.
+Reset clocks prefer the absolute timestamp returned by the quota service. If only its relative reset countdown is available, SwitchBridge derives the corresponding timestamp at query time. Missing, invalid, or already-due reset metadata is shown explicitly. The countdown is recalculated from the wall clock and updates without refreshing the entire Dashboard. For account quota requests, `codex-switchbridge.proxy` takes priority, followed by VS Code's `http.proxy` and the extension host's `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` environment; environment resolution continues to honor `NO_PROXY`. The dedicated setting is machine-scoped and excluded from Settings Sync. VS Code stores its value in local settings, so prefer an unauthenticated local proxy or protect the machine settings file if the URL contains credentials.
 
 Use the language selector in the Dashboard header to choose **Auto**, **English**, or **简体中文**. Auto follows the VS Code display language, while either explicit choice is saved as a window setting and takes effect without reloading VS Code.
 
@@ -104,7 +106,7 @@ Input and output make up the recorded total. Cached input is already part of inp
 
 Per-selection attribution starts when SwitchBridge begins local tracking. The index assigns each subsequent token increment to the account or API provider active when Codex recorded it, including when one conversation continues across a mode switch. Older shared `openai` sessions cannot be assigned to a specific saved entry safely and remain under **Earlier or unattributed**. Older provider-tagged sessions are attributed only when their provider ID maps to exactly one saved profile.
 
-The account service provides a remaining percentage, not an absolute remaining-token allowance. Local token figures are activity counters rather than billing, cost, or remote balance data. API-provider profiles expose only these local counters unless that provider offers a compatible quota API. SwitchBridge does not upload rollout content, and its local index stores counters, timestamps, file fingerprints, and opaque IDs rather than conversation text, paths, account labels, provider names, or credentials. Use **Refresh Local Token Usage** to reindex immediately; otherwise the extension refreshes it during normal background maintenance.
+The account service provides a remaining percentage, not an absolute remaining-token allowance. The history chart contains device-local activity counters rather than billing, cost, or remote balance data. Older indexed activity that cannot be placed exactly is marked as estimated, and activity without a reliable date stays outside the chart. API-provider profiles expose only local counters unless that provider offers a compatible quota API. SwitchBridge does not upload rollout content, and its local index stores counters, timestamps, file fingerprints, and opaque IDs rather than conversation text, paths, account labels, provider names, or credentials. Use **Refresh Local Token Usage** to reindex immediately; otherwise the extension refreshes it during normal background maintenance.
 
 ## How conversation history stays available
 
@@ -137,7 +139,7 @@ See [Conversation history across modes](./docs/shared-history.md) for the exact 
 - One-click switching between local or synced Codex accounts and API providers in VS Code
 - One-command account and API-provider switching from the CLI
 - Shared local conversation history for Responses-compatible provider routes
-- Wide editor Dashboard with graphical quota, precise reset clocks, and total/per-selection local token usage
+- Wide editor Dashboard with graphical quota, precise reset clocks, and filterable daily/weekly/monthly local token history
 - Runtime English/Simplified Chinese Dashboard switching, plus localized VS Code commands and settings
 - Account quota display, token refresh, and rotating background maintenance
 - Local or VS Code Settings Sync storage for saved accounts and providers
@@ -169,6 +171,7 @@ Use `--auth-dir <path>` or `CODEX_SWITCHBRIDGE_AUTH_DIR` to place saved entries 
 | Setting | Default | Description |
 | --- | --- | --- |
 | `codex-switchbridge.language` | `auto` | Follow VS Code or use English/Simplified Chinese in the Dashboard |
+| `codex-switchbridge.proxy` | `""` | Machine-only HTTP(S) proxy for account quota requests; excluded from Settings Sync; empty uses VS Code and extension-host proxy settings |
 | `codex-switchbridge.shareHistoryAcrossProviders` | `true` | Keep new local conversation history available across account mode and compatible API-provider modes |
 | `codex-switchbridge.reloadWindowAfterSwitch` | `statusBar` | Show a reload action, never notify, or reload automatically after a switch |
 | `codex-switchbridge.quotaRefreshInterval` | `30` | Check one saved account per interval for token maintenance and quota refresh |

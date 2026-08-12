@@ -1,4 +1,9 @@
-import { getModeDisplayName, QuotaInfo, WindowInfo } from "@codex-switchbridge/core";
+import {
+  getModeDisplayName,
+  QuotaInfo,
+  QuotaUnavailableCode,
+  WindowInfo,
+} from "@codex-switchbridge/core";
 import {
   getFiveHourQuotaWindow,
   getRemainingQuotaPercent,
@@ -56,6 +61,8 @@ export interface DashboardQuota {
   message: string | null;
   queriedAt: string | null;
   refreshAttemptedAt: string | null;
+  unavailableReasonCode: QuotaUnavailableCode | null;
+  fallbackReasonCode: QuotaUnavailableCode | null;
 }
 
 export interface DashboardCandidate {
@@ -87,6 +94,28 @@ export interface DashboardUsageSegment {
   compactTokens: string;
 }
 
+export interface DashboardUsageHistorySubject {
+  id: string;
+  kind: "account" | "provider";
+  label: string;
+  tokens: TokenTotals;
+  estimated: TokenTotals;
+}
+
+export interface DashboardUsageHistoryDay {
+  date: string;
+  total: TokenTotals;
+  unattributed: TokenTotals;
+  estimated: TokenTotals;
+  estimatedUnattributed: TokenTotals;
+  subjects: DashboardUsageHistorySubject[];
+}
+
+export interface DashboardUsageHistory {
+  days: DashboardUsageHistoryDay[];
+  undated: TokenTotals;
+}
+
 export interface DashboardUsage {
   status: UsageSnapshot["status"];
   coverage: UsageSnapshot["coverage"];
@@ -100,6 +129,7 @@ export interface DashboardUsage {
   trackingStartedAt: string | null;
   updatedAt: string | null;
   segments: DashboardUsageSegment[];
+  history: DashboardUsageHistory;
 }
 
 export type DashboardRoute =
@@ -305,7 +335,13 @@ function buildQuota(
     return emptyQuota("storage-invalid", "Saved account data is invalid.");
   }
   if (state?.reloginRequired) {
-    return quotaFromState(state, "relogin-required", "Sign in again to refresh quota.");
+    return quotaFromState(
+      state,
+      "relogin-required",
+      state.provenance === "cache-fallback" && state.info
+        ? "Quota refresh failed. Showing the cached value."
+        : "Sign in again to refresh quota.",
+    );
   }
   if (!state) {
     return emptyQuota("no-data", "Quota has not been loaded yet.");
@@ -339,10 +375,13 @@ function buildQuota(
     return quotaFromState(state, "unavailable", "A usable quota window is unavailable.");
   }
   const remaining = getRemainingQuotaPercent(window);
+  const message = state.provenance === "cache-fallback" && !state.loading
+    ? "Quota refresh failed. Showing the cached value."
+    : remaining <= 0 ? "The selected quota window is exhausted." : null;
   return quotaFromState(
     state,
     remaining <= 0 ? "exhausted" : "available",
-    remaining <= 0 ? "The selected quota window is exhausted." : null,
+    message,
   );
 }
 
@@ -368,6 +407,8 @@ function quotaFromState(
     message,
     queriedAt: toIso(state.queriedAt),
     refreshAttemptedAt: toIso(state.refreshAttemptedAt),
+    unavailableReasonCode: safeQuotaUnavailableCode(info?.unavailableReason?.code),
+    fallbackReasonCode: safeQuotaUnavailableCode(state.fallbackReasonCode),
   };
 }
 
@@ -382,7 +423,24 @@ function emptyQuota(status: DashboardQuotaStatus, message: string): DashboardQuo
     message,
     queriedAt: null,
     refreshAttemptedAt: null,
+    unavailableReasonCode: null,
+    fallbackReasonCode: null,
   };
+}
+
+const QUOTA_UNAVAILABLE_CODES = new Set<QuotaUnavailableCode>([
+  "workspace_deactivated",
+  "missing_auth_tokens",
+  "invalid_auth_token",
+  "relogin_required",
+  "quota_token_rejected",
+  "request_failed",
+]);
+
+function safeQuotaUnavailableCode(value: unknown): QuotaUnavailableCode | null {
+  return typeof value === "string" && QUOTA_UNAVAILABLE_CODES.has(value as QuotaUnavailableCode)
+    ? value as QuotaUnavailableCode
+    : null;
 }
 
 interface QuotaWindowSource {
@@ -564,6 +622,10 @@ function buildUsage(snapshot: UsageSnapshot): DashboardUsage {
       compactTokens: formatCompactTokens(subjectTotal),
     };
   });
+  const subjectMetadata = new Map(snapshot.subjects.map((subject) => [subject.id, {
+    kind: subject.kind,
+    label: subject.label,
+  }]));
   return {
     status: snapshot.status,
     coverage: snapshot.coverage,
@@ -583,6 +645,29 @@ function buildUsage(snapshot: UsageSnapshot): DashboardUsage {
     trackingStartedAt: toIso(snapshot.trackingStartedAt),
     updatedAt: snapshot.status === "uninitialized" ? null : toIso(snapshot.updatedAt),
     segments,
+    history: {
+      days: snapshot.history.days.map((day) => ({
+        date: /^\d{4}-\d{2}-\d{2}$/.test(day.date) ? day.date : "",
+        total: projectTokens(day.total),
+        unattributed: projectTokens(day.unattributed),
+        estimated: projectTokens(day.estimated),
+        estimatedUnattributed: projectTokens(day.estimatedUnattributed),
+        subjects: day.subjects.map((subject) => {
+          const metadata = subjectMetadata.get(subject.id);
+          const kind = metadata?.kind ?? (subject.id.startsWith("account:")
+            ? "account"
+            : "provider");
+          return {
+            id: subject.id,
+            kind,
+            label: metadata?.label ?? (kind === "account" ? "Codex account" : "API provider"),
+            tokens: projectTokens(subject.tokens),
+            estimated: projectTokens(subject.estimated),
+          };
+        }),
+      })).filter((day) => day.date !== ""),
+      undated: projectTokens(snapshot.history.undated),
+    },
   };
 }
 

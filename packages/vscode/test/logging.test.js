@@ -187,10 +187,12 @@ function createVscodeMock() {
     },
     workspace: {
       getConfiguration(section) {
-        assert.equal(section, "codex-switchbridge");
+        assert.ok(section === "codex-switchbridge" || section === "http");
         return {
           get(_key, defaultValue) {
-            return config[_key] ?? defaultValue;
+            return section === "codex-switchbridge"
+              ? config[_key] ?? defaultValue
+              : defaultValue;
           },
           async update(key, value) {
             config[key] = value;
@@ -359,9 +361,10 @@ async function withDisabledIntervals(fn) {
   }
 }
 
-async function withSuccessfulHttps(fn) {
+async function withSuccessfulHttps(fn, requestLog = []) {
   const originalRequest = https.request;
   https.request = (requestOptions, handler) => {
+    requestLog.push(requestOptions);
     const hostname = requestOptions?.hostname;
     const body =
       hostname === "auth.openai.com"
@@ -615,8 +618,10 @@ async function withAccountRefreshLoggingScenario(options, runAssertions) {
     mocked.config.authDirectory = authDir;
     mocked.config.showStatusBar = true;
     mocked.config.detailedPerformanceLogging = options.detailedPerformanceLogging;
+    if (options.proxy !== undefined) mocked.config.proxy = options.proxy;
 
     await withDisabledIntervals(async () => {
+      const requestLog = [];
       await withSuccessfulHttps(async () => {
         const extension = loadExtensionWithMockedVscode(mocked.vscode);
         const context = createExtensionContext(mocked);
@@ -624,13 +629,13 @@ async function withAccountRefreshLoggingScenario(options, runAssertions) {
 
         await mocked.registeredCommands.get("codex-switchbridge.refreshQuota")();
 
-        await runAssertions(mocked);
+        await runAssertions(mocked, requestLog);
 
         for (const subscription of context.subscriptions.reverse()) {
           subscription?.dispose?.();
         }
         extension.deactivate();
-      });
+      }, requestLog);
     });
   } finally {
     core.setNamedAuthDir(undefined);
@@ -671,4 +676,23 @@ test("debug performance logging emits account refresh timings to the output chan
       true
     );
   });
+});
+
+test("configured quota proxy reaches saved-account requests without entering logs", async () => {
+  const secret = "extension-proxy-secret";
+  await withAccountRefreshLoggingScenario(
+    {
+      detailedPerformanceLogging: true,
+      proxy: `http://alice:${secret}@proxy.example:3128`,
+    },
+    async (mocked, requestLog) => {
+      const usageRequest = requestLog.find((request) => request.hostname === "chatgpt.com");
+      assert.ok(usageRequest);
+      assert.equal(usageRequest.agent?.proxy?.hostname, "proxy.example");
+      assert.doesNotMatch(
+        mocked.createdChannels[0].entries.map((entry) => entry.line).join("\n"),
+        new RegExp(`${secret}|proxy\\.example|alice`),
+      );
+    },
+  );
 });
