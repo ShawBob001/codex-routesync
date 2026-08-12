@@ -2838,7 +2838,596 @@ test("addAccount to cloud fails when the payload cannot be verified after write"
   });
 });
 
-test("reloginAccount updates the saved cloud auth without changing the active account or prompting reload", async (t) => {
+test("reloginAccount updates an active local account and marks reload recommended", async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-relogin-active-local-"));
+  const codexHome = path.join(tempRoot, ".codex");
+  const authDir = path.join(tempRoot, "saved-auth");
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
+
+  const previousAuth = makeAuthFile("acct-active", {
+    accessToken: "access-old",
+    refreshToken: "refresh-old",
+  });
+  core.setNamedAuthDir(authDir);
+  core.writeSavedAuthFile(path.join(authDir, "auth_active.json"), previousAuth);
+  core.setNamedAuthDir(undefined);
+  fs.writeFileSync(path.join(codexHome, "auth.json"), JSON.stringify(previousAuth, null, 2), "utf-8");
+
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousNamedAuthDir = process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+  process.env.CODEX_HOME = codexHome;
+  delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+
+  try {
+    const mocked = createVscodeMock({
+      authDirectory: authDir,
+      reloadWindowAfterSwitch: "statusBar",
+      showStatusBar: true,
+      globalStateValues: {
+        "codex-switchbridge.currentSavedSelection": {
+          kind: "account",
+          name: "active",
+          source: "local",
+        },
+      },
+      warningResponses: ["Re-login"],
+      infoResponses: [
+        () => {
+          writeLastTerminalAuth(mocked, makeAuthFile("acct-active", {
+            accessToken: "access-new",
+            refreshToken: "refresh-new",
+          }));
+          return "Done";
+        },
+      ],
+    });
+
+    await withDisabledIntervals(() =>
+      withSuccessfulHttps(async () => {
+        const extension = loadExtensionWithMockedVscode(mocked.vscode);
+        const context = createExtensionContext(mocked);
+        await extension.activate(context);
+
+        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
+          .filter((item) => item.account.name === "active" && item.account.source === "local");
+        await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
+        await waitForRefreshCoordinatorIdle(context);
+
+        const terminalHome = mocked.createdTerminals.at(-1)?.options?.env?.CODEX_HOME;
+        assert.equal(typeof terminalHome, "string");
+        assert.notEqual(terminalHome, codexHome);
+        const savedAuth = JSON.parse(fs.readFileSync(path.join(authDir, "auth_active.json"), "utf-8"));
+        const liveAuth = JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8"));
+        assert.equal(savedAuth.tokens.access_token, "access-new");
+        assert.equal(savedAuth.tokens.refresh_token, "refresh-new");
+        assert.equal(liveAuth.tokens.access_token, "access-new");
+        assert.equal(liveAuth.tokens.refresh_token, "refresh-new");
+        assert.deepEqual(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"), {
+          kind: "account",
+          name: "active",
+          source: "local",
+        });
+        assert.equal(
+          mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length,
+          0,
+        );
+        const statusBarManager = context.subscriptions.find(
+          (subscription) => typeof subscription?.getReloadRecommendation === "function",
+        );
+        assert.ok(statusBarManager);
+        const recommendation = statusBarManager.getReloadRecommendation();
+        assert.equal(recommendation.recommended, true);
+        assert.match(recommendation.reason ?? "", /account "active"/i);
+        const reloadItem = mocked.createdStatusBarItems.find(
+          (item) => item.command === "codex-switchbridge.reloadWindow",
+        );
+        assert.ok(reloadItem);
+        assert.equal(reloadItem.visible, true);
+        assert.equal(mocked.errorMessages.length, 0);
+
+        for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+      })
+    );
+  } finally {
+    core.setNamedAuthDir(undefined);
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousNamedAuthDir === undefined) delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+    else process.env.CODEX_SWITCHBRIDGE_AUTH_DIR = previousNamedAuthDir;
+  }
+
+  await t.test("cleanup", () => fs.rmSync(tempRoot, { recursive: true, force: true }));
+});
+
+test("reloginAccount activation does not asynchronously rewrite the current selection marker", async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-relogin-marker-race-"));
+  const codexHome = path.join(tempRoot, ".codex");
+  const authDir = path.join(tempRoot, "saved-auth");
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
+
+  const oldAuth = makeAuthFile("acct-a", {
+    accessToken: "access-a-old",
+    refreshToken: "refresh-a-old",
+  });
+  core.setNamedAuthDir(authDir);
+  core.writeSavedAuthFile(path.join(authDir, "auth_a.json"), oldAuth);
+  core.setNamedAuthDir(undefined);
+  fs.writeFileSync(path.join(codexHome, "auth.json"), JSON.stringify(oldAuth, null, 2), "utf-8");
+
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousNamedAuthDir = process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+  process.env.CODEX_HOME = codexHome;
+  delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+
+  let armed = false;
+  let markerWritesAfterLogin = 0;
+  try {
+    const currentSelectionKey = "codex-switchbridge.currentSavedSelection";
+    const mocked = createVscodeMock({
+      authDirectory: authDir,
+      reloadWindowAfterSwitch: "never",
+      globalStateValues: {
+        [currentSelectionKey]: { kind: "account", name: "a", source: "local" },
+      },
+      warningResponses: ["Re-login"],
+      infoResponses: [
+        () => {
+          writeLastTerminalAuth(mocked, makeAuthFile("acct-a", {
+            accessToken: "access-a-new",
+            refreshToken: "refresh-a-new",
+          }));
+          armed = true;
+          return "Done";
+        },
+      ],
+      afterGlobalStateUpdate(key) {
+        if (armed && key === currentSelectionKey) {
+          markerWritesAfterLogin += 1;
+        }
+      },
+    });
+
+    await withDisabledIntervals(() =>
+      withSuccessfulHttps(async () => {
+        const extension = loadExtensionWithMockedVscode(mocked.vscode);
+        const context = createExtensionContext(mocked);
+        await extension.activate(context);
+        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const [accountAItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
+          .filter((item) => item.account.name === "a" && item.account.source === "local");
+
+        await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountAItem);
+        await waitForRefreshCoordinatorIdle(context);
+
+        const savedAuth = JSON.parse(fs.readFileSync(path.join(authDir, "auth_a.json"), "utf-8"));
+        const liveAuth = JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8"));
+        assert.equal(savedAuth.tokens.access_token, "access-a-new");
+        assert.equal(liveAuth.tokens.access_token, "access-a-new");
+        assert.equal(markerWritesAfterLogin, 0);
+        assert.deepEqual(mocked.globalStateValues.get(currentSelectionKey), {
+          kind: "account",
+          name: "a",
+          source: "local",
+        });
+
+        for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+      })
+    );
+  } finally {
+    core.setNamedAuthDir(undefined);
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousNamedAuthDir === undefined) delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+    else process.env.CODEX_SWITCHBRIDGE_AUTH_DIR = previousNamedAuthDir;
+  }
+
+  await t.test("cleanup", () => fs.rmSync(tempRoot, { recursive: true, force: true }));
+});
+
+test("reloginAccount does not activate or reload when selection changes while login is open", async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-relogin-activation-race-"));
+  const codexHome = path.join(tempRoot, ".codex");
+  const authDir = path.join(tempRoot, "saved-auth");
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
+
+  const accountAOldAuth = makeAuthFile("acct-a", {
+    accessToken: "access-a-old",
+    refreshToken: "refresh-a-old",
+  });
+  const accountBAuth = makeAuthFile("acct-b", {
+    accessToken: "access-b",
+    refreshToken: "refresh-b",
+  });
+  core.setNamedAuthDir(authDir);
+  core.writeSavedAuthFile(path.join(authDir, "auth_a.json"), accountAOldAuth);
+  core.writeSavedAuthFile(path.join(authDir, "auth_b.json"), accountBAuth);
+  core.setNamedAuthDir(undefined);
+  fs.writeFileSync(path.join(codexHome, "auth.json"), JSON.stringify(accountAOldAuth, null, 2), "utf-8");
+
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousNamedAuthDir = process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+  process.env.CODEX_HOME = codexHome;
+  delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+
+  try {
+    const currentSelectionKey = "codex-switchbridge.currentSavedSelection";
+    const mocked = createVscodeMock({
+      authDirectory: authDir,
+      reloadWindowAfterSwitch: "always",
+      globalStateValues: {
+        [currentSelectionKey]: { kind: "account", name: "a", source: "local" },
+      },
+      warningResponses: ["Re-login"],
+      infoResponses: [
+        () => {
+          writeLastTerminalAuth(mocked, makeAuthFile("acct-a", {
+            accessToken: "access-a-new",
+            refreshToken: "refresh-a-new",
+          }));
+          core.activateAccountAuth(accountBAuth, {
+            source: "test-race",
+            target: "account:local:b",
+          });
+          mocked.globalStateValues.set(currentSelectionKey, {
+            kind: "account",
+            name: "b",
+            source: "local",
+          });
+          return "Done";
+        },
+      ],
+    });
+
+    await withDisabledIntervals(() =>
+      withSuccessfulHttps(async () => {
+        const extension = loadExtensionWithMockedVscode(mocked.vscode);
+        const context = createExtensionContext(mocked);
+        await extension.activate(context);
+        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const [accountAItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
+          .filter((item) => item.account.name === "a" && item.account.source === "local");
+
+        await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountAItem);
+        await waitForRefreshCoordinatorIdle(context);
+
+        const savedAccountA = JSON.parse(fs.readFileSync(path.join(authDir, "auth_a.json"), "utf-8"));
+        const liveAuth = JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8"));
+        assert.equal(savedAccountA.tokens.access_token, "access-a-new");
+        assert.equal(savedAccountA.tokens.refresh_token, "refresh-a-new");
+        assert.equal(liveAuth.tokens.account_id, "acct-b");
+        assert.equal(liveAuth.tokens.access_token, "access-b");
+        assert.deepEqual(mocked.globalStateValues.get(currentSelectionKey), {
+          kind: "account",
+          name: "b",
+          source: "local",
+        });
+        assert.equal(
+          mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length,
+          0,
+        );
+
+        for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+      })
+    );
+  } finally {
+    core.setNamedAuthDir(undefined);
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousNamedAuthDir === undefined) delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+    else process.env.CODEX_SWITCHBRIDGE_AUTH_DIR = previousNamedAuthDir;
+  }
+
+  await t.test("cleanup", () => fs.rmSync(tempRoot, { recursive: true, force: true }));
+});
+
+test("reloginAccount activates updated cloud auth with the new sync metadata and reloads once", async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-relogin-active-cloud-"));
+  const codexHome = path.join(tempRoot, ".codex");
+  const authDir = path.join(tempRoot, "saved-auth");
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
+  const passphrase = "active-cloud-passphrase";
+  const oldAuth = makeAuthFile("acct-cloud", { accessToken: "access-old", refreshToken: "refresh-old" });
+  core.setSavedAuthPassphrase(passphrase);
+  const cloudEntry = core.serializeSavedValue("saved_auth", oldAuth, { requireEncryption: true });
+  cloudEntry.entryVersion = 1;
+  cloudEntry.updatedAt = "2026-08-01T00:00:00.000Z";
+  core.setSavedAuthPassphrase(null);
+  fs.writeFileSync(path.join(codexHome, "auth.json"), JSON.stringify(oldAuth, null, 2), "utf-8");
+
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousNamedAuthDir = process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+  process.env.CODEX_HOME = codexHome;
+  delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+
+  try {
+    const mocked = createVscodeMock({
+      authDirectory: authDir,
+      reloadWindowAfterSwitch: "always",
+      secretValues: { [STORAGE_SECRET_KEY]: passphrase },
+      syncedStorage: { version: 1, accounts: { cloud: cloudEntry }, providers: {} },
+      globalStateValues: {
+        "codex-switchbridge.currentSavedSelection": {
+          kind: "account",
+          name: "cloud",
+          source: "cloud",
+          entryVersion: 1,
+          updatedAt: "2026-08-01T00:00:00.000Z",
+        },
+      },
+      warningResponses: ["Re-login"],
+      infoResponses: [
+        () => {
+          writeLastTerminalAuth(mocked, makeAuthFile("acct-cloud", {
+            accessToken: "access-new",
+            refreshToken: "refresh-new",
+          }));
+          return "Done";
+        },
+      ],
+    });
+
+    await withDisabledIntervals(() =>
+      withSuccessfulHttps(async () => {
+        const extension = loadExtensionWithMockedVscode(mocked.vscode);
+        const context = createExtensionContext(mocked);
+        await extension.activate(context);
+        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
+          .filter((item) => item.account.name === "cloud" && item.account.source === "cloud");
+
+        await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(cloudItem);
+        await waitForRefreshCoordinatorIdle(context);
+
+        const savedAuth = readCloudAccount(mocked.config, "cloud", passphrase);
+        const liveAuth = JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8"));
+        const envelope = getCloudEnvelope(mocked.config, "account", "cloud");
+        const markerBeforeReconcile = mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection");
+        assert.equal(savedAuth.tokens.access_token, "access-new");
+        assert.equal(liveAuth.tokens.access_token, "access-new");
+        assert.equal(envelope.entryVersion, 2);
+        assert.equal(markerBeforeReconcile?.kind, "account");
+        assert.equal(markerBeforeReconcile?.name, "cloud");
+        assert.equal(markerBeforeReconcile?.source, "cloud");
+        assert.equal(markerBeforeReconcile?.entryVersion, 1);
+        assert.equal(markerBeforeReconcile?.updatedAt, "2026-08-01T00:00:00.000Z");
+        assert.notEqual(mocked.createdTerminals.at(-1)?.options?.env?.CODEX_HOME, codexHome);
+        assert.equal(mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length, 1);
+        assert.equal(mocked.errorMessages.length, 0);
+
+        await mocked.registeredCommands.get("codex-switchbridge.useAccount")(cloudItem);
+        await waitForRefreshCoordinatorIdle(context);
+        const markerAfterReconcile = mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection");
+        assert.equal(markerAfterReconcile?.entryVersion, envelope.entryVersion);
+        assert.equal(markerAfterReconcile?.updatedAt, envelope.updatedAt);
+        assert.equal(mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length, 1);
+
+        for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+      })
+    );
+  } finally {
+    core.setSavedAuthPassphrase(null);
+    core.setNamedAuthDir(undefined);
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousNamedAuthDir === undefined) delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+    else process.env.CODEX_SWITCHBRIDGE_AUTH_DIR = previousNamedAuthDir;
+  }
+
+  await t.test("cleanup", () => fs.rmSync(tempRoot, { recursive: true, force: true }));
+});
+
+test("reloginAccount rejects a different identity without changing saved or runtime state", async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-relogin-identity-mismatch-"));
+  const codexHome = path.join(tempRoot, ".codex");
+  const authDir = path.join(tempRoot, "saved-auth");
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
+  const auth = makeAuthFile("acct-active", { accessToken: "access-old", refreshToken: "refresh-old" });
+  core.setNamedAuthDir(authDir);
+  core.writeSavedAuthFile(path.join(authDir, "auth_active.json"), auth);
+  core.setNamedAuthDir(undefined);
+  fs.writeFileSync(path.join(codexHome, "auth.json"), JSON.stringify(auth, null, 2), "utf-8");
+
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousNamedAuthDir = process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+  process.env.CODEX_HOME = codexHome;
+  delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+
+  try {
+    const mocked = createVscodeMock({
+      authDirectory: authDir,
+      reloadWindowAfterSwitch: "always",
+      warningResponses: ["Re-login"],
+      infoResponses: [
+        () => {
+          writeLastTerminalAuth(mocked, makeAuthFile("acct-other", {
+            accessToken: "access-other",
+            refreshToken: "refresh-other",
+          }));
+          return "Done";
+        },
+      ],
+    });
+
+    await withDisabledIntervals(() =>
+      withSuccessfulHttps(async () => {
+        const extension = loadExtensionWithMockedVscode(mocked.vscode);
+        const context = createExtensionContext(mocked);
+        await extension.activate(context);
+        const savedBefore = fs.readFileSync(path.join(authDir, "auth_active.json"));
+        const liveBefore = fs.readFileSync(path.join(codexHome, "auth.json"));
+        const markerBefore = structuredClone(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"));
+        const routeBefore = structuredClone(core.getSharedHistoryRouteState());
+        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
+          .filter((item) => item.account.name === "active" && item.account.source === "local");
+
+        await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
+
+        assert.deepEqual(fs.readFileSync(path.join(authDir, "auth_active.json")), savedBefore);
+        assert.deepEqual(fs.readFileSync(path.join(codexHome, "auth.json")), liveBefore);
+        assert.deepEqual(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"), markerBefore);
+        assert.deepEqual(core.getSharedHistoryRouteState(), routeBefore);
+        assert.match(mocked.errorMessages.at(-1)?.message ?? "", /different account|overwrite was rejected/i);
+        assert.equal(mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length, 0);
+
+        for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+        await waitForRefreshCoordinatorIdle(context);
+      })
+    );
+  } finally {
+    core.setNamedAuthDir(undefined);
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousNamedAuthDir === undefined) delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+    else process.env.CODEX_SWITCHBRIDGE_AUTH_DIR = previousNamedAuthDir;
+  }
+
+  await t.test("cleanup", () => fs.rmSync(tempRoot, { recursive: true, force: true }));
+});
+
+test("reloginAccount rejects a cloud login result without a stable identity", async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-relogin-cloud-missing-identity-"));
+  const codexHome = path.join(tempRoot, ".codex");
+  const authDir = path.join(tempRoot, "saved-auth");
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
+  const passphrase = "missing-identity-passphrase";
+  const auth = makeAuthFile("acct-cloud", { accessToken: "access-old", refreshToken: "refresh-old" });
+  core.setSavedAuthPassphrase(passphrase);
+  const cloudEntry = core.serializeSavedValue("saved_auth", auth, { requireEncryption: true });
+  core.setSavedAuthPassphrase(null);
+  fs.writeFileSync(path.join(codexHome, "auth.json"), JSON.stringify(auth, null, 2), "utf-8");
+
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousNamedAuthDir = process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+  process.env.CODEX_HOME = codexHome;
+  delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+
+  try {
+    const mocked = createVscodeMock({
+      authDirectory: authDir,
+      reloadWindowAfterSwitch: "always",
+      secretValues: { [STORAGE_SECRET_KEY]: passphrase },
+      syncedStorage: { version: 1, accounts: { cloud: cloudEntry }, providers: {} },
+      warningResponses: ["Re-login"],
+      infoResponses: [
+        () => {
+          writeLastTerminalAuth(mocked, {
+            tokens: {
+              access_token: "access-without-identity",
+              refresh_token: "refresh-without-identity",
+            },
+          });
+          return "Done";
+        },
+      ],
+    });
+
+    await withDisabledIntervals(() =>
+      withSuccessfulHttps(async () => {
+        const extension = loadExtensionWithMockedVscode(mocked.vscode);
+        const context = createExtensionContext(mocked);
+        await extension.activate(context);
+        const savedBefore = structuredClone(getCloudEnvelope(mocked.config, "account", "cloud"));
+        const liveBefore = fs.readFileSync(path.join(codexHome, "auth.json"));
+        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
+          .filter((item) => item.account.name === "cloud" && item.account.source === "cloud");
+
+        await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
+
+        assert.deepEqual(getCloudEnvelope(mocked.config, "account", "cloud"), savedBefore);
+        assert.deepEqual(fs.readFileSync(path.join(codexHome, "auth.json")), liveBefore);
+        assert.match(mocked.errorMessages.at(-1)?.message ?? "", /stable identity|identity/i);
+        assert.equal(mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length, 0);
+
+        for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+        await waitForRefreshCoordinatorIdle(context);
+      })
+    );
+  } finally {
+    core.setSavedAuthPassphrase(null);
+    core.setNamedAuthDir(undefined);
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousNamedAuthDir === undefined) delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+    else process.env.CODEX_SWITCHBRIDGE_AUTH_DIR = previousNamedAuthDir;
+  }
+
+  await t.test("cleanup", () => fs.rmSync(tempRoot, { recursive: true, force: true }));
+});
+
+test("reloginAccount leaves state unchanged when Done has no transient auth", async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-relogin-missing-auth-"));
+  const codexHome = path.join(tempRoot, ".codex");
+  const authDir = path.join(tempRoot, "saved-auth");
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
+  const auth = makeAuthFile("acct-active", { accessToken: "access-old", refreshToken: "refresh-old" });
+  core.setNamedAuthDir(authDir);
+  core.writeSavedAuthFile(path.join(authDir, "auth_active.json"), auth);
+  core.setNamedAuthDir(undefined);
+  fs.writeFileSync(path.join(codexHome, "auth.json"), JSON.stringify(auth, null, 2), "utf-8");
+
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousNamedAuthDir = process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+  process.env.CODEX_HOME = codexHome;
+  delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+
+  try {
+    const mocked = createVscodeMock({
+      authDirectory: authDir,
+      reloadWindowAfterSwitch: "always",
+      warningResponses: ["Re-login"],
+      infoResponses: ["Done"],
+    });
+    await withDisabledIntervals(() =>
+      withSuccessfulHttps(async () => {
+        const extension = loadExtensionWithMockedVscode(mocked.vscode);
+        const context = createExtensionContext(mocked);
+        await extension.activate(context);
+        const savedBefore = fs.readFileSync(path.join(authDir, "auth_active.json"));
+        const liveBefore = fs.readFileSync(path.join(codexHome, "auth.json"));
+        const markerBefore = structuredClone(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"));
+        const routeBefore = structuredClone(core.getSharedHistoryRouteState());
+
+        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
+          .filter((item) => item.account.name === "active" && item.account.source === "local");
+        await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
+
+        assert.deepEqual(fs.readFileSync(path.join(authDir, "auth_active.json")), savedBefore);
+        assert.deepEqual(fs.readFileSync(path.join(codexHome, "auth.json")), liveBefore);
+        assert.deepEqual(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"), markerBefore);
+        assert.deepEqual(core.getSharedHistoryRouteState(), routeBefore);
+        assert.match(mocked.errorMessages.at(-1)?.message ?? "", /auth\.json|login result/i);
+        assert.equal(
+          mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length,
+          0,
+        );
+
+        for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+        await waitForRefreshCoordinatorIdle(context);
+      })
+    );
+  } finally {
+    core.setNamedAuthDir(undefined);
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousNamedAuthDir === undefined) delete process.env.CODEX_SWITCHBRIDGE_AUTH_DIR;
+    else process.env.CODEX_SWITCHBRIDGE_AUTH_DIR = previousNamedAuthDir;
+  }
+
+  await t.test("cleanup", () => fs.rmSync(tempRoot, { recursive: true, force: true }));
+});
+
+test("reloginAccount updates an inactive cloud account without changing the active selection or reloading", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-relogin-cloud-globalstate-"));
   const codexHome = path.join(tempRoot, ".codex");
   const authDir = path.join(tempRoot, "saved-auth");
@@ -2869,6 +3458,7 @@ test("reloginAccount updates the saved cloud auth without changing the active ac
     core.setSavedAuthPassphrase("cloud-passphrase");
     const mocked = createVscodeMock({
       authDirectory: authDir,
+      reloadWindowAfterSwitch: "always",
       secretValues: {
         [STORAGE_SECRET_KEY]: "cloud-passphrase",
       },
@@ -2876,7 +3466,7 @@ test("reloginAccount updates the saved cloud auth without changing the active ac
       infoResponses: [
         () => {
           fs.writeFileSync(
-            path.join(codexHome, "auth.json"),
+            path.join(mocked.createdTerminals.at(-1).options.env.CODEX_HOME, "auth.json"),
             JSON.stringify(makeAuthFile("acct-cloud", {
               accessToken: "access-new",
               refreshToken: "refresh-new",
@@ -4019,7 +4609,7 @@ test("provider switches keep model_provider when shared history setting is disab
   });
 });
 
-test("failed relogin restores local provider through shared openai route", async (t) => {
+test("cancelled relogin leaves an active local provider byte-for-byte unchanged", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-shared-relogin-restore-"));
   const codexHome = path.join(tempRoot, ".codex");
   const authDir = path.join(tempRoot, "saved-auth");
@@ -4070,20 +4660,32 @@ test("failed relogin restores local provider through shared openai route", async
           .filter((item) => item.provider?.name === "proxy" && item.provider?.source === "local");
         await mocked.registeredCommands.get("codex-switchbridge.switchProvider")(providerItem);
         assert.equal(core.getSharedHistoryRouteState()?.activeProvider, "proxy");
+        const liveAuthBefore = fs.readFileSync(path.join(codexHome, "auth.json"));
+        const configBefore = fs.readFileSync(path.join(codexHome, "config.toml"));
+        const markerBefore = structuredClone(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"));
+        const routeBefore = structuredClone(core.getSharedHistoryRouteState());
+        core.setNamedAuthDir(authDir);
+        const savedProviderBefore = structuredClone(core.readProviderProfileResult("proxy"));
+        core.setNamedAuthDir(undefined);
 
         const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "alpha" && item.account.source === "local");
         await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
 
-        assert.equal(
-          mocked.informationMessages.some((entry) => entry.message.includes("Exited provider mode")),
-          true,
-        );
-        const config = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
-        assert.doesNotMatch(config, /^model_provider\s*=/m);
-        assert.match(config, /^openai_base_url = "https:\/\/proxy\.example\.com\/v1"$/m);
-        assert.equal(core.getSharedHistoryRouteState()?.activeProvider, "proxy");
+        assert.equal(mocked.informationMessages.some((entry) => entry.message.includes("Exited provider mode")), false);
+        const terminalHome = mocked.createdTerminals.at(-1)?.options?.env?.CODEX_HOME;
+        assert.equal(typeof terminalHome, "string");
+        assert.notEqual(terminalHome, codexHome);
+        assert.deepEqual(fs.readFileSync(path.join(codexHome, "auth.json")), liveAuthBefore);
+        assert.deepEqual(fs.readFileSync(path.join(codexHome, "config.toml")), configBefore);
+        assert.deepEqual(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"), markerBefore);
+        assert.deepEqual(core.getSharedHistoryRouteState(), routeBefore);
+        core.setNamedAuthDir(authDir);
+        const savedProviderAfter = core.readProviderProfileResult("proxy");
+        core.setNamedAuthDir(undefined);
+        assert.deepEqual(savedProviderAfter, savedProviderBefore);
+        assert.equal(mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length, 0);
 
         for (const subscription of context.subscriptions.reverse()) {
           subscription?.dispose?.();
@@ -4110,7 +4712,7 @@ test("failed relogin restores local provider through shared openai route", async
   });
 });
 
-test("cancelled relogin saves active cloud provider auth without touching same-name local provider", async (t) => {
+test("cancelled relogin leaves an active cloud provider and same-name local provider unchanged", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-cloud-relogin-source-aware-"));
   const codexHome = path.join(tempRoot, ".codex");
   const authDir = path.join(tempRoot, "saved-auth");
@@ -4193,31 +4795,35 @@ test("cancelled relogin saves active cloud provider auth without touching same-n
           JSON.stringify({ OPENAI_API_KEY: "sk-cloud-rotated-before-login" }, null, 2),
           "utf-8",
         );
+        const liveAuthBefore = fs.readFileSync(path.join(codexHome, "auth.json"));
+        const configBefore = fs.readFileSync(path.join(codexHome, "config.toml"));
+        const routeBefore = structuredClone(core.getSharedHistoryRouteState());
+        const markerBefore = structuredClone(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"));
+        const cloudProviderBefore = structuredClone(getCloudEnvelope(mocked.config, "provider", "proxy"));
+        core.setNamedAuthDir(authDir);
+        const localProviderBefore = structuredClone(core.readProviderProfileResult("proxy"));
+        core.setNamedAuthDir(undefined);
 
         const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "alpha" && item.account.source === "local");
         await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
 
-        const savedCloudProvider = readCloudProvider(
-          mocked.config,
-          "proxy",
-          "cloud-relogin-passphrase",
-        );
-        assert.equal(
-          savedCloudProvider.auth.OPENAI_API_KEY,
-          "sk-cloud-rotated-before-login",
-        );
+        const savedCloudProvider = readCloudProvider(mocked.config, "proxy", "cloud-relogin-passphrase");
+        assert.equal(savedCloudProvider.auth.OPENAI_API_KEY, "sk-cloud-old");
+        assert.deepEqual(getCloudEnvelope(mocked.config, "provider", "proxy"), cloudProviderBefore);
         core.setNamedAuthDir(authDir);
         const savedLocalProvider = core.readProviderProfileResult("proxy");
         core.setNamedAuthDir(undefined);
-        assert.equal(savedLocalProvider.status, "ok");
-        assert.equal(savedLocalProvider.value.auth.OPENAI_API_KEY, "sk-local-unchanged");
-        assert.deepEqual(
-          JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8")),
-          { OPENAI_API_KEY: "sk-cloud-rotated-before-login" },
-        );
-        assert.equal(core.getSharedHistoryRouteState()?.activeProvider, "proxy");
+        assert.deepEqual(savedLocalProvider, localProviderBefore);
+        assert.deepEqual(fs.readFileSync(path.join(codexHome, "auth.json")), liveAuthBefore);
+        assert.deepEqual(fs.readFileSync(path.join(codexHome, "config.toml")), configBefore);
+        assert.deepEqual(core.getSharedHistoryRouteState(), routeBefore);
+        assert.deepEqual(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"), markerBefore);
+        const terminalHome = mocked.createdTerminals.at(-1)?.options?.env?.CODEX_HOME;
+        assert.equal(typeof terminalHome, "string");
+        assert.notEqual(terminalHome, codexHome);
+        assert.equal(mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length, 0);
         assert.equal(mocked.errorMessages.length, 0);
 
         for (const subscription of context.subscriptions.reverse()) {
