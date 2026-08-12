@@ -16,7 +16,16 @@ function resetAfter(milliseconds) {
 }
 
 test("missing and invalid reset times are unavailable", () => {
-  for (const resetsAt of [undefined, null, "", "not-a-date"]) {
+  for (const resetsAt of [
+    undefined,
+    null,
+    "",
+    "not-a-date",
+    "08/13/2026",
+    "2026-08-13",
+    "2026-02-30T00:00:00.000Z",
+    "2026-08-13T12:00:00+08:00",
+  ]) {
     assert.deepEqual(getResetCountdown(resetsAt, NOW_MS), { kind: "unavailable" });
     assert.equal(parseResetEpochMs(resetsAt), null);
   }

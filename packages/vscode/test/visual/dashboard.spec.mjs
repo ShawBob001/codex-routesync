@@ -17,6 +17,10 @@ const themes = {
       "--vscode-foreground": "#d4d4d4",
       "--vscode-descriptionForeground": "#a7a7a7",
       "--vscode-sideBar-background": "#181818",
+      "--vscode-editor-background": "#1e1e1e",
+      "--vscode-editor-foreground": "#d4d4d4",
+      "--vscode-editorWidget-background": "#252526",
+      "--vscode-editorWidget-border": "#454545",
       "--vscode-sideBarSectionHeader-border": "#353535",
       "--vscode-panel-border": "#3b3b3b",
       "--vscode-editorWidget-background": "#252526",
@@ -30,6 +34,9 @@ const themes = {
       "--vscode-textLink-foreground": "#4daafc",
       "--vscode-checkbox-background": "#313131",
       "--vscode-checkbox-border": "#6b6b6b",
+      "--vscode-dropdown-background": "#313131",
+      "--vscode-dropdown-foreground": "#f0f0f0",
+      "--vscode-dropdown-border": "#6b6b6b",
       "--vscode-badge-foreground": "#ffffff",
       "--vscode-badge-background": "#4d4d4d",
       "--vscode-progressBar-background": "#0e70c0",
@@ -52,6 +59,10 @@ const themes = {
       "--vscode-foreground": "#3b3b3b",
       "--vscode-descriptionForeground": "#646464",
       "--vscode-sideBar-background": "#f7f7f7",
+      "--vscode-editor-background": "#ffffff",
+      "--vscode-editor-foreground": "#3b3b3b",
+      "--vscode-editorWidget-background": "#f7f7f7",
+      "--vscode-editorWidget-border": "#d0d0d0",
       "--vscode-sideBarSectionHeader-border": "#d6d6d6",
       "--vscode-panel-border": "#d0d0d0",
       "--vscode-editorWidget-background": "#ffffff",
@@ -65,6 +76,9 @@ const themes = {
       "--vscode-textLink-foreground": "#006ab1",
       "--vscode-checkbox-background": "#ffffff",
       "--vscode-checkbox-border": "#8e8e8e",
+      "--vscode-dropdown-background": "#ffffff",
+      "--vscode-dropdown-foreground": "#333333",
+      "--vscode-dropdown-border": "#8e8e8e",
       "--vscode-badge-foreground": "#ffffff",
       "--vscode-badge-background": "#676767",
       "--vscode-progressBar-background": "#0e70c0",
@@ -87,6 +101,10 @@ const themes = {
       "--vscode-foreground": "#ffffff",
       "--vscode-descriptionForeground": "#ffffff",
       "--vscode-sideBar-background": "#000000",
+      "--vscode-editor-background": "#000000",
+      "--vscode-editor-foreground": "#ffffff",
+      "--vscode-editorWidget-background": "#000000",
+      "--vscode-editorWidget-border": "#ffffff",
       "--vscode-panel-border": "#ffffff",
       "--vscode-focusBorder": "#f38518",
       "--vscode-button-foreground": "#000000",
@@ -98,6 +116,9 @@ const themes = {
       "--vscode-textLink-foreground": "#6fc3df",
       "--vscode-checkbox-background": "#000000",
       "--vscode-checkbox-border": "#ffffff",
+      "--vscode-dropdown-background": "#000000",
+      "--vscode-dropdown-foreground": "#ffffff",
+      "--vscode-dropdown-border": "#ffffff",
       "--vscode-badge-foreground": "#000000",
       "--vscode-badge-background": "#ffffff",
       "--vscode-charts-blue": "#6fc3df",
@@ -287,7 +308,24 @@ const fixtures = {
   }),
 };
 
-async function mount(page, model, { width, theme, reducedMotion = "reduce" }) {
+const localeEn = { preference: "auto", effective: "en" };
+const localeZh = { preference: "zh-cn", effective: "zh-cn" };
+
+async function sendState(page, state, revision, locale = localeEn) {
+  await page.evaluate(({ state, revision, locale }) => {
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { type: "dashboard.state", revision, locale, state },
+    }));
+  }, { state, revision, locale });
+}
+
+async function mount(page, model, {
+  width,
+  theme,
+  reducedMotion = "reduce",
+  locale = localeEn,
+  now = null,
+}) {
   await page.setViewportSize({ width, height: 900 });
   await page.emulateMedia({
     colorScheme: themes[theme].colorScheme,
@@ -295,7 +333,8 @@ async function mount(page, model, { width, theme, reducedMotion = "reduce" }) {
     reducedMotion,
   });
   await page.goto("about:blank");
-  await page.setContent("<!doctype html><html><head></head><body><main id='app' tabindex='-1'></main></body></html>");
+  if (now) await page.clock.install({ time: new Date(now) });
+  await page.setContent("<!doctype html><html lang='en'><head><title>Codex SwitchBridge</title></head><body><a class='skip-link' href='#app'>Skip to dashboard</a><main id='app' tabindex='-1'></main></body></html>");
   await page.evaluate(() => {
     const state = { persisted: undefined, outbound: [] };
     window.__dashboardHarness = state;
@@ -309,38 +348,40 @@ async function mount(page, model, { width, theme, reducedMotion = "reduce" }) {
   await page.addStyleTag({ content: `:root{${declarations};--vscode-font-family:Arial,sans-serif;--vscode-font-size:13px}` });
   await page.addStyleTag({ path: dashboardCss });
   await page.addScriptTag({ path: dashboardScript });
-  await page.evaluate((state) => {
-    window.dispatchEvent(new MessageEvent("message", {
-      data: { type: "dashboard.state", revision: 1, state },
-    }));
-  }, model);
+  await sendState(page, model, 1, locale);
   await expect(page.locator(".route-section")).toBeVisible();
 }
 
 async function assertLayout(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  const sections = await page.locator(".path-section").evaluateAll((nodes) => nodes.map((node) => {
+  const sections = await page.locator(".dashboard-card").evaluateAll((nodes) => nodes.map((node) => {
     const rect = node.getBoundingClientRect();
     return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
   }));
-  for (let index = 1; index < sections.length; index += 1) {
-    expect(sections[index].top).toBeGreaterThanOrEqual(sections[index - 1].bottom - 1);
+  for (let left = 0; left < sections.length; left += 1) {
+    for (let right = left + 1; right < sections.length; right += 1) {
+      const horizontal = Math.min(sections[left].right, sections[right].right)
+        - Math.max(sections[left].left, sections[right].left);
+      const vertical = Math.min(sections[left].bottom, sections[right].bottom)
+        - Math.max(sections[left].top, sections[right].top);
+      expect(horizontal > 1 && vertical > 1, `dashboard cards ${left} and ${right} overlap`).toBe(false);
+    }
   }
   for (const rect of sections) {
     expect(rect.left).toBeGreaterThanOrEqual(0);
     expect(rect.right).toBeLessThanOrEqual(await page.evaluate(() => innerWidth));
   }
-  const buttons = page.locator("button:visible, input:visible, summary:visible");
+  const buttons = page.locator("button:visible, input:visible, select:visible, summary:visible");
   expect(await buttons.count()).toBeGreaterThan(0);
 }
 
 async function assertKeyboardTraversal(page) {
-  const controls = page.locator("button:not([disabled]), input:not([disabled]), summary");
+  const controls = page.locator("a.skip-link, button:not([disabled]), input:not([disabled]), select:not([disabled]), summary");
   const count = await controls.count();
   expect(count).toBeGreaterThan(0);
-  await page.locator("body").click({ position: { x: 1, y: 1 } });
+  await controls.first().focus();
   for (let index = 0; index < count; index += 1) {
-    await page.keyboard.press("Tab");
+    if (index > 0) await page.keyboard.press("Tab");
     const control = controls.nth(index);
     expect(await control.evaluate((node) => document.activeElement === node)).toBe(true);
     expect(await control.evaluate((node) => {
@@ -372,6 +413,109 @@ for (const width of [240, 360, 480]) {
   }
 }
 
+for (const width of [720, 960, 1200]) {
+  test(`editor dashboard uses a wide graphical grid at ${width}px`, async ({ page }) => {
+    await mount(page, fixtures.accountReady, {
+      width,
+      theme: width === 960 ? "light" : "dark",
+      now: "2026-08-12T10:00:00.000Z",
+    });
+    await assertLayout(page);
+    await expect(page.locator("h1")).toHaveCount(1);
+    await expect(page.locator(".dashboard-header")).toBeVisible();
+    const columns = await page.locator(".dashboard-grid").evaluate((node) => (
+      getComputedStyle(node).gridTemplateColumns.split(" ").filter(Boolean).length
+    ));
+    expect(columns).toBeGreaterThanOrEqual(2);
+    const accountColumns = await page.locator(".account-list").evaluate((node) => (
+      getComputedStyle(node).gridTemplateColumns.split(" ").filter(Boolean).length
+    ));
+    expect(accountColumns).toBeGreaterThanOrEqual(2);
+  });
+}
+
+test("language control switches immediately when the host confirms a new locale", async ({ page }) => {
+  await mount(page, fixtures.accountReady, {
+    width: 960,
+    theme: "dark",
+    locale: localeEn,
+    now: "2026-08-12T10:00:00.000Z",
+  });
+  await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
+  await expect(page).toHaveTitle("Codex SwitchBridge Dashboard");
+  await page.getByLabel("Dashboard language").selectOption("zh-cn");
+  expect(await page.evaluate(() => window.__dashboardHarness.outbound.at(-1))).toMatchObject({
+    type: "dashboard.locale.set",
+    preference: "zh-cn",
+  });
+
+  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", {
+    data: {
+      type: "dashboard.state",
+      revision: 2,
+      locale: { preference: "zh-cn", effective: "fr" },
+      state,
+    },
+  })), fixtures.accountReady);
+  await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
+  await sendState(page, fixtures.accountReady, 2, localeZh);
+  await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
+  await expect(page).toHaveTitle("Codex SwitchBridge 仪表板");
+  await expect(page.getByRole("button", { name: "刷新", exact: true })).toBeVisible();
+  await expect(page.getByText("当前路由", { exact: true })).toBeVisible();
+  await expect(page.getByText("共享历史记录", { exact: true })).toBeVisible();
+  await expect(page.getByText("本地", { exact: true }).first()).toBeVisible();
+
+  await page.getByLabel("仪表板语言").selectOption("en");
+  await sendState(page, fixtures.accountReady, 3, { preference: "en", effective: "en" });
+  await expect(page.getByRole("button", { name: "Refresh", exact: true })).toBeVisible();
+});
+
+test("all quota windows show precise reset clocks and update without rerendering", async ({ page }) => {
+  await mount(page, fixtures.accountReady, {
+    width: 1200,
+    theme: "dark",
+    now: "2026-08-12T10:00:00.000Z",
+  });
+  const clocks = page.locator(".reset-clock");
+  await expect(clocks).toHaveCount(9);
+  await expect(page.getByText("Resets in 02h 00m 00s", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Upstream UTC: 2026-08-12T12:00:00.000Z", { exact: true }).first()).toBeVisible();
+  await expect(page.locator(".reset-local").first()).toContainText("12:00:00");
+  await expect(page.getByText("Live quota", { exact: true }).first()).toBeVisible();
+  const routeName = page.locator(".route-name");
+  await routeName.evaluate((node) => { node.dataset.clockIdentity = "preserved"; });
+  await page.clock.runFor(1_001);
+  await expect(page.getByText("Resets in 01h 59m 59s", { exact: true }).first()).toBeVisible();
+  await expect(routeName).toHaveAttribute("data-clock-identity", "preserved");
+});
+
+test("reset clocks expose due, missing, and invalid timestamps truthfully", async ({ page }) => {
+  const resetStates = baseModel();
+  resetStates.route = {
+    ...resetStates.route,
+    quota: quota("available", 68, {
+      fiveHour: { label: "5h", remainingPercent: 68, resetsAt: "2026-08-12T09:59:59.000Z", windowSeconds: 18000 },
+      secondary: { label: "7d", remainingPercent: 81, resetsAt: null, windowSeconds: 604800 },
+    }),
+  };
+  resetStates.otherAccounts = [
+    account("local:invalid", "Invalid reset", 42, {
+      quota: quota("available", 42, {
+        fiveHour: { label: "5h", remainingPercent: 42, resetsAt: "2026-02-30T00:00:00.000Z", windowSeconds: 18000 },
+        secondary: null,
+      }),
+    }),
+  ];
+  await mount(page, resetStates, {
+    width: 960,
+    theme: "light",
+    now: "2026-08-12T10:00:00.000Z",
+  });
+  await expect(page.getByText("Reset due", { exact: true })).toBeVisible();
+  expect(await page.getByText("Reset time unavailable", { exact: true }).count()).toBeGreaterThanOrEqual(2);
+});
+
 test("cached refresh preserves the last quota while exposing freshness", async ({ page }) => {
   await mount(page, fixtures.cachedRefreshing, { width: 360, theme: "dark" });
   await expect(page.locator(".quota-ring")).toHaveAttribute("aria-valuenow", "68");
@@ -385,7 +529,7 @@ test("provider, unknown quota, current actions, and reload semantics", async ({ 
   await expect(page.locator(".quota-ring")).toHaveCount(0);
   await expect(page.getByText("account quota unavailable", { exact: false })).toBeVisible();
 
-  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 2, state } })), fixtures.providerLocked);
+  await sendState(page, fixtures.providerLocked, 2, localeEn);
   await page.getByRole("button", { name: "Unlock", exact: true }).click();
   expect(await page.evaluate(() => window.__dashboardHarness.outbound.at(-1))).toMatchObject({
     type: "dashboard.action",
@@ -393,18 +537,18 @@ test("provider, unknown quota, current actions, and reload semantics", async ({ 
     targetId: "cloud:proxy",
   });
 
-  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 3, state } })), fixtures.failed);
+  await sendState(page, fixtures.failed, 3, localeEn);
   const failedRow = page.locator(".account-row").filter({ hasText: "Exhausted" });
   await expect(failedRow.locator('[role="progressbar"]')).toHaveCount(1);
   await expect(page.locator(".quota-ring")).toHaveAttribute("role", "status");
 
-  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 4, state } })), fixtures.relogin);
+  await sendState(page, fixtures.relogin, 4, localeEn);
   await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
 
-  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 5, state } })), fixtures.locked);
+  await sendState(page, fixtures.locked, 5, localeEn);
   await expect(page.getByRole("button", { name: "Unlock" }).first()).toBeVisible();
 
-  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 6, state } })), fixtures.reload);
+  await sendState(page, fixtures.reload, 6, localeEn);
   await expect(page.locator(".reload-strip")).toBeVisible();
   await expect(page.getByRole("button", { name: "Reload", exact: true })).toBeVisible();
   await assertLayout(page);
@@ -417,26 +561,28 @@ test("unknown, indexing, keyboard focus, stale revisions, and reduced motion", a
   await expect(page.getByRole("button", { name: "Add provider" })).toBeVisible();
   await assertLayout(page);
 
-  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 2, state } })), fixtures.indexing);
+  await sendState(page, fixtures.indexing, 2, localeEn);
   await expect(page.getByText("Indexing local Codex sessions...", { exact: true })).toBeVisible();
   await assertKeyboardTraversal(page);
   expect(await page.evaluate(() => getComputedStyle(document.querySelector(".switch-track")).transitionDuration)).toBe("0s");
 
-  await page.evaluate((state) => window.dispatchEvent(new MessageEvent("message", { data: { type: "dashboard.state", revision: 1, state } })), fixtures.provider);
+  await sendState(page, fixtures.provider, 1, localeEn);
   await expect(page.locator(".provider-signal")).toHaveCount(0);
 });
 
 test("captures representative visual states", async ({ page }) => {
   fs.mkdirSync(screenshotRoot, { recursive: true });
   const captures = [
-    ["account-240-dark.png", fixtures.accountReady, 240, "dark"],
-    ["account-360-light.png", fixtures.accountReady, 360, "light"],
-    ["provider-360-dark.png", fixtures.provider, 360, "dark"],
-    ["error-360-high-contrast.png", fixtures.failed, 360, "highContrast"],
-    ["reload-480-dark.png", fixtures.reload, 480, "dark"],
+    ["account-240-dark.png", fixtures.accountReady, 240, "dark", localeEn],
+    ["account-360-light.png", fixtures.accountReady, 360, "light", localeEn],
+    ["provider-360-dark.png", fixtures.provider, 360, "dark", localeEn],
+    ["error-360-high-contrast.png", fixtures.failed, 360, "highContrast", localeEn],
+    ["reload-480-dark.png", fixtures.reload, 480, "dark", localeEn],
+    ["account-1200-dark-en.png", fixtures.accountReady, 1200, "dark", localeEn],
+    ["account-960-light-zh.png", fixtures.accountReady, 960, "light", localeZh],
   ];
-  for (const [name, fixture, width, theme] of captures) {
-    await mount(page, fixture, { width, theme });
+  for (const [name, fixture, width, theme, captureLocale] of captures) {
+    await mount(page, fixture, { width, theme, locale: captureLocale, now: "2026-08-12T10:00:00.000Z" });
     await assertLayout(page);
     await page.screenshot({ path: path.join(screenshotRoot, name), fullPage: true });
   }

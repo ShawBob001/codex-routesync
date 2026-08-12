@@ -18,8 +18,13 @@ const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
 
 export function parseResetEpochMs(resetsAt: string | null | undefined): number | null {
   if (typeof resetsAt !== "string" || resetsAt.trim() === "") return null;
+  const match = /^([+-]?\d{4,6})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{3}))?Z$/.exec(resetsAt);
+  if (!match) return null;
   const epochMs = Date.parse(resetsAt);
-  return Number.isFinite(epochMs) ? epochMs : null;
+  if (!Number.isFinite(epochMs)) return null;
+  const normalized = new Date(epochMs).toISOString();
+  const expected = match[7] == null ? resetsAt.replace(/Z$/, ".000Z") : resetsAt;
+  return normalized === expected ? epochMs : null;
 }
 
 export function getResetCountdown(

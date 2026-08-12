@@ -31,6 +31,42 @@ test("English and Chinese dashboard catalogs have identical keys", () => {
   );
 });
 
+test("dashboard catalogs expose editor header, language, and precise reset copy", () => {
+  const required = new Set(REQUIRED_DASHBOARD_MESSAGE_KEYS);
+  for (const key of [
+    "dashboard.title",
+    "dashboard.subtitle.account",
+    "dashboard.subtitle.provider",
+    "dashboard.subtitle.unknown",
+    "language.label",
+    "language.auto",
+    "language.english",
+    "language.chinese",
+    "quota.reset.countdown",
+    "quota.reset.due",
+    "quota.reset.unavailable",
+    "quota.reset.local",
+    "quota.reset.utc",
+    "quota.queriedAt",
+  ]) {
+    assert.ok(required.has(key), `missing editor dashboard key: ${key}`);
+  }
+});
+
+test("English and Chinese translations use identical interpolation placeholders", () => {
+  const placeholders = (template) => [...template.matchAll(/\{([^{}]+)\}/g)]
+    .map((match) => match[1])
+    .sort();
+
+  for (const key of Object.keys(DASHBOARD_CATALOGS.en)) {
+    assert.deepEqual(
+      placeholders(DASHBOARD_CATALOGS["zh-cn"][key]),
+      placeholders(DASHBOARD_CATALOGS.en[key]),
+      `placeholder mismatch for ${key}`,
+    );
+  }
+});
+
 test("resolves automatic dashboard locales and falls back to English", () => {
   for (const language of ["zh-CN", "zh-Hans", "zh-cn", "ZH-hant"]) {
     assert.equal(resolveDashboardLocale("auto", language), "zh-cn");
