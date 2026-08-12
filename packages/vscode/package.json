@@ -563,14 +563,15 @@
     "build": "npm run typecheck && npm run bundle",
     "dev": "node ./scripts/build.mjs --watch",
     "test": "npm run build && node --test test/**/*.test.js",
+    "test:visual": "npm run build && playwright test test/visual/dashboard.spec.mjs --reporter=line",
     "package": "npm --prefix ../.. run build:core && npm run build && npx @vscode/vsce package --no-dependencies --allow-missing-repository",
     "publish:openvsx": "npm run package && node ./scripts/publish-openvsx.mjs",
     "prepublish:marketplace": "npm run package",
     "publish:marketplace": "node ./scripts/publish-marketplace.mjs",
     "publish:preview": "npx @vscode/vsce publish --no-dependencies --pre-release"
   },
-  "dependencies": {},
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.25.12",

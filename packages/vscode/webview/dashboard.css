@@ -814,8 +814,14 @@ summary:focus-visible,
   .quota-value,
   .quota-bar-fill,
   .usage-segment,
-  .state-dot {
+  .state-dot,
+  .switch-track,
+  .switch-track::after {
     forced-color-adjust: none;
+  }
+
+  .switch-track {
+    border-color: CanvasText;
   }
 }
 

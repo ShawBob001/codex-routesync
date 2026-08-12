@@ -105,6 +105,13 @@ test("production build includes dashboard browser assets and excludes raw webvie
   assert.doesNotMatch(ignored, /^dist\/webview\/\*\*$/m);
 });
 
+test("visual tests rebuild dashboard assets before launching Playwright", () => {
+  assert.match(
+    manifest.scripts["test:visual"],
+    /^npm run build && playwright test /,
+  );
+});
+
 test("Marketplace publishing rebuilds and publishes the exact versioned VSIX", () => {
   assert.equal(manifest.scripts["prepublish:marketplace"], "npm run package");
   assert.equal(

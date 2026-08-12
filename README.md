@@ -185,6 +185,15 @@ npm run build
 npm run verify
 ```
 
+Dashboard visual tests also need Playwright Chromium and its Linux system dependencies:
+
+```bash
+npx playwright install --with-deps chromium
+npm run test:visual -w packages/vscode
+```
+
+Minimal Linux images without `/etc/fonts/fonts.conf` must expose a valid Fontconfig configuration through `FONTCONFIG_FILE` and `FONTCONFIG_PATH`; otherwise Chromium cannot measure or render text.
+
 Project layout:
 
 ```text
