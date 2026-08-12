@@ -353,7 +353,15 @@ async function mount(page, model, {
 }
 
 async function assertLayout(page) {
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const overflow = await page.evaluate(() => ({
+    viewport: innerWidth,
+    scrollingElement: document.scrollingElement?.scrollWidth ?? 0,
+    documentElement: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth,
+    headerRight: document.querySelector(".dashboard-header")?.getBoundingClientRect().right ?? 0,
+  }));
+  expect(Math.max(overflow.scrollingElement, overflow.documentElement, overflow.body)).toBeLessThanOrEqual(overflow.viewport);
+  expect(overflow.headerRight).toBeLessThanOrEqual(overflow.viewport);
   const sections = await page.locator(".dashboard-card").evaluateAll((nodes) => nodes.map((node) => {
     const rect = node.getBoundingClientRect();
     return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
@@ -441,6 +449,11 @@ test("language control switches immediately when the host confirms a new locale"
     locale: localeEn,
     now: "2026-08-12T10:00:00.000Z",
   });
+  const focusKeys = await page.locator("#app button, #app input, #app select, #app summary").evaluateAll((nodes) => (
+    nodes.map((node) => node.getAttribute("data-focus-key"))
+  ));
+  expect(focusKeys.every(Boolean)).toBe(true);
+  expect(new Set(focusKeys).size).toBe(focusKeys.length);
   await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
   await expect(page).toHaveTitle("Codex SwitchBridge Dashboard");
   await page.getByLabel("Dashboard language").selectOption("zh-cn");
@@ -465,10 +478,50 @@ test("language control switches immediately when the host confirms a new locale"
   await expect(page.getByText("当前路由", { exact: true })).toBeVisible();
   await expect(page.getByText("共享历史记录", { exact: true })).toBeVisible();
   await expect(page.getByText("本地", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("5 小时", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("7 天", { exact: true }).first()).toBeVisible();
 
   await page.getByLabel("仪表板语言").selectOption("en");
   await sendState(page, fixtures.accountReady, 3, { preference: "en", effective: "en" });
   await expect(page.getByRole("button", { name: "Refresh", exact: true })).toBeVisible();
+});
+
+test("host rerenders preserve a surviving focused control without matching translated labels", async ({ page }) => {
+  await mount(page, fixtures.accountReady, {
+    width: 960,
+    theme: "dark",
+    locale: localeEn,
+    now: "2026-08-12T10:00:00.000Z",
+  });
+
+  const englishLanguage = page.getByLabel("Dashboard language");
+  await englishLanguage.focus();
+  await englishLanguage.selectOption("zh-cn");
+  await sendState(page, fixtures.accountReady, 2, localeZh);
+  const chineseLanguage = page.getByLabel("仪表板语言");
+  await expect(chineseLanguage).toBeFocused();
+
+  const refresh = page.getByRole("button", { name: "刷新", exact: true });
+  await refresh.focus();
+  await sendState(page, fixtures.cachedRefreshing, 3, localeZh);
+  await expect(page.getByRole("button", { name: "刷新", exact: true })).toBeFocused();
+
+  const details = page.getByText("Token 明细", { exact: true });
+  await details.click();
+  await expect(page.locator(".token-details")).toHaveAttribute("open", "");
+  await sendState(page, fixtures.accountReady, 4, localeZh);
+  await expect(page.locator(".token-details")).toHaveAttribute("open", "");
+  await expect(page.getByText("Token 明细", { exact: true })).toBeFocused();
+});
+
+test("focus is not restored to a different or duplicate control when its keyed action disappears", async ({ page }) => {
+  await mount(page, fixtures.relogin, { width: 960, theme: "light" });
+  const routeSignIn = page.locator(".route-section").getByRole("button", { name: "Sign in", exact: true });
+  await expect(routeSignIn).toHaveAttribute("data-focus-key", "route-account:local:primary:relogin");
+  await routeSignIn.focus();
+  await sendState(page, fixtures.accountReady, 2, localeEn);
+  await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.activeElement?.getAttribute("data-focus-key") ?? null)).toBeNull();
 });
 
 test("all quota windows show precise reset clocks and update without rerendering", async ({ page }) => {
@@ -514,6 +567,36 @@ test("reset clocks expose due, missing, and invalid timestamps truthfully", asyn
   });
   await expect(page.getByText("Reset due", { exact: true })).toBeVisible();
   expect(await page.getByText("Reset time unavailable", { exact: true }).count()).toBeGreaterThanOrEqual(2);
+});
+
+test("account routes and other accounts always expose one generic reset clock when the primary window is absent", async ({ page }) => {
+  const noWindows = baseModel();
+  noWindows.route = {
+    ...noWindows.route,
+    quota: quota("storage-locked", null, {
+      fiveHour: null,
+      secondary: null,
+      freshness: null,
+      message: "Unlock storage to view quota.",
+    }),
+  };
+  noWindows.otherAccounts = [
+    account("local:no-window", "No reset metadata", null, {
+      quota: quota("unavailable", null, {
+        fiveHour: null,
+        secondary: null,
+        freshness: null,
+        message: "Quota is unavailable.",
+      }),
+    }),
+  ];
+  await mount(page, noWindows, { width: 960, theme: "dark", now: "2026-08-12T10:00:00.000Z" });
+  await expect(page.locator(".route-section .reset-clock")).toHaveCount(1);
+  await expect(page.locator(".account-row .reset-clock")).toHaveCount(1);
+  await expect(page.getByText("Reset time unavailable", { exact: true })).toHaveCount(2);
+
+  await sendState(page, fixtures.provider, 2, localeEn);
+  await expect(page.locator(".route-section .reset-clock")).toHaveCount(0);
 });
 
 test("cached refresh preserves the last quota while exposing freshness", async ({ page }) => {

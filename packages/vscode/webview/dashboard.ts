@@ -77,12 +77,15 @@ function applyLocaleShell(): void {
 }
 
 function render(model: DashboardModel, localeEnvelope: DashboardLocaleEnvelope): void {
+  const focusKey = captureFocusKey();
+  captureTokenDetailsState();
   stopClock();
   const header = renderHeader(model, localeEnvelope);
   const grid = element("div", "dashboard-grid");
   grid.append(renderRoute(model), renderAutoSwitch(model), renderOtherAccounts(model), renderUsage(model));
   app.replaceChildren(header, grid, renderActions(model));
   if (model.reload.recommended) app.append(renderReload(model));
+  restoreFocus(focusKey);
   updateResetClocks();
   scheduleClock();
 }
@@ -105,12 +108,13 @@ function renderHeader(model: DashboardModel, envelope: DashboardLocaleEnvelope):
   );
   identity.append(copy);
   const controls = element("div", "header-actions");
-  controls.append(commandButton(tr("actions.refresh"), "refreshDashboard", "secondary compact"));
-  controls.append(commandButton(tr("actions.switchRoute"), "switchMode", "primary compact"));
+  controls.append(commandButton(tr("actions.refresh"), "refreshDashboard", "secondary compact", {}, "header-refresh"));
+  controls.append(commandButton(tr("actions.switchRoute"), "switchMode", "primary compact", {}, "header-switch-route"));
   const label = element("label", "language-control");
   const caption = element("span", "language-caption", tr("language.label"));
   const select = document.createElement("select");
   select.className = "language-select";
+  select.dataset.focusKey = "language-select";
   select.setAttribute("aria-label", tr("language.label"));
   for (const [value, key] of [
     ["auto", "language.auto"],
@@ -147,7 +151,7 @@ function renderRoute(model: DashboardModel): HTMLElement {
       metadata([localizeSource(route.source), route.plan, localTokens(route.localTokens)]),
       renderQuotaSummary(route.quota),
     );
-    appendQuotaAction(identity, route.accountId, route.quota.status);
+    appendQuotaAction(identity, route.accountId, route.quota.status, "route-account");
     body.append(identity);
   } else if (route.kind === "provider") {
     const signal = element("div", "provider-signal");
@@ -162,7 +166,13 @@ function renderRoute(model: DashboardModel): HTMLElement {
       stateLine(providerStatusLabel(route.storageState), route.storageState === "ready" ? "ok" : "warning"),
     );
     if (route.providerId && route.storageState === "locked") {
-      identity.append(commandButton(tr("actions.unlock"), "unlockStorage", "link compact", { targetId: route.providerId }));
+      identity.append(commandButton(
+        tr("actions.unlock"),
+        "unlockStorage",
+        "link compact",
+        { targetId: route.providerId },
+        `route-provider:${route.providerId}:unlock`,
+      ));
     }
     body.append(signal, identity);
   } else {
@@ -223,7 +233,7 @@ function renderQuotaSummary(quota: DashboardQuota): HTMLElement {
   summary.append(stateLine(quotaStatusLabel(quota.status), quotaTone(quota.status)));
   if (quota.fiveHour) summary.append(renderResetClock(quota.fiveHour, quota.freshness, quota.queriedAt));
   if (quota.secondary) summary.append(renderResetClock(quota.secondary, quota.freshness, quota.queriedAt));
-  if (!quota.fiveHour && quota.status === "available") summary.append(renderResetClock(null, quota.freshness, quota.queriedAt));
+  if (!quota.fiveHour) summary.append(renderResetClock(null, quota.freshness, quota.queriedAt));
   const message = localizeModelMessage(quota.message);
   if (message) summary.append(element("span", "quota-message", message));
   return summary;
@@ -238,7 +248,7 @@ function renderResetClock(
   clock.dataset.resetAt = window?.resetsAt ?? "";
   const heading = element("div", "reset-heading");
   heading.append(
-    element("strong", "reset-window", window?.label ?? tr("quota.window.default")),
+    element("strong", "reset-window", quotaWindowLabel(window)),
     window ? element("span", "reset-percent", tr("quota.remaining", { percent: window.remainingPercent })) : element("span"),
   );
   const countdown = element("span", "reset-countdown");
@@ -276,6 +286,7 @@ function renderAutoSwitch(model: DashboardModel): HTMLElement {
   label.title = model.autoSwitch.enabled ? tr("autoSwitch.disableTooltip") : tr("autoSwitch.enableTooltip");
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox"; checkbox.checked = model.autoSwitch.enabled; checkbox.disabled = togglePending;
+  checkbox.dataset.focusKey = "auto-switch-toggle";
   checkbox.setAttribute("aria-label", tr("autoSwitch.aria"));
   checkbox.addEventListener("click", (event) => {
     event.preventDefault();
@@ -291,11 +302,14 @@ function renderAutoSwitch(model: DashboardModel): HTMLElement {
     const candidateCopy = element("div", "candidate-copy");
     candidateCopy.append(overline(tr("autoSwitch.bestCandidate")), namedValue(candidate.name, localizeDisambiguator(candidate.disambiguator), "candidate-name"));
     candidateCopy.append(renderResetClock({ label: "5h", remainingPercent: candidate.remainingPercent, resetsAt: candidate.resetsAt, windowSeconds: null }, candidate.freshness, null));
-    row.append(candidateCopy, commandButton(tr("actions.switch"), "switchMode", "secondary compact"));
+    row.append(candidateCopy, commandButton(tr("actions.switch"), "switchMode", "secondary compact", {}, "candidate-switch"));
     section.append(row);
   } else section.append(element("div", "candidate-empty", tr("autoSwitch.noCandidate")));
   const controls = element("div", "inline-actions");
-  controls.append(commandButton(tr("actions.switchRoute"), "switchMode", "primary"), commandButton(tr("actions.settings"), "configureAutoSwitch", "secondary"));
+  controls.append(
+    commandButton(tr("actions.switchRoute"), "switchMode", "primary", {}, "automation-switch-route"),
+    commandButton(tr("actions.settings"), "configureAutoSwitch", "secondary", {}, "automation-settings"),
+  );
   section.append(controls);
   return section;
 }
@@ -306,7 +320,10 @@ function renderOtherAccounts(model: DashboardModel): HTMLElement {
   section.querySelector(".section-heading")?.append(count);
   if (model.otherAccounts.length === 0) {
     const empty = element("div", "empty-row");
-    empty.append(element("span", "empty-copy", tr("accounts.none")), commandButton(tr("actions.add"), "addAccount", "secondary compact"));
+    empty.append(
+      element("span", "empty-copy", tr("accounts.none")),
+      commandButton(tr("actions.add"), "addAccount", "secondary compact", {}, "accounts-empty-add"),
+    );
     section.append(empty);
     return section;
   }
@@ -340,7 +357,8 @@ function renderAccountCard(account: DashboardAccount): HTMLElement {
   row.append(detail);
   if (account.quota.fiveHour) row.append(renderResetClock(account.quota.fiveHour, account.quota.freshness, account.quota.queriedAt));
   if (account.quota.secondary) row.append(renderResetClock(account.quota.secondary, account.quota.freshness, account.quota.queriedAt));
-  appendQuotaAction(row, account.accountId, account.quota.status);
+  if (!account.quota.fiveHour) row.append(renderResetClock(null, account.quota.freshness, account.quota.queriedAt));
+  appendQuotaAction(row, account.accountId, account.quota.status, "other-account");
   return row;
 }
 
@@ -367,7 +385,7 @@ function renderUsage(model: DashboardModel): HTMLElement {
   if (message) section.append(stateLine(message, model.usage.status === "indexing" ? "info" : "warning"));
   const details = document.createElement("details"); details.className = "token-details"; details.open = tokenDetailsExpanded;
   details.addEventListener("toggle", () => { tokenDetailsExpanded = details.open; vscode.setState({ tokenDetailsExpanded } satisfies PersistedState); });
-  const detailsSummary = document.createElement("summary"); detailsSummary.textContent = tr("usage.details");
+  const detailsSummary = document.createElement("summary"); detailsSummary.textContent = tr("usage.details"); detailsSummary.dataset.focusKey = "usage-details";
   details.append(detailsSummary, renderTokenMetrics(model), renderUsageLegend(model.usage.segments)); section.append(details);
   return section;
 }
@@ -395,8 +413,8 @@ function renderUsageLegend(segments: DashboardUsageSegment[]): HTMLElement {
 
 function renderActions(model: DashboardModel): HTMLElement {
   const section = element("section", "footer-actions"); section.setAttribute("aria-label", tr("actions.dashboardAria"));
-  if (model.savedEntryCounts.accounts === 0) section.append(commandButton(tr("actions.addAccount"), "addAccount", "secondary"));
-  if (model.savedEntryCounts.providers === 0) section.append(commandButton(tr("actions.addProvider"), "addProvider", "secondary"));
+  if (model.savedEntryCounts.accounts === 0) section.append(commandButton(tr("actions.addAccount"), "addAccount", "secondary", {}, "footer-add-account"));
+  if (model.savedEntryCounts.providers === 0) section.append(commandButton(tr("actions.addProvider"), "addProvider", "secondary", {}, "footer-add-provider"));
   return section;
 }
 
@@ -404,7 +422,7 @@ function renderReload(model: DashboardModel): HTMLElement {
   const strip = element("aside", "reload-strip"); strip.setAttribute("role", "status");
   const copy = element("div", "reload-copy"); copy.append(element("strong", "", tr("reload.recommended")));
   const message = localizeReloadMessage(model.reload.message); if (message) copy.append(element("span", "", message));
-  strip.append(copy, commandButton(tr("actions.reload"), "reloadWindow", "primary compact")); return strip;
+  strip.append(copy, commandButton(tr("actions.reload"), "reloadWindow", "primary compact", {}, "reload-window")); return strip;
 }
 
 function cardSection(title: string, className: string): HTMLElement {
@@ -412,15 +430,42 @@ function cardSection(title: string, className: string): HTMLElement {
   section.setAttribute("aria-labelledby", id); const heading = element("h2", "section-heading", title); heading.id = id; section.append(heading); return section;
 }
 
-function commandButton(label: string, action: DashboardAction, className: string, payload: Record<string, unknown> = {}): HTMLButtonElement {
+function commandButton(
+  label: string,
+  action: DashboardAction,
+  className: string,
+  payload: Record<string, unknown>,
+  focusKey: string,
+): HTMLButtonElement {
   const button = document.createElement("button"); button.type = "button"; button.className = `command-button ${className}`; button.textContent = label;
+  button.dataset.focusKey = focusKey;
   button.addEventListener("click", () => postAction(action, payload)); return button;
 }
 
-function appendQuotaAction(parent: HTMLElement, targetId: string | null, status: DashboardQuotaStatus): void {
+function appendQuotaAction(
+  parent: HTMLElement,
+  targetId: string | null,
+  status: DashboardQuotaStatus,
+  focusScope: "route-account" | "other-account",
+): void {
   if (!targetId) return;
-  if (status === "relogin-required") parent.append(commandButton(tr("actions.signIn"), "reloginAccount", "link compact", { targetId }));
-  else if (status === "storage-locked") parent.append(commandButton(tr("actions.unlock"), "unlockStorage", "link compact", { targetId }));
+  if (status === "relogin-required") {
+    parent.append(commandButton(
+      tr("actions.signIn"),
+      "reloginAccount",
+      "link compact",
+      { targetId },
+      `${focusScope}:${targetId}:relogin`,
+    ));
+  } else if (status === "storage-locked") {
+    parent.append(commandButton(
+      tr("actions.unlock"),
+      "unlockStorage",
+      "link compact",
+      { targetId },
+      `${focusScope}:${targetId}:unlock`,
+    ));
+  }
 }
 
 function postReady(): void { vscode.postMessage({ type: "dashboard.ready" }); }
@@ -500,6 +545,37 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 function hasExactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
   const keys = Object.keys(value);
   return keys.length === expected.length && expected.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function captureFocusKey(): string | null {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || !app.contains(active)) return null;
+  return active.dataset.focusKey ?? null;
+}
+
+function captureTokenDetailsState(): void {
+  const details = app.querySelector<HTMLDetailsElement>(".token-details");
+  if (!details) return;
+  tokenDetailsExpanded = details.open;
+  vscode.setState({ tokenDetailsExpanded } satisfies PersistedState);
+}
+
+function restoreFocus(focusKey: string | null): void {
+  if (!focusKey) return;
+  const matches = Array.from(app.querySelectorAll<HTMLElement>("[data-focus-key]"))
+    .filter((node) => node.dataset.focusKey === focusKey);
+  if (matches.length === 1) matches[0].focus({ preventScroll: true });
+}
+
+function quotaWindowLabel(window: DashboardQuotaWindow | null): string {
+  if (!window) return tr("quota.window.default");
+  if (window.windowSeconds === 18_000 || /^5\s*h(?:ours?)?$/i.test(window.label.trim())) {
+    return tr("quota.window.fiveHour");
+  }
+  if (window.windowSeconds === 604_800 || /^7\s*d(?:ays?)?$/i.test(window.label.trim())) {
+    return tr("quota.window.sevenDay");
+  }
+  return window.label;
 }
 
 const quotaStatusKeys: Record<DashboardQuotaStatus, DashboardTranslationKey> = {

@@ -48,9 +48,18 @@ test("dashboard catalogs expose editor header, language, and precise reset copy"
     "quota.reset.local",
     "quota.reset.utc",
     "quota.queriedAt",
+    "quota.window.fiveHour",
+    "quota.window.sevenDay",
   ]) {
     assert.ok(required.has(key), `missing editor dashboard key: ${key}`);
   }
+});
+
+test("known quota windows have semantic English and Chinese labels", () => {
+  assert.equal(translate("en", "quota.window.fiveHour"), "5 hours");
+  assert.equal(translate("en", "quota.window.sevenDay"), "7 days");
+  assert.equal(translate("zh-cn", "quota.window.fiveHour"), "5 小时");
+  assert.equal(translate("zh-cn", "quota.window.sevenDay"), "7 天");
 });
 
 test("English and Chinese translations use identical interpolation placeholders", () => {
