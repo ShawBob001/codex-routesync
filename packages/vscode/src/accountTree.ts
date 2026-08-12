@@ -2,24 +2,21 @@ import * as vscode from "vscode";
 import {
   getTokenExpiry,
   formatTokenExpiry,
-  isReloginRequiredRefreshError,
   QuotaInfo,
   RELOGIN_REQUIRED_MESSAGE,
   WindowInfo,
 } from "@codex-switchbridge/core";
-import { logInfo, logWarn, startPerformanceLog } from "./log";
+import { startPerformanceLog } from "./log";
+import { AccountQuotaState, QuotaStore } from "./quotaStore";
 import {
   createSavedEntriesSnapshot,
   listSavedAccounts,
-  querySavedAccountQuota,
   SavedAccountInfo,
-  SavedAccountQuotaQueryContext,
   SavedEntriesSnapshot,
 } from "./savedEntries";
-import { getCachedQuotaSnapshot } from "./quotaCache";
 import { formatCompactTokens, stableSubjectId, UsageService } from "./tokenUsage";
 
-interface QuotaState {
+interface AccountQuotaPresentationState {
   info: QuotaInfo | null;
   loading: boolean;
   error: boolean;
@@ -31,25 +28,32 @@ interface QuotaState {
   reloginMessage?: string;
 }
 
-interface QuotaResultFallbackMetadata {
-  fallbackErrorMessage?: string;
-  fallbackStatusCode?: number | null;
-  fallbackReloginRequired?: boolean;
-  usedCachedQuota?: boolean;
-}
-
 export type AccountTreeNode = AccountGroupItem | AccountTreeItem | AccountDetailItem;
 const LOG_PREFIX = "[codex-switchbridge:vscode:accountTree]";
-const ACCOUNT_REFRESH_CONCURRENCY = 4;
-const SLOW_ACCOUNT_THRESHOLD_MS = 3000;
 export type AccountGroupKind = "local" | "cloud";
 
-interface AccountTreeRefreshOptions {
-  snapshot?: SavedEntriesSnapshot;
-  queryContext?: SavedAccountQuotaQueryContext;
-  reason?: string;
-  refreshId?: string;
-  concurrency?: number;
+function toQuotaPresentationState(
+  state: Readonly<AccountQuotaState> | undefined,
+): AccountQuotaPresentationState | undefined {
+  if (!state) return undefined;
+  const cached = state.provenance === "hydrated-cache"
+    || state.provenance === "cache-reuse"
+    || state.provenance === "cache-fallback";
+  return {
+    info: state.info,
+    loading: state.loading,
+    error: state.errorMessage != null,
+    updatedAt: state.queriedAt,
+    cached,
+    cacheMessage: cached
+      ? state.cacheReason
+        ? `Quota: Showing cached data; latest refresh failed: ${state.cacheReason}`
+        : "Quota: Showing cached data"
+      : undefined,
+    cacheReason: state.cacheReason ?? undefined,
+    reloginRequired: state.reloginRequired,
+    reloginMessage: state.reloginMessage ?? undefined,
+  };
 }
 
 function windowLabel(w: WindowInfo): string {
@@ -80,18 +84,22 @@ function isQuotaInfoReloginRequired(info: QuotaInfo | null | undefined): boolean
   return info?.unavailableReason?.code === "relogin_required";
 }
 
-function getQuotaStateReloginMessage(quotaState: QuotaState | undefined): string | null {
+function getQuotaStateReloginMessage(quotaState: AccountQuotaPresentationState | undefined): string | null {
   if (quotaState?.reloginRequired || isQuotaInfoReloginRequired(quotaState?.info)) {
     return quotaState?.reloginMessage ?? RELOGIN_REQUIRED_MESSAGE;
   }
   return null;
 }
 
-function isQuotaStateFailed(quotaState: QuotaState | undefined): boolean {
-  return Boolean(quotaState && !quotaState.loading && (quotaState.error || quotaState.info?.unavailableReason));
+function isQuotaStateFailed(quotaState: AccountQuotaPresentationState | undefined): boolean {
+  return Boolean(
+    quotaState
+    && !quotaState.loading
+    && (quotaState.info?.unavailableReason || (quotaState.error && !quotaState.cached)),
+  );
 }
 
-function isQuotaStateCached(quotaState: QuotaState | undefined): boolean {
+function isQuotaStateCached(quotaState: AccountQuotaPresentationState | undefined): boolean {
   return Boolean(quotaState && !quotaState.loading && !isQuotaStateFailed(quotaState) && quotaState.cached);
 }
 
@@ -128,15 +136,6 @@ function formatWindowDetailDescription(w: WindowInfo): string {
   return reset
     ? `${remaining}% remaining · ${reset}`
     : `${remaining}% remaining`;
-}
-
-function formatCachedQuotaReason(fallback: QuotaResultFallbackMetadata): string | undefined {
-  if (typeof fallback.fallbackStatusCode === "number") {
-    return fallback.fallbackErrorMessage
-      ? `HTTP ${fallback.fallbackStatusCode}: ${fallback.fallbackErrorMessage}`
-      : `HTTP ${fallback.fallbackStatusCode}`;
-  }
-  return fallback.fallbackErrorMessage;
 }
 
 function quotaIcon(usedPercent: number): vscode.ThemeIcon {
@@ -178,31 +177,6 @@ function appendQuotaTooltip(lines: string[], info: QuotaInfo) {
   if (info.credits?.hasCredits) {
     lines.push("Extra credits: Available");
   }
-}
-
-function percentile(sortedValues: number[], fraction: number): number {
-  if (sortedValues.length === 0) {
-    return 0;
-  }
-  const index = Math.min(sortedValues.length - 1, Math.max(0, Math.ceil(sortedValues.length * fraction) - 1));
-  return sortedValues[index];
-}
-
-async function runWithConcurrency<T>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T) => Promise<void>,
-): Promise<void> {
-  const limit = Math.max(1, concurrency);
-  let nextIndex = 0;
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (nextIndex < items.length) {
-      const currentIndex = nextIndex;
-      nextIndex += 1;
-      await worker(items[currentIndex]);
-    }
-  });
-  await Promise.all(runners);
 }
 
 export class AccountDetailItem extends vscode.TreeItem {
@@ -248,7 +222,7 @@ export class AccountTreeItem extends vscode.TreeItem {
 
   constructor(
     public readonly account: SavedAccountInfo,
-    public readonly quotaState?: QuotaState,
+    public readonly quotaState?: AccountQuotaPresentationState,
     public readonly trackedTokens: number | null = null,
   ) {
     super(
@@ -386,256 +360,31 @@ export class AccountTreeProvider implements vscode.TreeDataProvider<AccountTreeN
   private _onDidChangeTreeData = new vscode.EventEmitter<AccountTreeNode | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  private quotaState = new Map<string, QuotaState>();
   private rootItems: AccountGroupItem[] = [];
-  private refreshVersion = 0;
+  private currentAccounts: SavedAccountInfo[] | null = null;
+  private readonly quotaSubscription: vscode.Disposable;
 
-  constructor(private readonly usageService?: UsageService) {}
+  constructor(
+    private readonly quotaStore: QuotaStore,
+    private readonly usageService?: UsageService,
+  ) {
+    this.quotaSubscription = quotaStore.onDidChange(() => {
+      this.syncRootItems(this.currentAccounts ?? listSavedAccounts());
+      this._onDidChangeTreeData.fire(undefined);
+    });
+  }
 
   refresh(snapshot?: SavedEntriesSnapshot): void {
     const perf = startPerformanceLog(LOG_PREFIX, "accountTree.refresh");
     try {
       const currentSnapshot = snapshot ?? createSavedEntriesSnapshot();
-      this.pruneQuotaState(currentSnapshot.accounts.map((account) => account.id));
-      perf.mark("prune-quota-state");
-      this.hydrateQuotaStateFromCache(currentSnapshot.accounts);
-      perf.mark("hydrate-quota-state-from-cache");
+      this.currentAccounts = currentSnapshot.accounts;
+      this.quotaStore.reconcileAccounts(currentSnapshot.accounts);
+      perf.mark("reconcile-quota-store");
       this.syncRootItems(currentSnapshot.accounts);
       perf.mark("sync-root-items");
       this._onDidChangeTreeData.fire(undefined);
       perf.finish();
-    } catch (error) {
-      perf.fail(error);
-      throw error;
-    }
-  }
-
-  async refreshQuota(targetIds?: Iterable<string>, options: AccountTreeRefreshOptions = {}): Promise<void> {
-    const normalizedTargetIds = targetIds ? [...targetIds] : undefined;
-    const perf = startPerformanceLog(LOG_PREFIX, "accountTree.refreshQuota", {
-      targetCount: normalizedTargetIds?.length ?? null,
-      reason: options.reason ?? null,
-      refreshId: options.refreshId ?? null,
-    });
-    try {
-      const snapshot = options.snapshot ?? createSavedEntriesSnapshot();
-      const accounts = snapshot.accounts;
-      perf.mark("list-saved-accounts", {
-        accountCount: accounts.length,
-        selectionKind: snapshot.selection.kind,
-      });
-      const refreshVersion = ++this.refreshVersion;
-      const targetIdSet = normalizedTargetIds ? new Set(normalizedTargetIds) : null;
-      const accountsToRefresh = targetIdSet
-        ? accounts.filter((account) => targetIdSet.has(account.id) && account.storageState === "ready")
-        : accounts.filter((account) => account.storageState === "ready");
-      const notReadyCount = targetIdSet
-        ? accounts.filter((account) => targetIdSet.has(account.id) && account.storageState !== "ready").length
-        : 0;
-      const requestedCount = targetIdSet?.size ?? accountsToRefresh.length;
-      perf.mark("filter-target-accounts", {
-        refreshVersion,
-        requestedCount,
-        effectiveCount: accountsToRefresh.length,
-        skippedCount: requestedCount - accountsToRefresh.length,
-      });
-
-      logInfo(LOG_PREFIX, "refresh-start", {
-        targetIds: targetIdSet ? [...targetIdSet] : null,
-        refreshVersion,
-        refreshId: options.refreshId ?? null,
-        reason: options.reason ?? null,
-        selectionKind: snapshot.selection.kind,
-        requestedCount,
-        effectiveCount: accountsToRefresh.length,
-        skippedCount: requestedCount - accountsToRefresh.length,
-      });
-
-      this.pruneQuotaState(accounts.map((account) => account.id));
-      perf.mark("prune-quota-state");
-      for (const account of accountsToRefresh) {
-        const previous = this.quotaState.get(account.id);
-        this.quotaState.set(account.id, {
-          info: previous?.info ?? null,
-          error: false,
-          loading: true,
-          updatedAt: previous?.updatedAt ?? null,
-          cached: false,
-          cacheMessage: undefined,
-          cacheReason: undefined,
-        });
-      }
-      perf.mark("set-loading-state");
-      this.syncRootItems(accounts);
-      perf.mark("sync-root-items-loading");
-      this._onDidChangeTreeData.fire(undefined);
-      perf.mark("fire-tree-loading");
-
-      const accountDurations: number[] = [];
-      const slowestAccounts: Array<{ account: string; source: string; durationMs: number }> = [];
-      let okCount = 0;
-      let errorCount = 0;
-      let inflightReuseCount = 0;
-      const concurrency = options.concurrency ?? ACCOUNT_REFRESH_CONCURRENCY;
-
-      await runWithConcurrency(accountsToRefresh, concurrency, async (account) => {
-        const startedAt = Date.now();
-        try {
-          const accountPerf = startPerformanceLog(
-            LOG_PREFIX,
-            "accountTree.refreshQuota.account",
-            {
-              account: account.name,
-              source: account.source,
-              refreshVersion,
-              refreshId: options.refreshId ?? null,
-            },
-            {
-              mode: "adaptive",
-              slowThresholdMs: SLOW_ACCOUNT_THRESHOLD_MS,
-            },
-          );
-          const result = await querySavedAccountQuota(account, options.queryContext, {
-            reason: options.reason,
-          });
-          const durationMs = Date.now() - startedAt;
-          accountDurations.push(durationMs);
-          slowestAccounts.push({
-            account: account.name,
-            source: account.source,
-            durationMs,
-          });
-          if (slowestAccounts.length > 5) {
-            slowestAccounts.sort((left, right) => right.durationMs - left.durationMs);
-            slowestAccounts.length = 5;
-          }
-          if ((result as { source?: string }).source === "reused" || (result as { reusedInflight?: boolean }).reusedInflight) {
-            inflightReuseCount += 1;
-          }
-          accountPerf.finish({
-            resultKind: result.kind,
-            source: (result as { source?: string }).source ?? "direct",
-          });
-          if (result.kind === "ok") {
-            okCount += 1;
-          } else {
-            errorCount += 1;
-          }
-          if (refreshVersion !== this.refreshVersion) {
-            return;
-          }
-
-          const previous = this.quotaState.get(account.id);
-          const fallback = result as QuotaResultFallbackMetadata;
-          const usedCachedQuota = result.kind === "ok" && fallback.usedCachedQuota === true;
-          const cacheReason = usedCachedQuota ? formatCachedQuotaReason(fallback) : undefined;
-          const reloginRequired =
-            result.kind === "ok"
-              ? isQuotaInfoReloginRequired(result.info) || fallback.fallbackReloginRequired === true
-              : "message" in result && isReloginRequiredRefreshError(result.message);
-          this.quotaState.set(account.id, {
-            info: result.kind === "ok" ? result.info : previous?.info ?? null,
-            error: result.kind !== "ok",
-            loading: false,
-            updatedAt: result.kind === "ok" ? Date.now() : previous?.updatedAt ?? null,
-            cached: usedCachedQuota,
-            cacheMessage: usedCachedQuota
-              ? cacheReason
-                ? `Quota: Showing cached data; latest refresh failed: ${cacheReason}`
-                : "Quota: Showing cached data"
-              : undefined,
-            cacheReason,
-            reloginRequired,
-            reloginMessage: reloginRequired ? RELOGIN_REQUIRED_MESSAGE : undefined,
-          });
-          if (result.kind !== "ok") {
-            logWarn(LOG_PREFIX, "refresh-result-not-ok", {
-              account: account.id,
-              resultKind: result.kind,
-              message: "message" in result ? result.message : null,
-              refreshVersion,
-              refreshId: options.refreshId ?? null,
-            });
-          }
-        } catch (error) {
-          const durationMs = Date.now() - startedAt;
-          accountDurations.push(durationMs);
-          slowestAccounts.push({
-            account: account.name,
-            source: account.source,
-            durationMs,
-          });
-          if (slowestAccounts.length > 5) {
-            slowestAccounts.sort((left, right) => right.durationMs - left.durationMs);
-            slowestAccounts.length = 5;
-          }
-          errorCount += 1;
-          if (refreshVersion !== this.refreshVersion) {
-            return;
-          }
-
-          const previous = this.quotaState.get(account.id);
-          const reloginRequired = isReloginRequiredRefreshError(error);
-          this.quotaState.set(account.id, {
-            info: previous?.info ?? null,
-            error: true,
-            loading: false,
-            updatedAt: previous?.updatedAt ?? null,
-            cached: false,
-            cacheMessage: undefined,
-            cacheReason: undefined,
-            reloginRequired,
-            reloginMessage: reloginRequired ? RELOGIN_REQUIRED_MESSAGE : previous?.reloginMessage,
-          });
-          logWarn(LOG_PREFIX, "refresh-result-error", {
-            account: account.id,
-            refreshVersion,
-            refreshId: options.refreshId ?? null,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          perf.mark("account-refresh-error", {
-            account: account.name,
-          });
-        }
-
-        if (refreshVersion === this.refreshVersion) {
-          this.syncRootItems(accounts, { logPerformance: false });
-          this._onDidChangeTreeData.fire(undefined);
-        }
-      });
-      perf.mark("await-account-queries");
-
-      if (refreshVersion === this.refreshVersion) {
-        this.syncRootItems(accounts);
-        perf.mark("sync-root-items-final");
-        this._onDidChangeTreeData.fire(undefined);
-        perf.mark("fire-tree-final");
-        logInfo(LOG_PREFIX, "refresh-finish", {
-          targetIds: targetIdSet ? [...targetIdSet] : null,
-          refreshVersion,
-          refreshId: options.refreshId ?? null,
-          reason: options.reason ?? null,
-        });
-      }
-      const sortedDurations = [...accountDurations].sort((left, right) => left - right);
-      slowestAccounts.sort((left, right) => right.durationMs - left.durationMs);
-      perf.finish({
-        refreshVersion,
-        reason: options.reason ?? null,
-        requestedCount,
-        effectiveCount: accountsToRefresh.length,
-        skippedCount: requestedCount - accountsToRefresh.length,
-        concurrency,
-        okCount,
-        errorCount,
-        notReadyCount,
-        inflightReuseCount,
-        cacheReuseCount: 0,
-        p50Ms: percentile(sortedDurations, 0.5),
-        p95Ms: percentile(sortedDurations, 0.95),
-        maxMs: sortedDurations[sortedDurations.length - 1] ?? 0,
-        slowestAccountsTopN: slowestAccounts,
-      });
     } catch (error) {
       perf.fail(error);
       throw error;
@@ -676,85 +425,15 @@ export class AccountTreeProvider implements vscode.TreeDataProvider<AccountTreeN
   }
 
   dispose() {
+    this.quotaSubscription.dispose();
     this._onDidChangeTreeData.dispose();
-  }
-
-  markReloginRequired(accountIds: Iterable<string>, message = RELOGIN_REQUIRED_MESSAGE): void {
-    const idSet = new Set([...accountIds].filter((id) => typeof id === "string" && id.length > 0));
-    if (idSet.size === 0) {
-      return;
-    }
-
-    const snapshot = createSavedEntriesSnapshot();
-    this.pruneQuotaState(snapshot.accounts.map((account) => account.id));
-    for (const account of snapshot.accounts) {
-      if (!idSet.has(account.id)) {
-        continue;
-      }
-      const previous = this.quotaState.get(account.id);
-      this.quotaState.set(account.id, {
-        info: previous?.info ?? null,
-        error: previous?.error ?? false,
-        loading: false,
-        updatedAt: previous?.updatedAt ?? null,
-        cached: previous?.cached ?? false,
-        cacheMessage: previous?.cacheMessage,
-        cacheReason: previous?.cacheReason,
-        reloginRequired: true,
-        reloginMessage: message,
-      });
-    }
-
-    this.syncRootItems(snapshot.accounts);
-    this._onDidChangeTreeData.fire(undefined);
-  }
-
-  private pruneQuotaState(validIds = listSavedAccounts().map((account) => account.id)) {
-    const validIdSet = new Set(validIds);
-    for (const id of this.quotaState.keys()) {
-      if (!validIdSet.has(id)) {
-        this.quotaState.delete(id);
-      }
-    }
-  }
-
-  private hydrateQuotaStateFromCache(accounts: SavedAccountInfo[]): void {
-    for (const account of accounts) {
-      if (account.storageState !== "ready") {
-        continue;
-      }
-      const previous = this.quotaState.get(account.id);
-      if (previous?.loading) {
-        continue;
-      }
-      const cached = getCachedQuotaSnapshot(account);
-      if (!cached) {
-        continue;
-      }
-      if (previous?.updatedAt != null && previous.updatedAt >= cached.queriedAtMs && previous.info) {
-        continue;
-      }
-      logWarn(LOG_PREFIX, "hydrate-quota-state-from-cache", {
-        account: account.name,
-        source: account.source,
-        ageMs: Date.now() - cached.queriedAtMs,
-      });
-      this.quotaState.set(account.id, {
-        info: cached.info,
-        error: false,
-        loading: false,
-        updatedAt: cached.queriedAtMs,
-        cached: true,
-        cacheMessage: "Quota: Showing cached data",
-        cacheReason: undefined,
-        reloginRequired: false,
-      });
-    }
   }
 
   getRootItems(): AccountGroupItem[] {
     if (this.rootItems.length === 0) {
-      this.syncRootItems(createSavedEntriesSnapshot().accounts);
+      const accounts = this.currentAccounts ?? createSavedEntriesSnapshot().accounts;
+      this.currentAccounts = accounts;
+      this.syncRootItems(accounts);
     }
     return this.rootItems;
   }
@@ -774,6 +453,7 @@ export class AccountTreeProvider implements vscode.TreeDataProvider<AccountTreeN
   }
 
   private syncRootItems(accounts = listSavedAccounts(), options: { logPerformance?: boolean } = {}) {
+    this.currentAccounts = accounts;
     const perf = options.logPerformance === false
       ? null
       : startPerformanceLog(LOG_PREFIX, "accountTree.syncRootItems", {
@@ -790,7 +470,11 @@ export class AccountTreeProvider implements vscode.TreeDataProvider<AccountTreeN
     for (const account of accounts) {
       const subjectId = stableSubjectId("account", account.id);
       const trackedTokens = usageReady ? usageBySubject.get(subjectId) ?? 0 : null;
-      const item = new AccountTreeItem(account, this.quotaState.get(account.id), trackedTokens);
+      const item = new AccountTreeItem(
+        account,
+        toQuotaPresentationState(this.quotaStore.get(account.id)),
+        trackedTokens,
+      );
       if (account.source === "cloud") {
         cloud.push(item);
       } else {
@@ -915,7 +599,7 @@ export class AccountTreeProvider implements vscode.TreeDataProvider<AccountTreeN
       return items;
     }
 
-    if (quotaState?.error) {
+    if (quotaState?.error && !quotaState.cached) {
       const errorItem = new AccountDetailItem("Quota", "Failed", "Quota request failed", parent);
       errorItem.iconPath = new vscode.ThemeIcon("warning", new vscode.ThemeColor("errorForeground"));
       items.push(errorItem);

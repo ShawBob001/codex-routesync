@@ -16,6 +16,7 @@ import {
 import { AccountDetailItem, AccountGroupItem, AccountTreeProvider, AccountTreeItem, AccountTreeNode } from "./accountTree";
 import { getRemainingQuotaPercent, isFiveHourQuotaExhausted, rankAutoSwitchCandidates } from "./autoSwitch";
 import { ProviderDetailItem, ProviderTreeItem, ProviderTreeProvider } from "./providerTree";
+import { QuotaStore } from "./quotaStore";
 import { StatusBarManager } from "./statusBar";
 import { buildCompletedProviderProfile } from "./providerProfile";
 import { RefreshCoordinator } from "./refreshCoordinator";
@@ -222,6 +223,7 @@ async function retireTrackedUsage(
 
 async function refreshTokenAndQuota(
   accountTree: AccountTreeProvider,
+  quotaStore: QuotaStore,
   statusBar: StatusBarManager,
   accountIds?: Iterable<string>,
 ) {
@@ -237,7 +239,7 @@ async function refreshTokenAndQuota(
     sharedQueries: new Map(),
   };
   await Promise.all([
-    accountTree.refreshQuota(normalizedAccountIds, {
+    quotaStore.refreshQuota(normalizedAccountIds, {
       snapshot,
       queryContext,
       reason: "manual",
@@ -1297,6 +1299,7 @@ async function ensureProviderProfileWithExpectedVersion(
 export function registerCommands(
   context: vscode.ExtensionContext,
   accountTree: AccountTreeProvider,
+  quotaStore: QuotaStore,
   providerTree: ProviderTreeProvider,
   statusBar: StatusBarManager,
   accountTreeView: vscode.TreeView<AccountTreeNode>,
@@ -1527,7 +1530,7 @@ export function registerCommands(
               account: trimmedName,
               target,
             });
-            await refreshTokenAndQuota(accountTree, statusBar, existing.id);
+            await refreshTokenAndQuota(accountTree, quotaStore, statusBar, existing.id);
             vscode.window.showInformationMessage(`Account "${trimmedName}" already exists in ${getSourceLabel(target)} storage. Token refreshed.`);
             refreshAll(refreshCoordinator);
             return;
@@ -2114,7 +2117,7 @@ export function registerCommands(
                 }
                 if (outcome.status === "success") {
                   try {
-                    await refreshTokenAndQuota(accountTree, statusBar, [outcome.account.id]);
+                    await refreshTokenAndQuota(accountTree, quotaStore, statusBar, [outcome.account.id]);
                     perf.mark("refresh-token-and-quota");
                   } catch (error) {
                     logWarn(LOG_PREFIX, "refresh-token-quota-followup-failed", {
@@ -2153,7 +2156,7 @@ export function registerCommands(
                   return;
                 }
                 if (outcome.status === "reloginRequired") {
-                  accountTree.markReloginRequired([outcome.account.id]);
+                  quotaStore.markReloginRequired([outcome.account.id]);
                   logCommandWarn("refresh-token", "relogin-required", {
                     account: outcome.account.name,
                     source: outcome.account.source,
@@ -2220,13 +2223,13 @@ export function registerCommands(
                 unavailableCount: unavailableAccounts.length,
               });
               if (reloginAccountIds.length > 0) {
-                accountTree.markReloginRequired(reloginAccountIds);
+                quotaStore.markReloginRequired(reloginAccountIds);
               }
 
               let quotaRefreshError: string | null = null;
               if (successfulAccountIds.length > 0) {
                 try {
-                  await refreshTokenAndQuota(accountTree, statusBar, successfulAccountIds);
+                  await refreshTokenAndQuota(accountTree, quotaStore, statusBar, successfulAccountIds);
                   perf.mark("refresh-token-and-quota");
                 } catch (error) {
                   quotaRefreshError = toErrorMessage(error);
@@ -2651,7 +2654,7 @@ export function registerCommands(
           || (currentSelectionId != null && targetIds.includes(currentSelectionId));
         logCommandInfo("refresh-quota", "started");
         await Promise.all([
-          accountTree.refreshQuota(targetIds, {
+          quotaStore.refreshQuota(targetIds, {
             snapshot,
             queryContext,
             reason: "manual",

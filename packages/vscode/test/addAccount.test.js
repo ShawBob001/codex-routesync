@@ -380,6 +380,40 @@ function getAccountDetailItems(treeDataProvider, accountItem) {
   return treeDataProvider.getChildren(accountItem);
 }
 
+function getQuotaStore(context) {
+  const stores = context.subscriptions.filter((subscription) =>
+    typeof subscription?.getSnapshot === "function"
+    && typeof subscription?.reconcileAccounts === "function"
+    && typeof subscription?.refreshQuota === "function"
+    && typeof subscription?.markReloginRequired === "function"
+  );
+  assert.equal(stores.length, 1);
+  return stores[0];
+}
+
+function createAccountTreeSnapshot(treeDataProvider) {
+  const accounts = getAccountTreeItems(treeDataProvider).map((item) => item.account);
+  const current = accounts.find((account) => account.isCurrent);
+  return {
+    accounts,
+    selection: current
+      ? { kind: "account", name: current.name, source: current.source, meta: current.meta ?? null }
+      : { kind: "unknown", meta: null },
+    byId: new Map(accounts.map((account) => [account.id, account])),
+    bySourceAndName: new Map(accounts.map((account) => [`${account.source}:${account.name}`, account])),
+    createdAt: Date.now(),
+  };
+}
+
+function refreshQuotaThroughStore(context, treeDataProvider, targetIds, options = {}) {
+  const snapshot = createAccountTreeSnapshot(treeDataProvider);
+  return getQuotaStore(context).refreshQuota(targetIds, {
+    ...options,
+    snapshot,
+    queryContext: options.queryContext ?? { snapshot, sharedQueries: new Map() },
+  });
+}
+
 function countOperationLogs(lines, operation) {
   return lines.filter((line) => line.includes("perf-start") && line.includes(`"operation":"${operation}"`)).length;
 }
@@ -4559,6 +4593,14 @@ test("refresh quota command writes command, account tree, and status bar perform
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
+        const quotaStores = context.subscriptions.filter((subscription) =>
+          typeof subscription?.getSnapshot === "function"
+          && typeof subscription?.reconcileAccounts === "function"
+          && typeof subscription?.refreshQuota === "function"
+          && typeof subscription?.markReloginRequired === "function"
+        );
+        assert.equal(quotaStores.length, 1);
+
         await mocked.registeredCommands.get("codex-switchbridge.refreshQuota")();
         await waitForRefreshCoordinatorIdle(context);
 
@@ -4568,7 +4610,7 @@ test("refresh quota command writes command, account tree, and status bar perform
           true
         );
         assert.equal(
-          lines.some((line) => line.includes("[codex-switchbridge:vscode:accountTree]") && line.includes("\"operation\":\"accountTree.refreshQuota\"")),
+          lines.some((line) => line.includes("[codex-switchbridge:vscode:quotaStore]") && line.includes("\"operation\":\"quotaStore.refreshQuota\"")),
           true
         );
         assert.equal(
@@ -5383,7 +5425,10 @@ test("current account uses yellow icon when quota refresh falls back to cache", 
 
         const accountTreeView = secondWindow.treeViews.get("codexSwitchBridgeAccounts");
         const provider = accountTreeView.treeDataProvider;
-        await provider.refreshQuota(["local:apple1"], { reason: "manual", concurrency: 1 });
+        await refreshQuotaThroughStore(context, provider, ["local:apple1"], {
+          reason: "manual",
+          concurrency: 1,
+        });
         const appleItem = getAccountTreeItems(provider)
           .find((item) => item.account.name === "apple1");
         assert.ok(appleItem);
@@ -5787,13 +5832,12 @@ test("account tree keeps quota failures inside their source group", async (t) =>
 
         const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
         const provider = accountTreeView.treeDataProvider;
-        provider.quotaState.set("local:local-fail", {
-          info: null,
-          loading: false,
-          error: true,
-          updatedAt: null,
-        });
-        provider.refresh();
+        await withFailingHttps(() => refreshQuotaThroughStore(
+          context,
+          provider,
+          ["local:local-fail"],
+          { reason: "manual", concurrency: 1 },
+        ));
 
         const groups = getAccountTreeRootItems(provider);
         assert.deepEqual(groups.map((item) => item.label), [
@@ -5874,7 +5918,7 @@ test("account tree shows relogin required only after manual token refresh fails"
 
         const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
         const provider = accountTreeView.treeDataProvider;
-        await provider.refreshQuota(["cloud:google1"], {
+        await refreshQuotaThroughStore(context, provider, ["cloud:google1"], {
           reason: "timer",
           concurrency: 1,
         });
@@ -5883,8 +5927,10 @@ test("account tree shows relogin required only after manual token refresh fails"
           .filter((item) => item.account.name === "google1" && item.account.source === "cloud");
         assert.doesNotMatch(String(googleItem.description ?? ""), /Relogin required/);
 
-        provider.quotaState.delete("cloud:google1");
-        provider.refresh();
+        await refreshQuotaThroughStore(context, provider, ["cloud:google1"], {
+          reason: "timer",
+          concurrency: 1,
+        });
         const [resetGoogleItem] = getAccountTreeItems(provider)
           .filter((item) => item.account.name === "google1" && item.account.source === "cloud");
         assert.doesNotMatch(String(resetGoogleItem.description ?? ""), /Relogin required/);
@@ -5964,40 +6010,19 @@ test("account tree resolves stale source group children from latest root state",
 
         const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
         const provider = accountTreeView.treeDataProvider;
-        provider.quotaState.set("cloud:cloud-fail", {
-          info: null,
-          loading: false,
-          error: true,
-          updatedAt: null,
-        });
-        provider.refresh();
+        const quotaStore = getQuotaStore(context);
+        quotaStore.reconcileAccounts(createAccountTreeSnapshot(provider).accounts);
+        quotaStore.markReloginRequired(["cloud:cloud-fail"]);
 
         const firstGroups = getAccountTreeRootItems(provider);
         const staleCloudGroup = firstGroups[0];
         assert.equal(staleCloudGroup.label, "Cloud Accounts");
         assert.deepEqual(provider.getChildren(staleCloudGroup).map((item) => item.account.name), ["cloud-fail"]);
 
-        provider.quotaState.set("cloud:cloud-fail", {
-          info: {
-            plan: "plus",
-            primaryWindow: {
-              usedPercent: 10,
-              resetsAt: null,
-              windowSeconds: 18000,
-            },
-            secondaryWindow: null,
-            additional: [],
-            codeReview: null,
-            credits: null,
-            email: "acct-cloud-fail@example.com",
-            tokenExpired: false,
-            unavailableReason: null,
-          },
-          loading: false,
-          error: false,
-          updatedAt: Date.now(),
+        await refreshQuotaThroughStore(context, provider, ["cloud:cloud-fail"], {
+          reason: "manual",
+          concurrency: 1,
         });
-        provider.refresh();
 
         const secondGroups = getAccountTreeRootItems(provider);
         assert.deepEqual(secondGroups.map((item) => item.label), ["Cloud Accounts"]);
@@ -10707,7 +10732,7 @@ test("timer quota refresh leaves local tokens unchanged when the refresh token e
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
-        await accountTreeView.treeDataProvider.refreshQuota([localItem.account.id], {
+        await refreshQuotaThroughStore(context, accountTreeView.treeDataProvider, [localItem.account.id], {
           reason: "timer",
         });
 
@@ -10791,7 +10816,7 @@ test("timer quota refresh leaves local tokens unchanged when the access token ex
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
-        await accountTreeView.treeDataProvider.refreshQuota([localItem.account.id], {
+        await refreshQuotaThroughStore(context, accountTreeView.treeDataProvider, [localItem.account.id], {
           reason: "timer",
         });
 
@@ -10875,7 +10900,7 @@ test("timer quota refresh leaves local tokens unchanged when the access token is
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
-        await accountTreeView.treeDataProvider.refreshQuota([localItem.account.id], {
+        await refreshQuotaThroughStore(context, accountTreeView.treeDataProvider, [localItem.account.id], {
           reason: "timer",
         });
 
@@ -10960,7 +10985,7 @@ test("timer quota refresh keeps the local account unchanged", async (t) => {
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
-        await accountTreeView.treeDataProvider.refreshQuota([localItem.account.id], {
+        await refreshQuotaThroughStore(context, accountTreeView.treeDataProvider, [localItem.account.id], {
           reason: "timer",
         });
 
@@ -11058,7 +11083,7 @@ test("timer quota refresh leaves cloud tokens unchanged when the refresh token e
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
-          await accountTreeView.treeDataProvider.refreshQuota([cloudItem.account.id], {
+          await refreshQuotaThroughStore(context, accountTreeView.treeDataProvider, [cloudItem.account.id], {
             reason: "timer",
           });
 
@@ -11159,7 +11184,7 @@ test("timer quota refresh leaves cloud tokens unchanged when the access token ex
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
-          await accountTreeView.treeDataProvider.refreshQuota([cloudItem.account.id], {
+          await refreshQuotaThroughStore(context, accountTreeView.treeDataProvider, [cloudItem.account.id], {
             reason: "timer",
           });
 
@@ -11260,7 +11285,7 @@ test("timer quota refresh leaves cloud tokens unchanged when the access token is
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
-          await accountTreeView.treeDataProvider.refreshQuota([cloudItem.account.id], {
+          await refreshQuotaThroughStore(context, accountTreeView.treeDataProvider, [cloudItem.account.id], {
             reason: "timer",
           });
 
@@ -11360,7 +11385,7 @@ test("quota refresh does not refresh expired cloud access tokens", async (t) => 
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
-          await accountTreeView.treeDataProvider.refreshQuota([cloudItem.account.id], {
+          await refreshQuotaThroughStore(context, accountTreeView.treeDataProvider, [cloudItem.account.id], {
             reason: "timer",
           });
 
@@ -11456,7 +11481,7 @@ test("quota refresh does not update cloud auth even when sync metadata already e
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
-        await accountTreeView.treeDataProvider.refreshQuota([cloudItem.account.id], {
+        await refreshQuotaThroughStore(context, accountTreeView.treeDataProvider, [cloudItem.account.id], {
           reason: "timer",
         });
 
@@ -11783,7 +11808,7 @@ test("quota refresh preserves cloud auth while ignoring legacy selected device",
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
-          await accountTreeView.treeDataProvider.refreshQuota([cloudItem.account.id], {
+          await refreshQuotaThroughStore(context, accountTreeView.treeDataProvider, [cloudItem.account.id], {
             reason: "timer",
           });
 

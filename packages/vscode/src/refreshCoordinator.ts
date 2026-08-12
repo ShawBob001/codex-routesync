@@ -4,6 +4,7 @@ import { AccountTreeProvider } from "./accountTree";
 import { isFiveHourQuotaExhausted } from "./autoSwitch";
 import { logWarn, startPerformanceLog } from "./log";
 import { ProviderTreeProvider } from "./providerTree";
+import { QuotaStore } from "./quotaStore";
 import {
   createSavedEntriesSnapshot,
   querySavedAccountQuota,
@@ -60,6 +61,7 @@ export class RefreshCoordinator implements vscode.Disposable {
 
   constructor(
     private readonly accountTree: AccountTreeProvider,
+    private readonly quotaStore: QuotaStore,
     private readonly providerTree: ProviderTreeProvider,
     private readonly statusBar: StatusBarManager,
     private readonly usageService: UsageService,
@@ -424,7 +426,7 @@ export class RefreshCoordinator implements vscode.Disposable {
       || (currentSelectionAccountId != null && targetIds.includes(currentSelectionAccountId));
 
     const refreshPromise = Promise.all([
-      this.accountTree.refreshQuota(targetIds, {
+      this.quotaStore.refreshQuota(targetIds, {
         snapshot,
         queryContext,
         reason: pendingReason,
@@ -617,7 +619,7 @@ export class RefreshCoordinator implements vscode.Disposable {
       }
 
       if (isReloginRequiredRefreshError(result.message)) {
-        this.accountTree.markReloginRequired([account.id]);
+        this.quotaStore.markReloginRequired([account.id]);
         perf.finish({
           result: "relogin-required",
         });

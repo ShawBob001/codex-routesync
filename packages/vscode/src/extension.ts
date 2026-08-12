@@ -8,6 +8,7 @@ import {
 } from "@codex-switchbridge/core";
 import { AccountTreeProvider, AccountTreeNode } from "./accountTree";
 import { ProviderTreeProvider, ProviderTreeNode } from "./providerTree";
+import { QuotaStore } from "./quotaStore";
 import { RefreshCoordinator } from "./refreshCoordinator";
 import { StatusBarManager } from "./statusBar";
 import { registerCommands } from "./commands";
@@ -63,7 +64,8 @@ export async function activate(context: vscode.ExtensionContext) {
     knownSubjects: knownUsageSubjects(initialSnapshot.accounts, listSavedProviders()),
     heartbeatIntervalMs: 0,
   });
-  const accountTree = new AccountTreeProvider(usageService);
+  const quotaStore = new QuotaStore();
+  const accountTree = new AccountTreeProvider(quotaStore, usageService);
   const providerTree = new ProviderTreeProvider(usageService);
   const overviewTree = new OverviewTreeProvider(
     usageService,
@@ -73,6 +75,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const statusBarManager = new StatusBarManager(usageService);
   const refreshCoordinator = new RefreshCoordinator(
     accountTree,
+    quotaStore,
     providerTree,
     statusBarManager,
     usageService,
@@ -123,6 +126,7 @@ export async function activate(context: vscode.ExtensionContext) {
     accountTreeView,
     providerTreeView,
     usageService,
+    quotaStore,
     accountTree,
     providerTree,
     overviewTree,
@@ -134,6 +138,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerCommands(
     context,
     accountTree,
+    quotaStore,
     providerTree,
     statusBarManager,
     accountTreeView,
