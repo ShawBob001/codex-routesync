@@ -83,6 +83,7 @@ function quotaInfo(usedPercent, overrides = {}) {
     additional: [],
     codeReview: null,
     credits: null,
+    resetCredits: null,
     email: "private@example.com",
     tokenExpired: false,
     unavailableReason: null,
@@ -232,11 +233,92 @@ test("projects an account route with preferred five-hour quota and no secrets", 
   assert.equal(model.route.disambiguator, "Local");
   assert.equal(model.route.localTokens, 125);
   assert.equal(model.route.quota.status, "available");
-  assert.equal(model.route.quota.fiveHour.remainingPercent, 68);
-  assert.equal(model.route.quota.fiveHour.label, "5h");
-  assert.equal(model.route.quota.secondary.label, "7d");
+  assert.equal(model.route.quota.preferred.remainingPercent, 68);
+  assert.equal(model.route.quota.preferred.label, "5h");
+  assert.deepEqual(model.route.quota.windows.map((window) => window.label), ["7d", "5h"]);
   assertSecretFree(model);
   assert.deepEqual(JSON.parse(JSON.stringify(model)), model);
+});
+
+test("uses a seven-day-only primary window for dashboard visibility without making it an auto-switch candidate", () => {
+  const current = account({ name: "weekly", id: "local:weekly", isCurrent: true });
+  const candidate = account({ name: "weekly-backup", id: "local:weekly-backup" });
+  const weeklyWindow = {
+    usedPercent: 9,
+    resetsAt: new Date("2026-08-19T10:00:00.123Z"),
+    windowSeconds: 604_800,
+  };
+  const model = build({
+    accounts: [current, candidate],
+    selection: { kind: "account", name: current.name, source: current.source, meta: current.meta },
+    quota: new Map([
+      [current.id, quotaState(current.id, quotaInfo(9, { primaryWindow: weeklyWindow }))],
+      [candidate.id, quotaState(candidate.id, quotaInfo(12, { primaryWindow: weeklyWindow }))],
+    ]),
+  });
+
+  assert.equal(model.route.quota.status, "available");
+  assert.equal(model.route.quota.preferred.label, "7d");
+  assert.equal(model.route.quota.preferred.remainingPercent, 91);
+  assert.equal(model.route.quota.preferred.resetsAt, "2026-08-19T10:00:00.123Z");
+  assert.equal(model.route.quota.windows.length, 1);
+  assert.equal(model.autoSwitch.candidate, null);
+});
+
+test("projects every valid quota window and reset-credit counts", () => {
+  const current = account({ isCurrent: true });
+  const model = build({
+    accounts: [current],
+    selection: { kind: "account", name: current.name, source: current.source, meta: current.meta },
+    quota: new Map([[current.id, quotaState(current.id, quotaInfo(20, {
+      primaryWindow: {
+        usedPercent: 20,
+        resetsAt: new Date("2026-08-19T10:00:00.000Z"),
+        windowSeconds: 604_800,
+      },
+      secondaryWindow: null,
+      additional: [{
+        name: "  Research   burst  ",
+        primary: {
+          usedPercent: 40,
+          resetsAt: new Date("2026-08-12T11:30:00.456Z"),
+          windowSeconds: 3_600,
+        },
+        secondary: {
+          usedPercent: 50,
+          resetsAt: new Date("2026-08-13T10:00:00.000Z"),
+          windowSeconds: 86_400,
+        },
+      }],
+      codeReview: {
+        usedPercent: 25,
+        resetsAt: new Date("2026-08-26T10:00:00.000Z"),
+        windowSeconds: 1_209_600,
+      },
+      resetCredits: { availableCount: 4, applicableAvailableCount: 2 },
+    }))]]),
+  });
+
+  assert.equal(model.route.quota.preferred.label, "1h");
+  assert.deepEqual(
+    model.route.quota.windows.map(({ label, scope, name, remainingPercent, resetsAt }) => ({
+      label,
+      scope,
+      name,
+      remainingPercent,
+      resetsAt,
+    })),
+    [
+      { label: "7d", scope: "base", name: null, remainingPercent: 80, resetsAt: "2026-08-19T10:00:00.000Z" },
+      { label: "1h", scope: "additional", name: "Research burst", remainingPercent: 60, resetsAt: "2026-08-12T11:30:00.456Z" },
+      { label: "1d", scope: "additional", name: "Research burst", remainingPercent: 50, resetsAt: "2026-08-13T10:00:00.000Z" },
+      { label: "14d", scope: "code-review", name: null, remainingPercent: 75, resetsAt: "2026-08-26T10:00:00.000Z" },
+    ],
+  );
+  assert.deepEqual(model.route.quota.resetCredits, {
+    availableCount: 4,
+    applicableAvailableCount: 2,
+  });
 });
 
 test("provider mode exposes only an allowlisted wire API and never invents quota", () => {
@@ -312,7 +394,7 @@ test("distinguishes cached quota provenance and a failed refresh with retained d
   });
   assert.equal(failed.route.quota.status, "unavailable");
   assert.equal(failed.route.quota.freshness, "stale");
-  assert.equal(failed.route.quota.fiveHour.remainingPercent, 80);
+  assert.equal(failed.route.quota.preferred.remainingPercent, 80);
   assert.equal(failed.route.quota.message, "Quota refresh failed. Showing the last known value.");
   assert.doesNotMatch(JSON.stringify(failed), /SECRET_RETAINED_ERROR/);
 });
@@ -436,7 +518,7 @@ test("rejects non-finite quota percentages instead of serializing null as a numb
     });
 
     assert.equal(model.route.quota.status, "unavailable");
-    assert.equal(model.route.quota.fiveHour, null);
+    assert.equal(model.route.quota.preferred, null);
     assert.doesNotMatch(JSON.stringify(model), /null[^}]*remainingPercent/);
     const visit = (value) => {
       if (typeof value === "number") assert.equal(Number.isFinite(value), true);
@@ -461,7 +543,7 @@ test("rejects quota percentages outside the upstream zero-to-one-hundred range",
     });
 
     assert.equal(model.route.quota.status, "unavailable");
-    assert.equal(model.route.quota.fiveHour, null);
+    assert.equal(model.route.quota.preferred, null);
     assert.equal(model.autoSwitch.candidate, null);
   }
 });

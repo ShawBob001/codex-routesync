@@ -335,6 +335,12 @@ export class StatusBarManager implements vscode.Disposable {
         if (otherWindow) {
           tip += `\n${windowLabel(otherWindow)} quota: ${Math.max(0, 100 - Math.round(otherWindow.usedPercent))}% remaining`;
         }
+        if (info.resetCredits) {
+          const applicable = info.resetCredits.applicableAvailableCount;
+          tip += applicable != null && applicable !== info.resetCredits.availableCount
+            ? `\nRate-limit resets: ${applicable} applicable / ${info.resetCredits.availableCount} available`
+            : `\nRate-limit resets: ${info.resetCredits.availableCount} available`;
+        }
         tip += `\n${usage == null ? "Tracked local token usage: Indexing" : `Tracked local token usage: ${usage.toLocaleString()} tokens`}`;
         tip += `\n${this.getOverallUsageTooltip()}`;
         this.statusBarItem.tooltip = tip;

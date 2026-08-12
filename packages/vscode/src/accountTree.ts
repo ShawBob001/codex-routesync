@@ -177,6 +177,17 @@ function appendQuotaTooltip(lines: string[], info: QuotaInfo) {
   if (info.credits?.hasCredits) {
     lines.push("Extra credits: Available");
   }
+  if (info.credits?.balance != null) {
+    lines.push(`Credit balance: ${info.credits.balance}`);
+  }
+  if (info.resetCredits) {
+    const applicable = info.resetCredits.applicableAvailableCount;
+    lines.push(
+      applicable != null && applicable !== info.resetCredits.availableCount
+        ? `Rate-limit resets: ${applicable} applicable / ${info.resetCredits.availableCount} available`
+        : `Rate-limit resets: ${info.resetCredits.availableCount} available`,
+    );
+  }
 }
 
 export class AccountDetailItem extends vscode.TreeItem {
@@ -695,6 +706,25 @@ export class AccountTreeProvider implements vscode.TreeDataProvider<AccountTreeN
       items.push(codeReviewItem);
     }
 
+    if (info.resetCredits) {
+      const available = info.resetCredits.availableCount;
+      const applicable = info.resetCredits.applicableAvailableCount;
+      const description = applicable != null && applicable !== available
+        ? `${applicable} applicable / ${available} available`
+        : `${available} available`;
+      const resetCreditsItem = new AccountDetailItem(
+        "Rate-limit resets",
+        description,
+        `Earned rate-limit resets: ${description}`,
+        parent,
+      );
+      resetCreditsItem.iconPath = new vscode.ThemeIcon(
+        available > 0 ? "debug-restart" : "circle-slash",
+        available > 0 ? new vscode.ThemeColor("charts.green") : undefined,
+      );
+      items.push(resetCreditsItem);
+    }
+
     if (info.credits?.hasCredits) {
       const creditsItem = new AccountDetailItem(
         "Extra credits",
@@ -704,6 +734,17 @@ export class AccountTreeProvider implements vscode.TreeDataProvider<AccountTreeN
       );
       creditsItem.iconPath = new vscode.ThemeIcon("credit-card", new vscode.ThemeColor("charts.green"));
       items.push(creditsItem);
+    }
+
+    if (info.credits?.balance != null) {
+      const balanceItem = new AccountDetailItem(
+        "Credit balance",
+        info.credits.balance,
+        "Credit balance reported by the account service",
+        parent,
+      );
+      balanceItem.iconPath = new vscode.ThemeIcon("credit-card");
+      items.push(balanceItem);
     }
 
     return items;

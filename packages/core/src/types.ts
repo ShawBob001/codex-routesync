@@ -85,6 +85,20 @@ export interface WindowInfo {
   usedPercent: number;
   resetsAt: Date | null;
   windowSeconds: number | null;
+  /** Server-reported countdown at fetch time, when available. */
+  resetAfterSeconds?: number | null;
+}
+
+export interface CreditsInfo {
+  hasCredits: boolean;
+  balance: string | null;
+  approxLocalMessages: number | null;
+  approxCloudMessages: number | null;
+}
+
+export interface ResetCreditsInfo {
+  availableCount: number;
+  applicableAvailableCount: number | null;
 }
 
 export type QuotaUnavailableCode =
@@ -111,7 +125,8 @@ export interface QuotaInfo {
     secondary: WindowInfo | null;
   }>;
   codeReview: WindowInfo | null;
-  credits: { hasCredits: boolean } | null;
+  credits: CreditsInfo | null;
+  resetCredits: ResetCreditsInfo | null;
   email: string;
   tokenExpired: boolean;
   unavailableReason: QuotaUnavailableReason | null;

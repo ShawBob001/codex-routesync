@@ -86,15 +86,17 @@ An API-provider profile stores the authentication payload for `auth.json` and th
 
 The VS Code Dashboard reads account quota metadata and cumulative `token_count` events from local Codex rollout files under the current `CODEX_HOME`. It shows:
 
+- the remaining percentage for every quota window returned by the account service, including 5-hour, 7-day, and named limits;
 - each available quota reset as a live seconds-level countdown;
 - the same reset as local time with seconds and time-zone offset;
 - the exact upstream UTC timestamp, including milliseconds when present;
+- the available earned rate-limit reset count when the account service provides it;
 - recorded total, input, output, cached input, and reasoning output tokens;
 - attributed and unattributed totals;
 - per-account and per-API-provider usage and session counts;
 - index coverage, session count, tracking start, and last refresh time.
 
-Reset clocks use the timestamp returned by the quota service. Missing, invalid, or already-due timestamps are shown explicitly; SwitchBridge does not invent a replacement reset time. The countdown is recalculated from the wall clock and updates without refreshing the entire Dashboard.
+Reset clocks prefer the absolute timestamp returned by the quota service. If only its relative reset countdown is available, SwitchBridge derives the corresponding timestamp at query time. Missing, invalid, or already-due reset metadata is shown explicitly. The countdown is recalculated from the wall clock and updates without refreshing the entire Dashboard. Account quota requests honor `HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY`, which keeps quota lookup working in remote development environments that require an outbound proxy.
 
 Use the language selector in the Dashboard header to choose **Auto**, **English**, or **简体中文**. Auto follows the VS Code display language, while either explicit choice is saved as a window setting and takes effect without reloading VS Code.
 
@@ -102,7 +104,7 @@ Input and output make up the recorded total. Cached input is already part of inp
 
 Per-selection attribution starts when SwitchBridge begins local tracking. The index assigns each subsequent token increment to the account or API provider active when Codex recorded it, including when one conversation continues across a mode switch. Older shared `openai` sessions cannot be assigned to a specific saved entry safely and remain under **Earlier or unattributed**. Older provider-tagged sessions are attributed only when their provider ID maps to exactly one saved profile.
 
-These figures are local activity counters, not billing or cost data. SwitchBridge does not upload rollout content, and its local index stores counters, timestamps, file fingerprints, and opaque IDs rather than conversation text, paths, account labels, provider names, or credentials. Use **Refresh Local Token Usage** to reindex immediately; otherwise the extension refreshes it during normal background maintenance.
+The account service provides a remaining percentage, not an absolute remaining-token allowance. Local token figures are activity counters rather than billing, cost, or remote balance data. API-provider profiles expose only these local counters unless that provider offers a compatible quota API. SwitchBridge does not upload rollout content, and its local index stores counters, timestamps, file fingerprints, and opaque IDs rather than conversation text, paths, account labels, provider names, or credentials. Use **Refresh Local Token Usage** to reindex immediately; otherwise the extension refreshes it during normal background maintenance.
 
 ## How conversation history stays available
 

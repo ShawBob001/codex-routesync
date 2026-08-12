@@ -10,3 +10,4 @@ packages/vscode/test-results/
 .worktrees/
 __pycache__/
 *.py[cod]
+test-results/

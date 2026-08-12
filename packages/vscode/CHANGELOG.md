@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1 - 2026-08-13
+
+- Fixed account quota requests on remote hosts that require `HTTP_PROXY` or `HTTPS_PROXY`, while respecting `NO_PROXY` exclusions.
+- Displayed whichever account quota windows the service actually returns, including accounts with only a 7-day window instead of a 5-hour window.
+- Added available rate-limit reset counts and kept remaining quota percentages separate from locally recorded token consumption.
+- Isolated automated-test quota caches from the live runtime cache and added conservative cleanup for previously polluted cache entries.
+
 ## 0.5.0 - 2026-08-12
 
 - Moved the graphical Dashboard from the narrow sidebar into a reusable editor panel while keeping native account and API-provider management views.

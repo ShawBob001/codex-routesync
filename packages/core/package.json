@@ -19,6 +19,7 @@
     "test": "npm run build && node --test test/**/*.test.js"
   },
   "dependencies": {
+    "https-proxy-agent": "^7.0.6",
     "jwt-decode": "^4.0.0"
   },
   "devDependencies": {
