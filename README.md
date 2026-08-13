@@ -6,6 +6,16 @@ Codex SwitchBridge updates credentials and provider routing as one guarded switc
 
 The VS Code extension opens a graphical Dashboard in the editor area for the active mode, shared-history state, account quota reset clocks, and total local token usage. Its orange history chart groups local observations by day, week, or month and filters them by saved account, API provider, and date range. The Dashboard can follow VS Code's display language or switch immediately between English and Simplified Chinese.
 
+## Usage preview
+
+Opening the **Codex SwitchBridge** Activity Bar now shows one unified **Accounts & API Routes** tree and automatically opens or focuses the Dashboard. Use the route tree for account/API management and the wide Dashboard for quota, reset time, automatic switching, and local token history.
+
+![Codex SwitchBridge Dashboard in English dark mode](./assets/screenshots/dashboard-en-dark.png)
+
+The same Dashboard can switch immediately to Simplified Chinese:
+
+![Codex SwitchBridge Dashboard in Simplified Chinese light mode](./assets/screenshots/dashboard-zh-light.png)
+
 Codex SwitchBridge runs on Windows, macOS, and Linux. Use it from VS Code or from the command line.
 
 [![GitHub release](https://img.shields.io/github/v/release/baoshichao001-dev/codex-switchbridge)](https://github.com/baoshichao001-dev/codex-switchbridge/releases)
@@ -43,7 +53,7 @@ For offline installation, download the latest `.vsix` from [GitHub Releases](htt
 code --install-extension codex-switchbridge-VERSION.vsix
 ```
 
-Open the **Codex SwitchBridge** Activity Bar view, then select **Open Dashboard**. The Dashboard opens in the central editor area so quota, reset-time, account, provider, and token-usage information has room to breathe. The Accounts and API Providers views continue to handle one-click switching.
+Open the **Codex SwitchBridge** Activity Bar view. Its unified **Accounts & API Routes** tree appears in the sidebar, and the Dashboard automatically opens or returns to the foreground in the central editor area. The title-bar **Open Dashboard** action remains available as a fallback.
 
 ### CLI
 
@@ -98,7 +108,7 @@ The VS Code Dashboard reads account quota metadata and cumulative `token_count` 
 - selected-range total, average, peak, and estimated usage;
 - index coverage, session count, tracking start, and last refresh time.
 
-Reset clocks prefer the absolute timestamp returned by the quota service. If only its relative reset countdown is available, SwitchBridge derives the corresponding timestamp at query time. Missing, invalid, or already-due reset metadata is shown explicitly. The countdown is recalculated from the wall clock and updates without refreshing the entire Dashboard. For account quota requests, `codex-switchbridge.proxy` takes priority, followed by VS Code's `http.proxy` and the extension host's `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` environment; environment resolution continues to honor `NO_PROXY`. The dedicated setting is machine-scoped and excluded from Settings Sync. VS Code stores its value in local settings, so prefer an unauthenticated local proxy or protect the machine settings file if the URL contains credentials.
+Reset clocks prefer the absolute timestamp returned by the quota service. If only its relative reset countdown is available, SwitchBridge derives the corresponding timestamp at query time. Missing, invalid, or already-due reset metadata is shown explicitly. The countdown is recalculated from the wall clock and updates without refreshing the entire Dashboard. Account quota requests and OAuth token refresh use `codex-switchbridge.proxy` first, followed by VS Code's `http.proxy` and the extension host's `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` environment. Environment resolution continues to honor `NO_PROXY`. The dedicated setting is machine-scoped and excluded from Settings Sync. VS Code stores its value in local settings, so prefer an unauthenticated local proxy or protect the machine settings file if the URL contains credentials.
 
 Use the language selector in the Dashboard header to choose **Auto**, **English**, or **简体中文**. Auto follows the VS Code display language, while either explicit choice is saved as a window setting and takes effect without reloading VS Code.
 
@@ -171,7 +181,7 @@ Use `--auth-dir <path>` or `CODEX_SWITCHBRIDGE_AUTH_DIR` to place saved entries 
 | Setting | Default | Description |
 | --- | --- | --- |
 | `codex-switchbridge.language` | `auto` | Follow VS Code or use English/Simplified Chinese in the Dashboard |
-| `codex-switchbridge.proxy` | `""` | Machine-only HTTP(S) proxy for account quota requests; excluded from Settings Sync; empty uses VS Code and extension-host proxy settings |
+| `codex-switchbridge.proxy` | `""` | Machine-only HTTP(S) proxy for account quota requests and OAuth token refresh; excluded from Settings Sync; empty uses VS Code and extension-host proxy settings |
 | `codex-switchbridge.shareHistoryAcrossProviders` | `true` | Keep new local conversation history available across account mode and compatible API-provider modes |
 | `codex-switchbridge.reloadWindowAfterSwitch` | `statusBar` | Show a reload action, never notify, or reload automatically after a switch |
 | `codex-switchbridge.quotaRefreshInterval` | `30` | Check one saved account per interval for token maintenance and quota refresh |

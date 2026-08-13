@@ -113,11 +113,11 @@ test("VS Code-owned user-visible contributions use complete English and Chinese 
   );
 });
 
-test("extension identity is Codex SwitchBridge 0.6.0", () => {
+test("extension identity is Codex SwitchBridge 0.6.1", () => {
   assert.equal(manifest.name, "codex-switchbridge");
   assert.equal(manifest.displayName, "Codex SwitchBridge");
   assert.equal(manifest.publisher, "baoshichao001-dev");
-  assert.equal(manifest.version, "0.6.0");
+  assert.equal(manifest.version, "0.6.1");
   assert.match(manifest.description, /accounts and API providers/i);
   assert.match(manifest.description, /shared local conversation history/i);
   assert.match(manifest.description, /token usage/i);
@@ -309,6 +309,7 @@ test("quota proxy setting is machine scoped, excluded from sync, and defaults to
   assert.equal(setting?.default, "");
   assert.equal(setting?.scope, "machine");
   assert.equal(setting?.ignoreSync, true);
+  assert.match(setting?.description ?? "", /quota.*token refresh/i);
   assert.match(setting?.description ?? "", /VS Code.*environment/i);
 });
 

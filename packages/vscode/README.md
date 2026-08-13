@@ -4,6 +4,16 @@
 
 Codex SwitchBridge manages the active credentials, provider route, and saved selection as one guarded transition. Shared conversation history is enabled by default for new local threads.
 
+## Usage preview
+
+Open **Codex SwitchBridge** from the Activity Bar. One unified **Accounts & API Routes** tree handles both route types, while the central Dashboard opens or focuses automatically.
+
+![Codex SwitchBridge Dashboard in English dark mode](images/dashboard-en-dark.png)
+
+Switch the Dashboard language to **简体中文** at any time:
+
+![Codex SwitchBridge Dashboard in Simplified Chinese light mode](images/dashboard-zh-light.png)
+
 ## Install
 
 Install the extension from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge). You can also open Extensions in VS Code and search for `Codex SwitchBridge` or `@id:baoshichao001-dev.codex-switchbridge`.
@@ -18,7 +28,7 @@ Disable or uninstall **Codex Account Switch** before enabling Codex SwitchBridge
 
 ## Account and API-provider switching
 
-Open **Codex SwitchBridge** from the Activity Bar, then select **Open Dashboard**. The graphical Dashboard opens in the central editor area and shows the active mode, shared-history state, quota reset time, and local token usage without squeezing them into the sidebar. The Accounts and API Providers views use the same guarded switching workflow.
+Open **Codex SwitchBridge** from the Activity Bar. The unified **Accounts & API Routes** tree appears in the sidebar, and the graphical Dashboard automatically opens or returns to the foreground in the central editor area. The explicit **Open Dashboard** action remains available as a fallback.
 
 | When you select | SwitchBridge applies |
 | --- | --- |
@@ -39,7 +49,7 @@ The header language selector supports **Auto**, **English**, and **简体中文*
 
 SwitchBridge assigns each new token increment to the selection active when Codex recorded it, even if one conversation continues across an account/API switch. Per-selection tracking begins locally after this version is activated. Older shared `openai` sessions cannot be assigned safely and appear as **Earlier or unattributed**; uniquely identifiable older provider sessions can still be mapped to their saved profile.
 
-The dashboard is an activity view, not a bill or cost estimate. The account service supplies remaining percentages rather than an absolute remaining-token allowance; API-provider routes expose only locally recorded token use unless the provider offers a compatible quota API. Older activity that cannot be dated exactly is marked estimated or kept outside the chart. Cached input is included in input, and reasoning output is included in output. Account quota requests use `codex-switchbridge.proxy`, VS Code's `http.proxy`, or the extension-host proxy environment in that order; environment resolution honors `NO_PROXY`. The dedicated setting is machine-scoped and excluded from Settings Sync. VS Code stores its value in local settings, so prefer an unauthenticated local proxy or protect the settings file if the URL contains credentials. Index data remains on this device and contains counters, timestamps, fingerprints, and opaque IDs, not conversation text, file paths, labels, provider names, or credentials. Run **Refresh Local Token Usage** for an immediate rescan.
+The dashboard is an activity view, not a bill or cost estimate. The account service supplies remaining percentages rather than an absolute remaining-token allowance; API-provider routes expose only locally recorded token use unless the provider offers a compatible quota API. Older activity that cannot be dated exactly is marked estimated or kept outside the chart. Cached input is included in input, and reasoning output is included in output. Account quota requests and OAuth token refresh use `codex-switchbridge.proxy`, VS Code's `http.proxy`, or the extension-host proxy environment in that order; environment resolution honors `NO_PROXY`. The dedicated setting is machine-scoped and excluded from Settings Sync. VS Code stores its value in local settings, so prefer an unauthenticated local proxy or protect the settings file if the URL contains credentials. Index data remains on this device and contains counters, timestamps, fingerprints, and opaque IDs, not conversation text, file paths, labels, provider names, or credentials. Run **Refresh Local Token Usage** for an immediate rescan.
 
 ## Shared conversation history
 
@@ -96,7 +106,7 @@ See [Conversation history across modes](https://github.com/baoshichao001-dev/cod
 | Setting | Default | Description |
 | --- | --- | --- |
 | `codex-switchbridge.language` | `auto` | Follow VS Code or use English/Simplified Chinese in the Dashboard |
-| `codex-switchbridge.proxy` | `""` | Machine-only HTTP(S) proxy for account quota requests; excluded from Settings Sync; empty uses VS Code and extension-host proxy settings |
+| `codex-switchbridge.proxy` | `""` | Machine-only HTTP(S) proxy for account quota requests and OAuth token refresh; excluded from Settings Sync; empty uses VS Code and extension-host proxy settings |
 | `codex-switchbridge.shareHistoryAcrossProviders` | `true` | Keep new local conversation history available across account and Responses-compatible API-provider modes |
 | `codex-switchbridge.reloadWindowAfterSwitch` | `statusBar` | Show a non-blocking reload action, never notify, or reload automatically after a switch |
 | `codex-switchbridge.quotaRefreshInterval` | `30` | Check one saved account per interval for token maintenance and quota refresh |

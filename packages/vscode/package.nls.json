@@ -45,7 +45,7 @@
   "configuration.language.enum.auto": "Follow VS Code's display language",
   "configuration.language.enum.en": "Use English",
   "configuration.language.enum.zhCn": "Use Simplified Chinese",
-  "configuration.proxy.description": "Machine-only HTTP or HTTPS proxy for ChatGPT quota requests. This setting is excluded from Settings Sync. Leave empty to use VS Code's http.proxy setting, then the extension-host proxy environment.",
+  "configuration.proxy.description": "Machine-only HTTP or HTTPS proxy for ChatGPT quota requests and OAuth token refresh. This setting is excluded from Settings Sync. Leave empty to use VS Code's http.proxy setting, then the extension-host proxy environment.",
   "configuration.quotaRefreshInterval.description": "Background maintenance interval, in seconds. Each interval checks one saved account for token refresh when enabled and refreshes one saved account quota in rotation.",
   "configuration.tokenAutoUpdate.description": "Automatically refresh saved account tokens during background timer maintenance when the token is expired or close to expiring.",
   "configuration.autoSwitchOnZeroQuota.description": "Automatically switch away from the currently selected saved account when its 5-hour quota reaches 0%, but only if another saved account has freshly confirmed 5-hour quota remaining.",

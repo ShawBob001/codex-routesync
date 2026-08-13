@@ -2,7 +2,7 @@
   "name": "codex-switchbridge",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "publisher": "baoshichao001-dev",
   "repository": {
     "type": "git",
