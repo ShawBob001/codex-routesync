@@ -2,7 +2,7 @@
   "name": "codex-switchbridge",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "publisher": "baoshichao001-dev",
   "repository": {
     "type": "git",
@@ -52,34 +52,13 @@
     "views": {
       "codex-switchbridge": [
         {
-          "id": "codexSwitchBridgeOverview",
-          "name": "%view.dashboard.name%",
-          "icon": "resources/icon.svg"
-        },
-        {
-          "id": "codexSwitchBridgeAccounts",
-          "name": "%view.accounts.name%",
-          "icon": "resources/icon.svg",
-          "showCollapseAll": true
-        },
-        {
-          "id": "codexSwitchBridgeProviders",
-          "name": "%view.providers.name%",
+          "id": "codexSwitchBridgeRoutes",
+          "name": "%view.routes.name%",
           "icon": "resources/icon.svg",
           "showCollapseAll": true
         }
       ]
     },
-    "viewsWelcome": [
-      {
-        "view": "codexSwitchBridgeAccounts",
-        "contents": "%viewsWelcome.accounts%"
-      },
-      {
-        "view": "codexSwitchBridgeProviders",
-        "contents": "%viewsWelcome.providers%"
-      }
-    ],
     "commands": [
       {
         "command": "codex-switchbridge.openDashboard",
@@ -302,164 +281,159 @@
       "view/title": [
         {
           "command": "codex-switchbridge.openDashboard",
-          "when": "view == codexSwitchBridgeOverview",
+          "when": "view == codexSwitchBridgeRoutes",
           "group": "navigation@1"
         },
         {
           "command": "codex-switchbridge.refresh",
-          "when": "view == codexSwitchBridgeAccounts",
-          "group": "navigation@1"
-        },
-        {
-          "command": "codex-switchbridge.expandAllAccounts",
-          "when": "view == codexSwitchBridgeAccounts",
+          "when": "view == codexSwitchBridgeRoutes",
           "group": "navigation@2"
         },
         {
+          "command": "codex-switchbridge.expandAllAccounts",
+          "when": "view == codexSwitchBridgeRoutes",
+          "group": "1_accounts@2"
+        },
+        {
           "command": "codex-switchbridge.addAccount",
-          "when": "view == codexSwitchBridgeAccounts",
+          "when": "view == codexSwitchBridgeRoutes",
           "group": "navigation@3"
         },
         {
           "command": "codex-switchbridge.importAccounts",
-          "when": "view == codexSwitchBridgeAccounts",
-          "group": "navigation@4"
+          "when": "view == codexSwitchBridgeRoutes",
+          "group": "1_accounts@3"
         },
         {
           "command": "codex-switchbridge.reloadWindow",
-          "when": "view == codexSwitchBridgeAccounts",
-          "group": "navigation@6"
+          "when": "view == codexSwitchBridgeRoutes",
+          "group": "3_maintenance@1"
         },
         {
           "command": "codex-switchbridge.enableAutoSwitch",
-          "when": "view == codexSwitchBridgeAccounts && !codexSwitchBridge.autoSwitchEnabled",
-          "group": "navigation@8"
+          "when": "view == codexSwitchBridgeRoutes && !codexSwitchBridge.autoSwitchEnabled",
+          "group": "2_switching@1"
         },
         {
           "command": "codex-switchbridge.disableAutoSwitch",
-          "when": "view == codexSwitchBridgeAccounts && codexSwitchBridge.autoSwitchEnabled",
-          "group": "navigation@8"
-        },
-        {
-          "command": "codex-switchbridge.reloadWindow",
-          "when": "view == codexSwitchBridgeProviders",
-          "group": "navigation@2"
+          "when": "view == codexSwitchBridgeRoutes && codexSwitchBridge.autoSwitchEnabled",
+          "group": "2_switching@1"
         },
         {
           "command": "codex-switchbridge.addProvider",
-          "when": "view == codexSwitchBridgeProviders",
-          "group": "navigation@3"
-        },
-        {
-          "command": "codex-switchbridge.refreshList",
-          "when": "view == codexSwitchBridgeProviders",
+          "when": "view == codexSwitchBridgeRoutes",
           "group": "navigation@4"
         },
         {
+          "command": "codex-switchbridge.refreshList",
+          "when": "view == codexSwitchBridgeRoutes",
+          "group": "3_maintenance@2"
+        },
+        {
           "command": "codex-switchbridge.repairSharedHistory",
-          "when": "view == codexSwitchBridgeProviders",
-          "group": "navigation@5"
+          "when": "view == codexSwitchBridgeRoutes",
+          "group": "3_maintenance@3"
         }
       ],
       "view/item/context": [
         {
           "command": "codex-switchbridge.useAccount",
-          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)",
+          "when": "view == codexSwitchBridgeRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
           "group": "inline@1"
         },
         {
           "command": "codex-switchbridge.refreshList",
-          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)",
+          "when": "view == codexSwitchBridgeRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
           "group": "refresh@1"
         },
         {
           "command": "codex-switchbridge.refreshToken",
-          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)",
+          "when": "view == codexSwitchBridgeRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
           "group": "refresh@2"
         },
         {
           "command": "codex-switchbridge.refreshQuota",
-          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)",
+          "when": "view == codexSwitchBridgeRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
           "group": "refresh@3"
         },
         {
           "command": "codex-switchbridge.reloginAccount",
-          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)",
+          "when": "view == codexSwitchBridgeRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
           "group": "context@1"
         },
         {
           "command": "codex-switchbridge.renameAccount",
-          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud)",
+          "when": "view == codexSwitchBridgeRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
           "group": "context@2"
         },
         {
           "command": "codex-switchbridge.removeAccount",
-          "when": "view == codexSwitchBridgeAccounts && (viewItem == accountLocal || viewItem == accountCloud || viewItem == accountCloudRecoverable)",
+          "when": "view == codexSwitchBridgeRoutes && (viewItem == accountLocal || viewItem == accountCloud || viewItem == accountCloudRecoverable)",
           "group": "context@3"
         },
         {
           "command": "codex-switchbridge.moveAccountToCloud",
-          "when": "view == codexSwitchBridgeAccounts && viewItem == accountLocal",
+          "when": "view == codexSwitchBridgeRoutes && viewItem == accountLocal",
           "group": "context@4"
         },
         {
           "command": "codex-switchbridge.restoreCloudAccountPayload",
-          "when": "view == codexSwitchBridgeAccounts && viewItem == accountCloudRecoverable",
+          "when": "view == codexSwitchBridgeRoutes && viewItem == accountCloudRecoverable",
           "group": "context@1"
         },
         {
           "command": "codex-switchbridge.moveAccountToLocal",
-          "when": "view == codexSwitchBridgeAccounts && viewItem == accountCloud",
+          "when": "view == codexSwitchBridgeRoutes && viewItem == accountCloud",
           "group": "context@4"
         },
         {
           "command": "codex-switchbridge.unlockStorage",
-          "when": "view == codexSwitchBridgeAccounts && viewItem == accountCloudLocked",
+          "when": "view == codexSwitchBridgeRoutes && viewItem == accountCloudLocked",
           "group": "context@1"
         },
         {
           "command": "codex-switchbridge.copyAccountField",
-          "when": "view == codexSwitchBridgeAccounts && viewItem == accountCopyableField",
+          "when": "view == codexSwitchBridgeRoutes && viewItem == accountCopyableField",
           "group": "context@1"
         },
         {
           "command": "codex-switchbridge.refreshQuota",
-          "when": "view == codexSwitchBridgeAccounts && viewItem == accountGroupLocal",
+          "when": "view == codexSwitchBridgeRoutes && viewItem == accountGroupLocal",
           "group": "refresh@1"
         },
         {
           "command": "codex-switchbridge.refreshQuota",
-          "when": "view == codexSwitchBridgeAccounts && viewItem == accountGroupCloud",
+          "when": "view == codexSwitchBridgeRoutes && viewItem == accountGroupCloud",
           "group": "refresh@1"
         },
         {
           "command": "codex-switchbridge.switchProvider",
-          "when": "view == codexSwitchBridgeProviders && (viewItem == providerLocal || viewItem == providerCloud)",
+          "when": "view == codexSwitchBridgeRoutes && (viewItem == providerLocal || viewItem == providerCloud)",
           "group": "inline@1"
         },
         {
           "command": "codex-switchbridge.moveProviderToCloud",
-          "when": "view == codexSwitchBridgeProviders && viewItem == providerLocal",
+          "when": "view == codexSwitchBridgeRoutes && viewItem == providerLocal",
           "group": "context@2"
         },
         {
           "command": "codex-switchbridge.moveProviderToLocal",
-          "when": "view == codexSwitchBridgeProviders && viewItem == providerCloud",
+          "when": "view == codexSwitchBridgeRoutes && viewItem == providerCloud",
           "group": "context@2"
         },
         {
           "command": "codex-switchbridge.removeProvider",
-          "when": "view == codexSwitchBridgeProviders && (viewItem == providerLocal || viewItem == providerCloud)",
+          "when": "view == codexSwitchBridgeRoutes && (viewItem == providerLocal || viewItem == providerCloud)",
           "group": "context@3"
         },
         {
           "command": "codex-switchbridge.copyProviderField",
-          "when": "view == codexSwitchBridgeProviders && viewItem == providerCopyableField",
+          "when": "view == codexSwitchBridgeRoutes && viewItem == providerCopyableField",
           "group": "inline@1"
         },
         {
           "command": "codex-switchbridge.copyProviderField",
-          "when": "view == codexSwitchBridgeProviders && viewItem == providerCopyableField",
+          "when": "view == codexSwitchBridgeRoutes && viewItem == providerCopyableField",
           "group": "context@1"
         }
       ]

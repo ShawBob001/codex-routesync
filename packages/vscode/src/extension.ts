@@ -6,16 +6,16 @@ import {
   setDiagnosticLogOptions,
   setNamedAuthDir,
 } from "@codex-switchbridge/core";
-import { AccountTreeProvider, AccountTreeNode } from "./accountTree";
-import { ProviderTreeProvider, ProviderTreeNode } from "./providerTree";
+import { AccountTreeProvider } from "./accountTree";
+import { ProviderTreeProvider } from "./providerTree";
 import { QuotaStore } from "./quotaStore";
 import { RefreshCoordinator } from "./refreshCoordinator";
 import { StatusBarManager } from "./statusBar";
 import { registerCommands } from "./commands";
 import { buildDashboardModel, DashboardModel } from "./dashboardModel";
 import { resolveDashboardLocale, LanguagePreference } from "./dashboardI18n";
-import { DashboardLauncher } from "./dashboardLauncher";
 import { DashboardViewProvider } from "./dashboardViewProvider";
+import { RoutesTreeProvider, RoutesTreeNode } from "./routesTree";
 import { disposeLogging, initializeLogging, logInfo, logWarn, writeRawLog } from "./log";
 import { restoreSavedAuthPassphrase } from "./storagePassword";
 import {
@@ -221,20 +221,26 @@ export async function activate(context: vscode.ExtensionContext) {
       refreshCoordinator.scheduleQuotaRefresh({ reason: "manual", fullRefresh: true });
     },
   });
-  const dashboardLauncher = new DashboardLauncher();
-  const dashboardTreeView = vscode.window.createTreeView("codexSwitchBridgeOverview", {
-    treeDataProvider: dashboardLauncher,
-  });
-  const accountTreeView = vscode.window.createTreeView<AccountTreeNode>("codexSwitchBridgeAccounts", {
-    treeDataProvider: accountTree,
+  const routesTree = new RoutesTreeProvider(
+    accountTree,
+    providerTree,
+    () => resolveDashboardLocale(getDashboardLanguagePreference(), vscode.env.language),
+  );
+  const routesTreeView = vscode.window.createTreeView<RoutesTreeNode>("codexSwitchBridgeRoutes", {
+    treeDataProvider: routesTree,
     showCollapseAll: true,
   });
-  const providerTreeView = vscode.window.createTreeView<ProviderTreeNode>("codexSwitchBridgeProviders", {
-    treeDataProvider: providerTree,
-    showCollapseAll: true,
-  });
+  const showDashboardWhenVisible = ({ visible }: { visible: boolean }) => {
+    if (visible) dashboardView.show();
+  };
+  const routesVisibilitySubscription = routesTreeView.onDidChangeVisibility(showDashboardWhenVisible);
+  if (routesTreeView.visible) dashboardView.show();
 
   const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration("codex-switchbridge.language")) {
+      routesTree.refreshLocale();
+      dashboardView.invalidate();
+    }
     if (
       e.affectsConfiguration("codex-switchbridge.authDirectory")
       || e.affectsConfiguration("codex-switchbridge.defaultSaveTarget")
@@ -267,10 +273,10 @@ export async function activate(context: vscode.ExtensionContext) {
   });
 
   context.subscriptions.push(
-    dashboardTreeView,
     dashboardView,
-    accountTreeView,
-    providerTreeView,
+    routesTreeView,
+    routesVisibilitySubscription,
+    routesTree,
     usageService,
     quotaStore,
     accountTree,
@@ -286,7 +292,7 @@ export async function activate(context: vscode.ExtensionContext) {
     quotaStore,
     providerTree,
     statusBarManager,
-    accountTreeView,
+    routesTreeView,
     refreshCoordinator,
     usageService,
     () => dashboardView.show(),

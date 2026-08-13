@@ -20,6 +20,7 @@ const options = {
     historyReconciliation: path.join(packageDir, "src", "historyReconciliation.ts"),
     providerProfile: path.join(packageDir, "src", "providerProfile.ts"),
     quotaStore: path.join(packageDir, "src", "quotaStore.ts"),
+    routesTree: path.join(packageDir, "src", "routesTree.ts"),
     tokenUsage: path.join(packageDir, "src", "tokenUsage.ts"),
   },
   bundle: true,

@@ -184,3 +184,65 @@ test("debug core performance logging emits timings for quota and refresh flows",
   core.setDiagnosticLogger(null);
   core.setDiagnosticLogOptions({ detailedPerformanceLogging: false });
 });
+
+test("detailed quota performance logs record hasEmail without exposing the email", async () => {
+  const email = "private@example.test";
+  const lines = captureDiagnosticLogs();
+  core.setDiagnosticLogOptions({ detailedPerformanceLogging: true });
+
+  try {
+    await withMockedHttpsRequest(async () => {
+      const quotaInfo = await core.getQuotaInfo(makeAuthFile("acct-private", { email }));
+      assert.equal(quotaInfo.email, email);
+      assert.equal(quotaInfo.unavailableReason, null);
+    });
+
+    assert.equal(lines.some((entry) => entry.line.includes(email)), false);
+    assert.equal(
+      lines.some(
+        (entry) => entry.line.includes('"stage":"decode-id-token"')
+          && entry.line.includes('"hasEmail":true'),
+      ),
+      true,
+    );
+  } finally {
+    core.setDiagnosticLogger(null);
+    core.setDiagnosticLogOptions({ detailedPerformanceLogging: false });
+  }
+});
+
+test("queryQuota lock and performance diagnostics never expose email without an account id", async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-core-query-quota-private-"));
+  const email = "lock-private@example.test";
+  const auth = makeAuthFile("placeholder", { email, name: "private-user" });
+  delete auth.tokens.account_id;
+  fs.writeFileSync(path.join(tempRoot, "auth.json"), JSON.stringify(auth), "utf-8");
+
+  const previousCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = tempRoot;
+  const lines = captureDiagnosticLogs();
+  core.setDiagnosticLogOptions({ detailedPerformanceLogging: true });
+
+  try {
+    await withMockedHttpsRequest(async () => {
+      const [first, second] = await Promise.all([
+        core.queryQuota(),
+        core.queryQuota(),
+      ]);
+      assert.equal(first.kind, "ok");
+      assert.equal(second.kind, "ok");
+    });
+
+    const output = lines.map((entry) => entry.line).join("\n");
+    assert.doesNotMatch(output, new RegExp(email));
+    assert.match(output, /reuse-inflight-quota/);
+    assert.match(output, /"account":"account-[a-f0-9]{12}"/);
+  } finally {
+    core.setDiagnosticLogger(null);
+    core.setDiagnosticLogOptions({ detailedPerformanceLogging: false });
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    core.setNamedAuthDir(undefined);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});

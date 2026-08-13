@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.1 - 2026-08-13
+
+- Fixed account quota and OAuth token-refresh requests behind explicit, VS Code, and extension-host proxies, including remote extension hosts that override Node's HTTPS transport.
+- Rejected malformed OAuth refresh responses without overwriting saved credentials and removed sensitive response bodies, proxy credentials, and account emails from diagnostics.
+- Unified Accounts and API Providers into one bilingual routes tree to reduce sidebar fragmentation.
+- Opened or focused the graphical Dashboard automatically whenever the SwitchBridge Activity Bar view becomes visible, while retaining the explicit Open Dashboard action.
+- Added up-to-date English and Simplified Chinese usage screenshots to the project documentation.
+
 ## 0.6.0 - 2026-08-13
 
 - Added an official-inspired orange usage chart with daily, weekly, and monthly grouping, account/API-provider filters, date ranges, and selected-range totals, averages, peaks, and estimates.

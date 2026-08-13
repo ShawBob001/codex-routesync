@@ -56,6 +56,20 @@ function withMockedHttpsRequest(mockImpl, fn) {
     });
 }
 
+function withPatchedAndOriginalHttpsRequest(patchedImpl, originalImpl, fn) {
+  const patched = https.request;
+  const preserved = https.__vscodeOriginal;
+  https.request = patchedImpl;
+  https.__vscodeOriginal = { ...https, request: originalImpl };
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      https.request = patched;
+      if (preserved === undefined) delete https.__vscodeOriginal;
+      else https.__vscodeOriginal = preserved;
+    });
+}
+
 function createMockRequest(statusCode, body) {
   return (_options, handler) => {
     const response = new EventEmitter();
@@ -295,6 +309,31 @@ test("getQuotaInfo tolerates camelCase reset credits and zero counts", async () 
       });
     },
   );
+});
+
+test("getQuotaInfo uses the preserved request for an explicit proxy", async () => {
+  let originalCalls = 0;
+  await withPatchedAndOriginalHttpsRequest(
+    () => {
+      throw new Error("VS Code override discarded quota proxy agent");
+    },
+    (options, handler) => {
+      originalCalls += 1;
+      assert.equal(options.method, "GET");
+      assert.equal(options.hostname, "chatgpt.com");
+      assert.equal(options.agent?.constructor?.name, "HttpsProxyAgent");
+      return createMockRequest(200, JSON.stringify({ plan_type: "team" }))(options, handler);
+    },
+    async () => {
+      const info = await getQuotaInfo(
+        { tokens: { access_token: "header.payload.signature" } },
+        { proxyUrl: "http://127.0.0.1:3128" },
+      );
+      assert.equal(info.unavailableReason, null);
+      assert.equal(info.plan, "team");
+    },
+  );
+  assert.equal(originalCalls, 1);
 });
 
 test("getQuotaInfo uses HTTPS_PROXY for the usage request without exposing credentials", async () => {
