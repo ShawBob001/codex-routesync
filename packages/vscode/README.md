@@ -8,11 +8,11 @@ Codex SwitchBridge manages the active credentials, provider route, and saved sel
 
 Open **Codex SwitchBridge** from the Activity Bar. One unified **Accounts & API Routes** tree handles both route types, while the central Dashboard opens or focuses automatically.
 
-![Codex SwitchBridge Dashboard in English dark mode](images/dashboard-en-dark.png)
+![Codex SwitchBridge Dashboard in English dark mode](https://raw.githubusercontent.com/baoshichao001-dev/codex-switchbridge/main/packages/vscode/images/dashboard-en-dark.png)
 
 Switch the Dashboard language to **简体中文** at any time:
 
-![Codex SwitchBridge Dashboard in Simplified Chinese light mode](images/dashboard-zh-light.png)
+![Codex SwitchBridge Dashboard in Simplified Chinese light mode](https://raw.githubusercontent.com/baoshichao001-dev/codex-switchbridge/main/packages/vscode/images/dashboard-zh-light.png)
 
 ## Install
 

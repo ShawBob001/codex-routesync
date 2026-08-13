@@ -889,7 +889,7 @@ async function switchSavedAccountForCommand(
     logCommandInfo(options.logScope, "switched", {
       account: account.name,
       source: account.source,
-      email: result.meta?.email ?? null,
+      hasEmail: Boolean(result.meta?.email),
     });
     await refreshViews(refreshCoordinator, "account-switch");
     options.perf?.mark("refresh-views");
@@ -1425,7 +1425,7 @@ export function registerCommands(
               account: trimmedName,
               target,
               overwrite: true,
-              email: result.meta?.email ?? null,
+              hasEmail: Boolean(result.meta?.email),
             });
             await restoreSavedCurrentSelectionMarker(previousSelection);
             refreshAll(refreshCoordinator);
@@ -1487,7 +1487,7 @@ export function registerCommands(
             account: trimmedName,
             target,
             overwrite: false,
-            email: result.meta?.email ?? null,
+            hasEmail: Boolean(result.meta?.email),
           });
           await restoreSavedCurrentSelectionMarker(previousSelection);
           refreshAll(refreshCoordinator);
@@ -1693,7 +1693,7 @@ export function registerCommands(
             logCommandInfo("relogin-account", "saved", {
               account: account.name,
               source: account.source,
-              email: result.meta?.email ?? null,
+              hasEmail: Boolean(result.meta?.email),
               active: targetIsStillActive,
             });
             refreshAll(refreshCoordinator);

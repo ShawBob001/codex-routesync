@@ -703,3 +703,12 @@ test("configured quota proxy reaches saved-account requests without entering log
     },
   );
 });
+
+test("account command diagnostics never contain decoded email addresses", () => {
+  const commandsSource = fs.readFileSync(
+    path.join(__dirname, "..", "src", "commands.ts"),
+    "utf-8",
+  );
+  assert.doesNotMatch(commandsSource, /\bemail:\s*result\.meta\?\.email/);
+  assert.match(commandsSource, /hasEmail:\s*Boolean\(result\.meta\?\.email\)/);
+});

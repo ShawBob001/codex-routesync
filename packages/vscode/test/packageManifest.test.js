@@ -230,6 +230,14 @@ test("production build includes dashboard browser assets and excludes raw webvie
   assert.doesNotMatch(ignored, /^dist\/webview\/\*\*$/m);
 });
 
+test("Marketplace README uses stable repository paths for dashboard screenshots", () => {
+  const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf-8");
+  const expectedBase = "https://raw.githubusercontent.com/baoshichao001-dev/codex-switchbridge/main/packages/vscode/images/";
+  assert.match(readme, new RegExp(`${expectedBase}dashboard-en-dark\\.png`));
+  assert.match(readme, new RegExp(`${expectedBase}dashboard-zh-light\\.png`));
+  assert.doesNotMatch(readme, /\]\(images\//);
+});
+
 test("visual tests rebuild dashboard assets before launching Playwright", () => {
   assert.match(
     manifest.scripts["test:visual"],
