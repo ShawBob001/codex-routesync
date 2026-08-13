@@ -74,7 +74,9 @@ async function postForm(
       proxyUrl: options.proxyUrl,
     });
   } catch (error) {
-    perf.fail(error);
+    perf.fail(new Error("Refresh transport request failed"), {
+      failureKind: "transport",
+    });
     throw error;
   }
 
@@ -91,7 +93,8 @@ async function postForm(
   }
 
   const error = new Error(`HTTP ${response.statusCode ?? undefined}: ${response.body}`);
-  perf.fail(error, {
+  perf.fail(new Error("Refresh HTTP request failed"), {
+    failureKind: "http_status",
     statusCode: response.statusCode,
     responseBytes: response.body.length,
   });
@@ -136,7 +139,9 @@ export async function refreshAccessToken(
     });
     return parsed;
   } catch (error) {
-    perf.fail(error);
+    perf.fail(new Error("Refresh request failed"), {
+      failureKind: "refresh",
+    });
     throw error;
   }
 }

@@ -47,6 +47,29 @@ function createRefreshRequest(assertRequest) {
   };
 }
 
+function createResponseRequest(statusCode, responseBody) {
+  return (_options, handler) => {
+    const response = new EventEmitter();
+    response.statusCode = statusCode;
+    const request = new EventEmitter();
+    request.setTimeout = () => request;
+    request.destroy = () => {};
+    request.write = () => {};
+    request.end = () => {
+      handler(response);
+      response.emit("data", responseBody);
+      response.emit("end");
+    };
+    return request;
+  };
+}
+
+function captureDiagnosticLogs() {
+  const lines = [];
+  core.setDiagnosticLogger((level, line) => lines.push({ level, line }));
+  return lines;
+}
+
 function throwingPatchedRequest() {
   throw new Error("VS Code override discarded refresh proxy agent");
 }
@@ -139,5 +162,71 @@ test("refreshAccount passes its proxy option to token refresh", async () => {
     else process.env.CODEX_HOME = previousCodexHome;
     core.setNamedAuthDir(undefined);
     fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("refresh diagnostics redact raw proxy errors while preserving the thrown error", async () => {
+  const proxyUrl = "http://alice:proxy-password@127.0.0.1:3128";
+  const proxyError = new Error(`connect failed through ${proxyUrl}`);
+  const lines = captureDiagnosticLogs();
+  core.setDiagnosticLogOptions({ detailedPerformanceLogging: true });
+
+  try {
+    await assert.rejects(
+      withHttpsImplementations(
+        throwingPatchedRequest,
+        () => {
+          const request = new EventEmitter();
+          request.setTimeout = () => request;
+          request.destroy = () => {};
+          request.write = () => {};
+          request.end = () => setImmediate(() => request.emit("error", proxyError));
+          return request;
+        },
+        () => core.refreshAccessToken(makeAuth(), { proxyUrl }),
+      ),
+      (error) => {
+        assert.equal(error, proxyError);
+        return true;
+      },
+    );
+
+    const output = lines.map((entry) => entry.line).join("\n");
+    assert.doesNotMatch(output, /alice|proxy-password|connect failed through/);
+    assert.match(output, /"failureKind":"transport"/);
+  } finally {
+    core.setDiagnosticLogger(null);
+    core.setDiagnosticLogOptions({ detailedPerformanceLogging: false });
+  }
+});
+
+test("refresh diagnostics redact non-2xx response bodies while preserving HTTP errors", async () => {
+  const responseBody = JSON.stringify({
+    error: "refresh denied",
+    credential: "response-body-secret",
+  });
+  const lines = captureDiagnosticLogs();
+  core.setDiagnosticLogOptions({ detailedPerformanceLogging: true });
+
+  try {
+    await assert.rejects(
+      withHttpsImplementations(
+        throwingPatchedRequest,
+        createResponseRequest(400, responseBody),
+        () => core.refreshAccessToken(makeAuth(), { proxyUrl: null }),
+      ),
+      (error) => {
+        assert.equal(error.message, `HTTP 400: ${responseBody}`);
+        return true;
+      },
+    );
+
+    const output = lines.map((entry) => entry.line).join("\n");
+    assert.doesNotMatch(output, /response-body-secret|refresh denied/);
+    assert.match(output, /"failureKind":"http_status"/);
+    assert.match(output, /"statusCode":400/);
+  } finally {
+    core.setDiagnosticLogger(null);
+    core.setDiagnosticLogOptions({ detailedPerformanceLogging: false });
   }
 });

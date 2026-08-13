@@ -120,7 +120,7 @@ export function requestHttpsText(
     const proxyUrl = options.proxyUrl === undefined
       ? proxyForUrl(target)
       : options.proxyUrl;
-    const agent = proxyUrl ? createProxyAgent(proxyUrl) : undefined;
+    const agent = proxyUrl !== null ? createProxyAgent(proxyUrl) : undefined;
     const originalRequest = (https as PatchedHttps).__vscodeOriginal?.request;
     const shouldUseOriginal = agent !== undefined || options.proxyUrl !== undefined;
     const request = shouldUseOriginal && originalRequest ? originalRequest : https.request;

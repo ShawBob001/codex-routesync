@@ -216,3 +216,17 @@ test("invalid proxy configuration is rejected without exposing credentials", asy
     },
   );
 });
+
+test("an explicitly empty proxy URL is rejected instead of silently using a direct connection", async () => {
+  await assert.rejects(
+    requestHttpsText({
+      url: "https://example.test/usage",
+      method: "GET",
+      proxyUrl: "",
+    }),
+    (error) => {
+      assert.equal(error.message, "Invalid or unavailable proxy configuration");
+      return true;
+    },
+  );
+});

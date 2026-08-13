@@ -193,7 +193,7 @@ function getAccountLockKey(auth: AuthFile): string {
 }
 
 function getAccountLockLabel(auth: AuthFile): string {
-  return auth.tokens?.account_id?.trim() || extractMeta(auth).email || "unknown";
+  return auth.tokens?.account_id?.trim() || `account-${getAccountLockKey(auth).slice(0, 12)}`;
 }
 
 function getAccountLockPath(auth: AuthFile): string {
