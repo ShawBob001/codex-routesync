@@ -104,6 +104,13 @@ test("VS Code-owned user-visible contributions use complete English and Chinese 
       assert.match(chinese[key], /[\u3400-\u9fff]/u, `${key} must be translated into Chinese`);
     }
   }
+
+  const referencedKeys = new Set(localizedValues.map(([, value]) => nlsKey(value)));
+  assert.deepEqual(
+    Object.keys(english).sort(),
+    [...referencedKeys].sort(),
+    "package.nls.json must not retain keys for removed manifest contributions",
+  );
 });
 
 test("extension identity is Codex SwitchBridge 0.6.0", () => {
