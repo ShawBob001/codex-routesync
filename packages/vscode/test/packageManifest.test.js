@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
+const repositoryRoot = path.resolve(__dirname, "../../..");
 const rawManifest = JSON.parse(
   fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8")
 );
@@ -236,6 +237,20 @@ test("Marketplace README uses stable repository paths for dashboard screenshots"
   assert.match(readme, new RegExp(`${expectedBase}dashboard-en-dark\\.png`));
   assert.match(readme, new RegExp(`${expectedBase}dashboard-zh-light\\.png`));
   assert.doesNotMatch(readme, /\]\(images\//);
+});
+
+test("workspace tests use cross-platform file discovery compatible with Node 20", () => {
+  const runnerPath = path.join(repositoryRoot, "scripts", "run-node-tests.mjs");
+  assert.equal(fs.existsSync(runnerPath), true, "shared Node test runner is missing");
+
+  for (const workspace of ["core", "cli", "vscode"]) {
+    const manifest = JSON.parse(fs.readFileSync(
+      path.join(repositoryRoot, "packages", workspace, "package.json"),
+      "utf8",
+    ));
+    assert.match(manifest.scripts.test, /run-node-tests\.mjs test/);
+    assert.doesNotMatch(manifest.scripts.test, /\*\*/);
+  }
 });
 
 test("visual tests rebuild dashboard assets before launching Playwright", () => {

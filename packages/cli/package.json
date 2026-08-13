@@ -28,7 +28,7 @@
     "build": "tsc --emitDeclarationOnly && node ./scripts/build.mjs",
     "predev": "npm run build -w @codex-switchbridge/core",
     "dev": "tsc --watch",
-    "test": "npm run build && node --test test/**/*.test.js",
+    "test": "npm run build && node ../../scripts/run-node-tests.mjs test",
     "prepack": "npm run build"
   },
   "keywords": [

@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "npm run build && node --test test/**/*.test.js"
+    "test": "npm run build && node ../../scripts/run-node-tests.mjs test"
   },
   "dependencies": {
     "https-proxy-agent": "^7.0.6",
