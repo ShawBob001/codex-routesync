@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { constants as zlibConstants, gunzipSync, gzipSync } from "node:zlib";
 
+// Keep the persisted key stable across the public RouteSync rename.
 const STATE_KEY = "codexSwitchBridge.localTokenUsage.v2";
 const STATE_VERSION = 2;
 const READ_CHUNK_BYTES = 64 * 1024;

@@ -1,17 +1,17 @@
 {
-  "name": "codex-switchbridge-vscode",
+  "name": "codex-routesync",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "publisher": "ShawBob001",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ShawBob001/codex-switchbridge",
+    "url": "https://github.com/ShawBob001/codex-routesync",
     "directory": "packages/vscode"
   },
-  "homepage": "https://github.com/ShawBob001/codex-switchbridge",
+  "homepage": "https://github.com/ShawBob001/codex-routesync",
   "bugs": {
-    "url": "https://github.com/ShawBob001/codex-switchbridge/issues"
+    "url": "https://github.com/ShawBob001/codex-routesync/issues"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -43,16 +43,16 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "codex-switchbridge-vscode",
+          "id": "codex-routesync",
           "title": "%viewContainer.title%",
           "icon": "resources/icon.svg"
         }
       ]
     },
     "views": {
-      "codex-switchbridge-vscode": [
+      "codex-routesync": [
         {
-          "id": "codexSwitchBridgeVscodeRoutes",
+          "id": "codexRouteSyncRoutes",
           "name": "%view.routes.name%",
           "icon": "resources/icon.svg",
           "showCollapseAll": true
@@ -61,217 +61,217 @@
     },
     "commands": [
       {
-        "command": "codex-switchbridge-vscode.openDashboard",
+        "command": "codex-routesync.openDashboard",
         "title": "%command.openDashboard.title%",
         "category": "%command.category%",
         "icon": "$(open-preview)"
       },
       {
-        "command": "codex-switchbridge-vscode.importAccounts",
+        "command": "codex-routesync.importAccounts",
         "title": "%command.importAccounts.title%",
         "category": "%command.category%",
         "icon": "$(folder-opened)"
       },
       {
-        "command": "codex-switchbridge-vscode.addAccount",
+        "command": "codex-routesync.addAccount",
         "title": "%command.addAccount.title%",
         "category": "%command.category%",
         "icon": "$(add)"
       },
       {
-        "command": "codex-switchbridge-vscode.addProvider",
+        "command": "codex-routesync.addProvider",
         "title": "%command.addProvider.title%",
         "category": "%command.category%",
         "icon": "$(add)"
       },
       {
-        "command": "codex-switchbridge-vscode.reloginAccount",
+        "command": "codex-routesync.reloginAccount",
         "title": "%command.reloginAccount.title%",
         "category": "%command.category%",
         "icon": "$(sign-in)"
       },
       {
-        "command": "codex-switchbridge-vscode.renameAccount",
+        "command": "codex-routesync.renameAccount",
         "title": "%command.renameAccount.title%",
         "category": "%command.category%",
         "icon": "$(edit)"
       },
       {
-        "command": "codex-switchbridge-vscode.removeAccount",
+        "command": "codex-routesync.removeAccount",
         "title": "%command.removeAccount.title%",
         "category": "%command.category%",
         "icon": "$(trash)"
       },
       {
-        "command": "codex-switchbridge-vscode.useAccount",
+        "command": "codex-routesync.useAccount",
         "title": "%command.useAccount.title%",
         "category": "%command.category%",
         "icon": "$(arrow-swap)"
       },
       {
-        "command": "codex-switchbridge-vscode.switchMode",
+        "command": "codex-routesync.switchMode",
         "title": "%command.switchMode.title%",
         "category": "%command.category%",
         "icon": "$(plug)"
       },
       {
-        "command": "codex-switchbridge-vscode.switchProvider",
+        "command": "codex-routesync.switchProvider",
         "title": "%command.switchProvider.title%",
         "category": "%command.category%",
         "icon": "$(arrow-swap)"
       },
       {
-        "command": "codex-switchbridge-vscode.refreshToken",
+        "command": "codex-routesync.refreshToken",
         "title": "%command.refreshToken.title%",
         "category": "%command.category%",
         "icon": "$(refresh)"
       },
       {
-        "command": "codex-switchbridge-vscode.refreshQuota",
+        "command": "codex-routesync.refreshQuota",
         "title": "%command.refreshQuota.title%",
         "category": "%command.category%",
         "icon": "$(refresh)"
       },
       {
-        "command": "codex-switchbridge-vscode.refreshUsage",
+        "command": "codex-routesync.refreshUsage",
         "title": "%command.refreshUsage.title%",
         "category": "%command.category%",
         "icon": "$(pulse)"
       },
       {
-        "command": "codex-switchbridge-vscode.refreshDashboard",
+        "command": "codex-routesync.refreshDashboard",
         "title": "%command.refreshDashboard.title%",
         "category": "%command.category%",
         "icon": "$(refresh)"
       },
       {
-        "command": "codex-switchbridge-vscode.exportAccounts",
+        "command": "codex-routesync.exportAccounts",
         "title": "%command.exportAccounts.title%",
         "category": "%command.category%",
         "icon": "$(export)"
       },
       {
-        "command": "codex-switchbridge-vscode.refreshList",
+        "command": "codex-routesync.refreshList",
         "title": "%command.refreshList.title%",
         "category": "%command.category%",
         "icon": "$(refresh)"
       },
       {
-        "command": "codex-switchbridge-vscode.refresh",
+        "command": "codex-routesync.refresh",
         "title": "%command.refresh.title%",
         "category": "%command.category%",
         "icon": "$(refresh)"
       },
       {
-        "command": "codex-switchbridge-vscode.enableAutoSwitch",
+        "command": "codex-routesync.enableAutoSwitch",
         "title": "%command.enableAutoSwitch.title%",
         "category": "%command.category%",
         "icon": "$(check)"
       },
       {
-        "command": "codex-switchbridge-vscode.disableAutoSwitch",
+        "command": "codex-routesync.disableAutoSwitch",
         "title": "%command.disableAutoSwitch.title%",
         "category": "%command.category%",
         "icon": "$(circle-slash)"
       },
       {
-        "command": "codex-switchbridge-vscode.configureAutoSwitch",
+        "command": "codex-routesync.configureAutoSwitch",
         "title": "%command.configureAutoSwitch.title%",
         "category": "%command.category%",
         "icon": "$(sync-ignored)"
       },
       {
-        "command": "codex-switchbridge-vscode.reloadWindow",
+        "command": "codex-routesync.reloadWindow",
         "title": "%command.reloadWindow.title%",
         "category": "%command.category%",
         "icon": "$(debug-restart)"
       },
       {
-        "command": "codex-switchbridge-vscode.repairSharedHistory",
+        "command": "codex-routesync.repairSharedHistory",
         "title": "%command.repairSharedHistory.title%",
         "category": "%command.category%",
         "icon": "$(history)"
       },
       {
-        "command": "codex-switchbridge-vscode.showLogs",
+        "command": "codex-routesync.showLogs",
         "title": "%command.showLogs.title%",
         "category": "%command.category%",
         "icon": "$(output)"
       },
       {
-        "command": "codex-switchbridge-vscode.unlockStorage",
+        "command": "codex-routesync.unlockStorage",
         "title": "%command.unlockStorage.title%",
         "category": "%command.category%",
         "icon": "$(unlock)"
       },
       {
-        "command": "codex-switchbridge-vscode.setStoragePassword",
+        "command": "codex-routesync.setStoragePassword",
         "title": "%command.setStoragePassword.title%",
         "category": "%command.category%",
         "icon": "$(lock)"
       },
       {
-        "command": "codex-switchbridge-vscode.changeStoragePassword",
+        "command": "codex-routesync.changeStoragePassword",
         "title": "%command.changeStoragePassword.title%",
         "category": "%command.category%",
         "icon": "$(key)"
       },
       {
-        "command": "codex-switchbridge-vscode.forgetStoragePassword",
+        "command": "codex-routesync.forgetStoragePassword",
         "title": "%command.forgetStoragePassword.title%",
         "category": "%command.category%",
         "icon": "$(unlock)"
       },
       {
-        "command": "codex-switchbridge-vscode.copyProviderField",
+        "command": "codex-routesync.copyProviderField",
         "title": "%command.copyProviderField.title%",
         "category": "%command.category%",
         "icon": "$(copy)"
       },
       {
-        "command": "codex-switchbridge-vscode.copyAccountField",
+        "command": "codex-routesync.copyAccountField",
         "title": "%command.copyAccountField.title%",
         "category": "%command.category%",
         "icon": "$(copy)"
       },
       {
-        "command": "codex-switchbridge-vscode.moveAccountToCloud",
+        "command": "codex-routesync.moveAccountToCloud",
         "title": "%command.moveAccountToCloud.title%",
         "category": "%command.category%",
         "icon": "$(cloud-upload)"
       },
       {
-        "command": "codex-switchbridge-vscode.restoreCloudAccountPayload",
+        "command": "codex-routesync.restoreCloudAccountPayload",
         "title": "%command.restoreCloudAccountPayload.title%",
         "category": "%command.category%",
         "icon": "$(cloud-download)"
       },
       {
-        "command": "codex-switchbridge-vscode.moveAccountToLocal",
+        "command": "codex-routesync.moveAccountToLocal",
         "title": "%command.moveAccountToLocal.title%",
         "category": "%command.category%",
         "icon": "$(cloud-download)"
       },
       {
-        "command": "codex-switchbridge-vscode.moveProviderToCloud",
+        "command": "codex-routesync.moveProviderToCloud",
         "title": "%command.moveProviderToCloud.title%",
         "category": "%command.category%",
         "icon": "$(cloud-upload)"
       },
       {
-        "command": "codex-switchbridge-vscode.moveProviderToLocal",
+        "command": "codex-routesync.moveProviderToLocal",
         "title": "%command.moveProviderToLocal.title%",
         "category": "%command.category%",
         "icon": "$(cloud-download)"
       },
       {
-        "command": "codex-switchbridge-vscode.removeProvider",
+        "command": "codex-routesync.removeProvider",
         "title": "%command.removeProvider.title%",
         "category": "%command.category%",
         "icon": "$(trash)"
       },
       {
-        "command": "codex-switchbridge-vscode.expandAllAccounts",
+        "command": "codex-routesync.expandAllAccounts",
         "title": "%command.expandAllAccounts.title%",
         "category": "%command.category%",
         "icon": "$(expand-all)"
@@ -280,150 +280,150 @@
     "menus": {
       "view/title": [
         {
-          "command": "codex-switchbridge-vscode.openDashboard",
-          "when": "view == codexSwitchBridgeVscodeRoutes",
+          "command": "codex-routesync.openDashboard",
+          "when": "view == codexRouteSyncRoutes",
           "group": "navigation@1"
         },
         {
-          "command": "codex-switchbridge-vscode.refresh",
-          "when": "view == codexSwitchBridgeVscodeRoutes",
+          "command": "codex-routesync.refresh",
+          "when": "view == codexRouteSyncRoutes",
           "group": "navigation@2"
         },
         {
-          "command": "codex-switchbridge-vscode.expandAllAccounts",
-          "when": "view == codexSwitchBridgeVscodeRoutes",
+          "command": "codex-routesync.expandAllAccounts",
+          "when": "view == codexRouteSyncRoutes",
           "group": "1_accounts@2"
         },
         {
-          "command": "codex-switchbridge-vscode.addAccount",
-          "when": "view == codexSwitchBridgeVscodeRoutes",
+          "command": "codex-routesync.addAccount",
+          "when": "view == codexRouteSyncRoutes",
           "group": "navigation@3"
         },
         {
-          "command": "codex-switchbridge-vscode.importAccounts",
-          "when": "view == codexSwitchBridgeVscodeRoutes",
+          "command": "codex-routesync.importAccounts",
+          "when": "view == codexRouteSyncRoutes",
           "group": "1_accounts@3"
         },
         {
-          "command": "codex-switchbridge-vscode.reloadWindow",
-          "when": "view == codexSwitchBridgeVscodeRoutes",
+          "command": "codex-routesync.reloadWindow",
+          "when": "view == codexRouteSyncRoutes",
           "group": "3_maintenance@1"
         },
         {
-          "command": "codex-switchbridge-vscode.enableAutoSwitch",
-          "when": "view == codexSwitchBridgeVscodeRoutes && !codexSwitchBridgeVscode.autoSwitchEnabled",
+          "command": "codex-routesync.enableAutoSwitch",
+          "when": "view == codexRouteSyncRoutes && !codexRouteSync.autoSwitchEnabled",
           "group": "2_switching@1"
         },
         {
-          "command": "codex-switchbridge-vscode.disableAutoSwitch",
-          "when": "view == codexSwitchBridgeVscodeRoutes && codexSwitchBridgeVscode.autoSwitchEnabled",
+          "command": "codex-routesync.disableAutoSwitch",
+          "when": "view == codexRouteSyncRoutes && codexRouteSync.autoSwitchEnabled",
           "group": "2_switching@1"
         },
         {
-          "command": "codex-switchbridge-vscode.addProvider",
-          "when": "view == codexSwitchBridgeVscodeRoutes",
+          "command": "codex-routesync.addProvider",
+          "when": "view == codexRouteSyncRoutes",
           "group": "navigation@4"
         },
         {
-          "command": "codex-switchbridge-vscode.refreshList",
-          "when": "view == codexSwitchBridgeVscodeRoutes",
+          "command": "codex-routesync.refreshList",
+          "when": "view == codexRouteSyncRoutes",
           "group": "3_maintenance@2"
         },
         {
-          "command": "codex-switchbridge-vscode.repairSharedHistory",
-          "when": "view == codexSwitchBridgeVscodeRoutes",
+          "command": "codex-routesync.repairSharedHistory",
+          "when": "view == codexRouteSyncRoutes",
           "group": "3_maintenance@3"
         }
       ],
       "view/item/context": [
         {
-          "command": "codex-switchbridge-vscode.useAccount",
-          "when": "view == codexSwitchBridgeVscodeRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
+          "command": "codex-routesync.useAccount",
+          "when": "view == codexRouteSyncRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
           "group": "inline@1"
         },
         {
-          "command": "codex-switchbridge-vscode.refreshList",
-          "when": "view == codexSwitchBridgeVscodeRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
+          "command": "codex-routesync.refreshList",
+          "when": "view == codexRouteSyncRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
           "group": "refresh@1"
         },
         {
-          "command": "codex-switchbridge-vscode.refreshToken",
-          "when": "view == codexSwitchBridgeVscodeRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
+          "command": "codex-routesync.refreshToken",
+          "when": "view == codexRouteSyncRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
           "group": "refresh@2"
         },
         {
-          "command": "codex-switchbridge-vscode.refreshQuota",
-          "when": "view == codexSwitchBridgeVscodeRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
+          "command": "codex-routesync.refreshQuota",
+          "when": "view == codexRouteSyncRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
           "group": "refresh@3"
         },
         {
-          "command": "codex-switchbridge-vscode.reloginAccount",
-          "when": "view == codexSwitchBridgeVscodeRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
+          "command": "codex-routesync.reloginAccount",
+          "when": "view == codexRouteSyncRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
           "group": "context@1"
         },
         {
-          "command": "codex-switchbridge-vscode.renameAccount",
-          "when": "view == codexSwitchBridgeVscodeRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
+          "command": "codex-routesync.renameAccount",
+          "when": "view == codexRouteSyncRoutes && (viewItem == accountLocal || viewItem == accountCloud)",
           "group": "context@2"
         },
         {
-          "command": "codex-switchbridge-vscode.removeAccount",
-          "when": "view == codexSwitchBridgeVscodeRoutes && (viewItem == accountLocal || viewItem == accountCloud || viewItem == accountCloudRecoverable)",
+          "command": "codex-routesync.removeAccount",
+          "when": "view == codexRouteSyncRoutes && (viewItem == accountLocal || viewItem == accountCloud || viewItem == accountCloudRecoverable)",
           "group": "context@3"
         },
         {
-          "command": "codex-switchbridge-vscode.moveAccountToCloud",
-          "when": "view == codexSwitchBridgeVscodeRoutes && viewItem == accountLocal",
+          "command": "codex-routesync.moveAccountToCloud",
+          "when": "view == codexRouteSyncRoutes && viewItem == accountLocal",
           "group": "context@4"
         },
         {
-          "command": "codex-switchbridge-vscode.restoreCloudAccountPayload",
-          "when": "view == codexSwitchBridgeVscodeRoutes && viewItem == accountCloudRecoverable",
+          "command": "codex-routesync.restoreCloudAccountPayload",
+          "when": "view == codexRouteSyncRoutes && viewItem == accountCloudRecoverable",
           "group": "context@1"
         },
         {
-          "command": "codex-switchbridge-vscode.moveAccountToLocal",
-          "when": "view == codexSwitchBridgeVscodeRoutes && viewItem == accountCloud",
+          "command": "codex-routesync.moveAccountToLocal",
+          "when": "view == codexRouteSyncRoutes && viewItem == accountCloud",
           "group": "context@4"
         },
         {
-          "command": "codex-switchbridge-vscode.unlockStorage",
-          "when": "view == codexSwitchBridgeVscodeRoutes && viewItem == accountCloudLocked",
+          "command": "codex-routesync.unlockStorage",
+          "when": "view == codexRouteSyncRoutes && viewItem == accountCloudLocked",
           "group": "context@1"
         },
         {
-          "command": "codex-switchbridge-vscode.copyAccountField",
-          "when": "view == codexSwitchBridgeVscodeRoutes && viewItem == accountCopyableField",
+          "command": "codex-routesync.copyAccountField",
+          "when": "view == codexRouteSyncRoutes && viewItem == accountCopyableField",
           "group": "context@1"
         },
         {
-          "command": "codex-switchbridge-vscode.switchProvider",
-          "when": "view == codexSwitchBridgeVscodeRoutes && (viewItem == providerLocal || viewItem == providerCloud)",
+          "command": "codex-routesync.switchProvider",
+          "when": "view == codexRouteSyncRoutes && (viewItem == providerLocal || viewItem == providerCloud)",
           "group": "inline@1"
         },
         {
-          "command": "codex-switchbridge-vscode.moveProviderToCloud",
-          "when": "view == codexSwitchBridgeVscodeRoutes && viewItem == providerLocal",
+          "command": "codex-routesync.moveProviderToCloud",
+          "when": "view == codexRouteSyncRoutes && viewItem == providerLocal",
           "group": "context@2"
         },
         {
-          "command": "codex-switchbridge-vscode.moveProviderToLocal",
-          "when": "view == codexSwitchBridgeVscodeRoutes && viewItem == providerCloud",
+          "command": "codex-routesync.moveProviderToLocal",
+          "when": "view == codexRouteSyncRoutes && viewItem == providerCloud",
           "group": "context@2"
         },
         {
-          "command": "codex-switchbridge-vscode.removeProvider",
-          "when": "view == codexSwitchBridgeVscodeRoutes && (viewItem == providerLocal || viewItem == providerCloud)",
+          "command": "codex-routesync.removeProvider",
+          "when": "view == codexRouteSyncRoutes && (viewItem == providerLocal || viewItem == providerCloud)",
           "group": "context@3"
         },
         {
-          "command": "codex-switchbridge-vscode.copyProviderField",
-          "when": "view == codexSwitchBridgeVscodeRoutes && viewItem == providerCopyableField",
+          "command": "codex-routesync.copyProviderField",
+          "when": "view == codexRouteSyncRoutes && viewItem == providerCopyableField",
           "group": "inline@1"
         },
         {
-          "command": "codex-switchbridge-vscode.copyProviderField",
-          "when": "view == codexSwitchBridgeVscodeRoutes && viewItem == providerCopyableField",
+          "command": "codex-routesync.copyProviderField",
+          "when": "view == codexRouteSyncRoutes && viewItem == providerCopyableField",
           "group": "context@1"
         }
       ]

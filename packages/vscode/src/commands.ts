@@ -67,7 +67,7 @@ import { savedEntryUsageSubject } from "./usageSubjects";
 import { createQuotaQueryContext, resolveQuotaProxy, ResolvedQuotaProxy } from "./quotaProxy";
 import { RoutesTreeNode } from "./routesTree";
 const LOG_PREFIX = "[codex-switchbridge:vscode:commands]";
-const AUTO_SWITCH_ENABLED_CONTEXT_KEY = "codexSwitchBridgeVscode.autoSwitchEnabled";
+const AUTO_SWITCH_ENABLED_CONTEXT_KEY = "codexRouteSync.autoSwitchEnabled";
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -153,7 +153,7 @@ async function refreshViews(
 async function showSyncConflictWarning(message: string) {
   const action = await vscode.window.showWarningMessage(message, "Refresh List", "Open Settings JSON");
   if (action === "Refresh List") {
-    await vscode.commands.executeCommand("codex-switchbridge-vscode.refreshList");
+    await vscode.commands.executeCommand("codex-routesync.refreshList");
     return;
   }
   if (action === "Open Settings JSON") {
@@ -1167,8 +1167,8 @@ export function registerCommands(
 
   context.subscriptions.push(
     autoSwitchConfigListener,
-    vscode.commands.registerCommand("codex-switchbridge-vscode.openDashboard", openDashboard),
-    vscode.commands.registerCommand("codex-switchbridge-vscode.maybeAutoSwitchExhaustedAccount", async (request?: AutoSwitchRequest) => {
+    vscode.commands.registerCommand("codex-routesync.openDashboard", openDashboard),
+    vscode.commands.registerCommand("codex-routesync.maybeAutoSwitchExhaustedAccount", async (request?: AutoSwitchRequest) => {
       if (!isAutoSwitchOnZeroQuotaEnabled() || !request?.exhaustedAccountId) {
         return;
       }
@@ -1302,15 +1302,15 @@ export function registerCommands(
       await run;
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.enableAutoSwitch", async () => {
+    vscode.commands.registerCommand("codex-routesync.enableAutoSwitch", async () => {
       await setAutoSwitchEnabled(true);
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.disableAutoSwitch", async () => {
+    vscode.commands.registerCommand("codex-routesync.disableAutoSwitch", async () => {
       await setAutoSwitchEnabled(false);
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.addAccount", async () => {
+    vscode.commands.registerCommand("codex-routesync.addAccount", async () => {
       await runTimedCommand("addAccount", async (perf) => {
         const name = await vscode.window.showInputBox({
           prompt: "Enter an account name",
@@ -1510,7 +1510,7 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.addProvider", async () => {
+    vscode.commands.registerCommand("codex-routesync.addProvider", async () => {
       await runTimedCommand("addProvider", async (perf) => {
         const target: StorageSource = vscode.workspace
           .getConfiguration("codex-switchbridge")
@@ -1574,7 +1574,7 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand(
-      "codex-switchbridge-vscode.reloginAccount",
+      "codex-routesync.reloginAccount",
       async (item?: AccountTreeItem) => {
         await runTimedCommand("reloginAccount", async (perf) => {
           let account = await pickSavedAccount(item, "Select an account to re-login");
@@ -1734,7 +1734,7 @@ export function registerCommands(
     ),
 
     vscode.commands.registerCommand(
-      "codex-switchbridge-vscode.renameAccount",
+      "codex-routesync.renameAccount",
       async (item?: AccountTreeItem) => {
         await runTimedCommand("renameAccount", async (perf) => {
           const account = await pickSavedAccount(item, "Select an account to rename");
@@ -1774,7 +1774,7 @@ export function registerCommands(
     ),
 
     vscode.commands.registerCommand(
-      "codex-switchbridge-vscode.removeAccount",
+      "codex-routesync.removeAccount",
       async (item?: AccountTreeItem) => {
         await runTimedCommand("removeAccount", async (perf) => {
           const account = await pickSavedAccount(item, "Select an account to remove");
@@ -1811,7 +1811,7 @@ export function registerCommands(
     ),
 
     vscode.commands.registerCommand(
-      "codex-switchbridge-vscode.useAccount",
+      "codex-routesync.useAccount",
       async (item?: AccountTreeItem) => {
         await runTimedCommand("useAccount", async (perf) => {
           await switchSavedAccountForCommand(context, refreshCoordinator, statusBar, {
@@ -1825,7 +1825,7 @@ export function registerCommands(
     ),
 
     vscode.commands.registerCommand(
-      "codex-switchbridge-vscode.switchProvider",
+      "codex-routesync.switchProvider",
       async (item?: ProviderTreeItem) => {
         await runTimedCommand("switchProvider", async (perf) => {
           const provider = await pickSavedProvider(item, "Select a provider to switch to");
@@ -1839,7 +1839,7 @@ export function registerCommands(
       }
     ),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.switchMode", async () => {
+    vscode.commands.registerCommand("codex-routesync.switchMode", async () => {
       const picked = await pickModeAction();
       if (!picked) {
         logCommandInfo("switch-mode", "cancelled");
@@ -1922,7 +1922,7 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand(
-      "codex-switchbridge-vscode.refreshToken",
+      "codex-routesync.refreshToken",
       async (item?: AccountTreeItem) => {
         await runTimedCommand("refreshToken", async (perf) => {
           const selection = await pickSavedAccountsForRefreshToken(
@@ -2074,7 +2074,7 @@ export function registerCommands(
                   });
                   const action = await vscode.window.showErrorMessage(outcome.message, "Re-login");
                   if (action === "Re-login") {
-                    await vscode.commands.executeCommand("codex-switchbridge-vscode.reloginAccount", item);
+                    await vscode.commands.executeCommand("codex-routesync.reloginAccount", item);
                   }
                   return;
                 }
@@ -2212,7 +2212,7 @@ export function registerCommands(
       }
     ),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.refresh", async (item?: unknown) => {
+    vscode.commands.registerCommand("codex-routesync.refresh", async (item?: unknown) => {
       await runTimedCommand("refresh", async (perf) => {
         const refreshTargetAccountName = getRefreshTargetAccountName(item);
         const picked = await vscode.window.showQuickPick(
@@ -2220,33 +2220,33 @@ export function registerCommands(
             {
               label: "Refresh List",
               description: "Reload saved accounts and refresh quota",
-              command: "codex-switchbridge-vscode.refreshList",
+              command: "codex-routesync.refreshList",
             },
             {
               label: "Refresh Token",
               description: refreshTargetAccountName
                 ? `Refresh "${refreshTargetAccountName}" token and quota`
                 : "Select an account or All to refresh token and quota",
-              command: "codex-switchbridge-vscode.refreshToken",
+              command: "codex-routesync.refreshToken",
             },
             {
               label: "Refresh Quota",
               description: refreshTargetAccountName
                 ? `Refresh "${refreshTargetAccountName}" quota`
                 : "Refresh quota for all accounts",
-              command: "codex-switchbridge-vscode.refreshQuota",
+              command: "codex-routesync.refreshQuota",
             },
             {
               label: "Refresh Local Token Usage",
               description: "Reindex local Codex rollout counters",
-              command: "codex-switchbridge-vscode.refreshUsage",
+              command: "codex-routesync.refreshUsage",
             },
             {
               label: "Auto-Switch Settings",
               description: isAutoSwitchOnZeroQuotaEnabled()
                 ? `Auto-switch enabled · cooldown ${getAutoSwitchCooldownSeconds()}s`
                 : "Enable or configure automatic switch on 0% 5h quota",
-              command: "codex-switchbridge-vscode.configureAutoSwitch",
+              command: "codex-routesync.configureAutoSwitch",
             },
           ],
           { placeHolder: "Choose what to refresh" },
@@ -2267,7 +2267,7 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.moveAccountToCloud", async (item?: AccountTreeItem) => {
+    vscode.commands.registerCommand("codex-routesync.moveAccountToCloud", async (item?: AccountTreeItem) => {
       await runTimedCommand("moveAccountToCloud", async (perf) => {
         let account = await pickSavedAccount(item, "Select a local account to move to cloud storage");
         if (!account) return;
@@ -2324,7 +2324,7 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.restoreCloudAccountPayload", async (item?: AccountTreeItem) => {
+    vscode.commands.registerCommand("codex-routesync.restoreCloudAccountPayload", async (item?: AccountTreeItem) => {
       await runTimedCommand("restoreCloudAccountPayload", async (perf) => {
         const account = await pickSavedAccount(item, "Select a cloud account to restore from protected backup");
         if (!account) return;
@@ -2384,7 +2384,7 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.moveAccountToLocal", async (item?: AccountTreeItem) => {
+    vscode.commands.registerCommand("codex-routesync.moveAccountToLocal", async (item?: AccountTreeItem) => {
       await runTimedCommand("moveAccountToLocal", async (perf) => {
         let account = await pickSavedAccount(item, "Select a cloud account to move to local storage");
         if (!account) return;
@@ -2433,7 +2433,7 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.moveProviderToCloud", async (item?: ProviderTreeItem) => {
+    vscode.commands.registerCommand("codex-routesync.moveProviderToCloud", async (item?: ProviderTreeItem) => {
       let provider = await pickSavedProvider(item, "Select a local provider to move to cloud storage");
       if (!provider) return;
       provider = await ensureProviderAvailable(context, refreshCoordinator, provider);
@@ -2478,7 +2478,7 @@ export function registerCommands(
       await refreshViews(refreshCoordinator);
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.moveProviderToLocal", async (item?: ProviderTreeItem) => {
+    vscode.commands.registerCommand("codex-routesync.moveProviderToLocal", async (item?: ProviderTreeItem) => {
       let provider = await pickSavedProvider(item, "Select a cloud provider to move to local storage");
       if (!provider) return;
       provider = await ensureProviderAvailable(context, refreshCoordinator, provider);
@@ -2516,7 +2516,7 @@ export function registerCommands(
       await refreshViews(refreshCoordinator);
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.removeProvider", async (item?: ProviderTreeItem) => {
+    vscode.commands.registerCommand("codex-routesync.removeProvider", async (item?: ProviderTreeItem) => {
       await runTimedCommand("removeProvider", async (perf) => {
         const provider = await pickSavedProvider(item, "Select a provider to remove");
         if (!provider) return;
@@ -2550,7 +2550,7 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.refreshQuota", async (item?: AccountTreeItem | AccountGroupItem) => {
+    vscode.commands.registerCommand("codex-routesync.refreshQuota", async (item?: AccountTreeItem | AccountGroupItem) => {
       await runTimedCommand("refreshQuota", async (perf) => {
         const targetIds = item instanceof AccountGroupItem
           ? item.children.map((child) => child.account.id)
@@ -2599,12 +2599,12 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.showLogs", () => {
+    vscode.commands.registerCommand("codex-routesync.showLogs", () => {
       logCommandInfo("show-logs", "opened");
       showLogs();
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.exportAccounts", async () => {
+    vscode.commands.registerCommand("codex-routesync.exportAccounts", async () => {
       const uri = await vscode.window.showSaveDialog({
         defaultUri: vscode.Uri.file("codex-accounts.json"),
         filters: { JSON: ["json"] },
@@ -2640,7 +2640,7 @@ export function registerCommands(
       );
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.importAccounts", async () => {
+    vscode.commands.registerCommand("codex-routesync.importAccounts", async () => {
       await runTimedCommand("importAccounts", async (perf) => {
         const uris = await vscode.window.showOpenDialog({
           canSelectMany: false,
@@ -2713,7 +2713,7 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.refreshList", async (item?: AccountTreeItem) => {
+    vscode.commands.registerCommand("codex-routesync.refreshList", async (item?: AccountTreeItem) => {
       await runTimedCommand("refreshList", async () => {
         logCommandInfo("refresh-list", "started");
         refreshAll(refreshCoordinator, item?.account?.id ? [item.account.id] : undefined, {
@@ -2723,13 +2723,13 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.refreshUsage", async () => {
+    vscode.commands.registerCommand("codex-routesync.refreshUsage", async () => {
       await runTimedCommand("refreshUsage", async () => {
         await refreshCoordinator.refreshUsage("manual");
       });
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.refreshDashboard", async () => {
+    vscode.commands.registerCommand("codex-routesync.refreshDashboard", async () => {
       await runTimedCommand("refreshDashboard", async () => {
         await refreshCoordinator.refreshViews("manual");
         refreshCoordinator.scheduleQuotaRefresh({ reason: "manual", fullRefresh: true });
@@ -2738,11 +2738,11 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.configureAutoSwitch", async () => {
+    vscode.commands.registerCommand("codex-routesync.configureAutoSwitch", async () => {
       await configureAutoSwitchSetting();
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.expandAllAccounts", async () => {
+    vscode.commands.registerCommand("codex-routesync.expandAllAccounts", async () => {
       for (const group of accountTree.getRootItems()) {
         for (const item of group.children) {
           await accountTreeView.reveal(item, { expand: true, focus: false, select: false });
@@ -2750,11 +2750,11 @@ export function registerCommands(
       }
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.reloadWindow", async () => {
+    vscode.commands.registerCommand("codex-routesync.reloadWindow", async () => {
       await reloadWindow();
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.repairSharedHistory", async () => {
+    vscode.commands.registerCommand("codex-routesync.repairSharedHistory", async () => {
       await runTimedCommand("repairSharedHistory", async (perf) => {
         if (!shareHistoryAcrossProviders()) {
           await vscode.window.showWarningMessage(
@@ -2771,7 +2771,7 @@ export function registerCommands(
           const inventory = await vscode.window.withProgress(
             {
               location: vscode.ProgressLocation.Notification,
-              title: "Codex SwitchBridge: inspecting local history",
+              title: "Codex RouteSync: inspecting local history",
               cancellable: false,
             },
             () => runHistoryInventoryProcess(pythonExecutable, scriptPath, codexHome),
@@ -2802,7 +2802,7 @@ export function registerCommands(
         const summary = await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: "Codex SwitchBridge: repairing local history",
+            title: "Codex RouteSync: repairing local history",
             cancellable: false,
           },
           () => repairSharedHistory({
@@ -2845,7 +2845,7 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.unlockStorage", async () => {
+    vscode.commands.registerCommand("codex-routesync.unlockStorage", async () => {
       await runTimedCommand("unlockStorage", async (perf) => {
         const result = await unlockSavedAuthStorage(context);
         perf.mark("unlock-saved-auth-storage", {
@@ -2867,7 +2867,7 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.setStoragePassword", async () => {
+    vscode.commands.registerCommand("codex-routesync.setStoragePassword", async () => {
       const result = await promptAndStoreSavedAuthPassphrase(context, "set");
       if (!result.stored) {
         logCommandInfo("set-storage-password", "cancelled");
@@ -2878,7 +2878,7 @@ export function registerCommands(
       refreshAll(refreshCoordinator);
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.changeStoragePassword", async () => {
+    vscode.commands.registerCommand("codex-routesync.changeStoragePassword", async () => {
       const result = await promptAndStoreSavedAuthPassphrase(context, "change");
       if (!result.stored) {
         logCommandInfo("change-storage-password", "cancelled");
@@ -2895,14 +2895,14 @@ export function registerCommands(
       refreshAll(refreshCoordinator);
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.forgetStoragePassword", async () => {
+    vscode.commands.registerCommand("codex-routesync.forgetStoragePassword", async () => {
       await forgetSavedAuthPassphrase(context);
       logCommandInfo("forget-storage-password", "succeeded");
       vscode.window.showInformationMessage("Forgot the local storage password on this machine.");
       refreshAll(refreshCoordinator);
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.copyProviderField", async (item?: ProviderDetailItem) => {
+    vscode.commands.registerCommand("codex-routesync.copyProviderField", async (item?: ProviderDetailItem) => {
       const value = item?.rawValue;
       if (!value) {
         logCommandWarn("copy-provider-field", "missing-value");
@@ -2918,7 +2918,7 @@ export function registerCommands(
       vscode.window.showInformationMessage(`Copied ${label} to clipboard.`);
     }),
 
-    vscode.commands.registerCommand("codex-switchbridge-vscode.copyAccountField", async (item?: AccountDetailItem) => {
+    vscode.commands.registerCommand("codex-routesync.copyAccountField", async (item?: AccountDetailItem) => {
       const value = item?.rawValue;
       if (!value) {
         logCommandWarn("copy-account-field", "missing-value");

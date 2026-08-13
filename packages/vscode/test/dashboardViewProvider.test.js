@@ -203,8 +203,8 @@ test("constructing is lazy, while show creates and reveals one editor panel", ()
 
   const first = harness.show();
   assert.equal(createdPanels.length, 1);
-  assert.equal(first.createArgs.viewType, "codexSwitchBridgeVscode.dashboard");
-  assert.equal(first.createArgs.title, "Codex SwitchBridge");
+  assert.equal(first.createArgs.viewType, "codexRouteSync.dashboard");
+  assert.equal(first.createArgs.title, "Codex RouteSync");
   assert.equal(first.createArgs.showOptions, vscodeMock.ViewColumn.Active);
   assert.deepEqual(
     first.createArgs.options.localResourceRoots.map((root) => root.path),

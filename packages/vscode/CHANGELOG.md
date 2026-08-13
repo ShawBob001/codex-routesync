@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.1 - 2026-08-13
+
+- Renamed the project and VS Code extension to **Codex RouteSync**, with the new `ShawBob001.codex-routesync` Marketplace identity and `ShawBob001/codex-routesync` GitHub repository.
+- Renamed VS Code contribution IDs and the offline package to `codex-routesync-0.8.1.vsix` while preserving existing `codex-switchbridge.*` settings and local token-usage state.
+- Added activation guards for both previous extension identities so two installations cannot write the same Codex authentication and provider files concurrently.
+- Updated English, Simplified Chinese, Japanese, Korean, Spanish, French, and German documentation, release instructions, and community links for the RouteSync identity.
+
 ## 0.8.0 - 2026-08-13
 
 - Moved the VS Code distribution to the new `ShawBob001.codex-switchbridge-vscode` Marketplace identity and renamed the offline package to `codex-switchbridge-vscode-0.8.0.vsix`.

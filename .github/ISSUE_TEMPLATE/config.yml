@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability privately
-    url: https://github.com/ShawBob001/codex-switchbridge/security/advisories/new
+    url: https://github.com/ShawBob001/codex-routesync/security/advisories/new
     about: Report credential exposure, unsafe file access, or another security concern confidentially.
   - name: Read the documentation
-    url: https://github.com/ShawBob001/codex-switchbridge#readme
+    url: https://github.com/ShawBob001/codex-routesync#readme
     about: Check installation, switching, shared-history, quota, and troubleshooting guidance before opening an issue.

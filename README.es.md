@@ -1,38 +1,38 @@
 [English](./README.md) | [简体中文](./README.zh-CN.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [Español](./README.es.md) | [Français](./README.fr.md) | [Deutsch](./README.de.md)
 
-# Codex SwitchBridge
+# Codex RouteSync
 
 **Cambia sin fricción entre cuentas de Codex guardadas y proveedores de API compatibles con Responses, conserva el historial local de conversaciones en ambos modos y consulta el uso local de tokens por selección.**
 
-Codex SwitchBridge actualiza las credenciales y el enrutamiento del proveedor en una sola operación protegida. El modo de cuenta y el modo de proveedor de API compatible utilizan el mismo almacén de historial local, por lo que cambiar la forma en que Codex se autentica no divide las conversaciones nuevas en cronologías distintas.
+Codex RouteSync actualiza las credenciales y el enrutamiento del proveedor en una sola operación protegida. El modo de cuenta y el modo de proveedor de API compatible utilizan el mismo almacén de historial local, por lo que cambiar la forma en que Codex se autentica no divide las conversaciones nuevas en cronologías distintas.
 
 La extensión de VS Code abre en el área del editor un panel gráfico que muestra el modo activo, el estado del historial compartido, los tiempos de restablecimiento de la cuota de la cuenta y el uso local total de tokens. Las cuentas guardadas y los proveedores de API aparecen juntos en una sola lista plana de rutas. Los detalles de tokens incluyen un gráfico de anillo por origen, mientras que el gráfico naranja agrupa las observaciones locales por día, semana o mes. El panel puede seguir el idioma de VS Code o cambiar de inmediato entre inglés y chino simplificado.
 
 ## Vista previa de uso
 
-Al abrir **Codex SwitchBridge** en la barra de actividad, las cuentas guardadas y los proveedores de API aparecen al mismo nivel en una lista plana **Accounts & API Routes**, y el panel se abre automáticamente o recupera el foco. Usa la lista para administrar cuentas y API, y el panel ancho para consultar cuotas, tiempos de restablecimiento, cambio automático e historial local de tokens.
+Al abrir **Codex RouteSync** en la barra de actividad, las cuentas guardadas y los proveedores de API aparecen al mismo nivel en una lista plana **Accounts & API Routes**, y el panel se abre automáticamente o recupera el foco. Usa la lista para administrar cuentas y API, y el panel ancho para consultar cuotas, tiempos de restablecimiento, cambio automático e historial local de tokens.
 
-![Panel de Codex SwitchBridge en inglés con tema oscuro](./assets/screenshots/dashboard-en-dark.png)
+![Panel de Codex RouteSync en inglés con tema oscuro](./assets/screenshots/dashboard-en-dark.png)
 
 El mismo panel puede cambiar inmediatamente a chino simplificado:
 
-![Panel de Codex SwitchBridge en chino simplificado con tema claro](./assets/screenshots/dashboard-zh-light.png)
+![Panel de Codex RouteSync en chino simplificado con tema claro](./assets/screenshots/dashboard-zh-light.png)
 
-Codex SwitchBridge funciona en Windows, macOS y Linux. Puedes usarlo desde VS Code o desde la línea de comandos.
+Codex RouteSync funciona en Windows, macOS y Linux. Puedes usarlo desde VS Code o desde la línea de comandos.
 
-[![Versión de GitHub](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
-[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode)
+[![Versión de GitHub](https://img.shields.io/github/v/release/ShawBob001/codex-routesync)](https://github.com/ShawBob001/codex-routesync/releases)
+[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-routesync)
 [![Licencia: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 ## Dos modos, un solo historial local de conversaciones
 
 ```text
-Modo de cuenta Codex  <->  Codex SwitchBridge  <->  Modo de proveedor API Responses
+Modo de cuenta Codex  <->  Codex RouteSync  <->  Modo de proveedor API Responses
                                |
                     historial compartido en CODEX_HOME
 ```
 
-| Función | Qué hace SwitchBridge |
+| Función | Qué hace RouteSync |
 | --- | --- |
 | Cambio de cuenta y API | Aplica las credenciales de la cuenta seleccionada o el perfil del proveedor de API junto con la configuración de Codex correspondiente |
 | Historial de conversaciones compartido | Mantiene los hilos locales nuevos visibles en ambos modos mediante un solo almacén de historial de Codex |
@@ -47,21 +47,21 @@ Modo de cuenta Codex  <->  Codex SwitchBridge  <->  Modo de proveedor API Respon
 
 ### Extensión de VS Code
 
-Instala la extensión desde su [página de Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode), o abre la vista Extensiones de VS Code y busca `Codex SwitchBridge for VS Code`.
+Instala la extensión desde su [página de Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-routesync), o abre la vista Extensiones de VS Code y busca `Codex RouteSync`.
 
-Para una instalación sin conexión, descarga el archivo `.vsix` más reciente desde [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases) y ejecuta **Extensions: Install from VSIX...**. También puedes usar el siguiente comando en una terminal. Sustituye VERSION por la versión incluida en el nombre del archivo descargado.
+Para una instalación sin conexión, descarga el archivo `.vsix` más reciente desde [GitHub Releases](https://github.com/ShawBob001/codex-routesync/releases) y ejecuta **Extensions: Install from VSIX...**. También puedes usar el siguiente comando en una terminal. Sustituye VERSION por la versión incluida en el nombre del archivo descargado.
 
 ```bash
-code --install-extension codex-switchbridge-vscode-VERSION.vsix
+code --install-extension codex-routesync-VERSION.vsix
 ```
 
 #### Migrar desde la publicación anterior de Marketplace
 
-Si instalaste SwitchBridge desde la publicación anterior de Marketplace, abre primero la instalación anterior y mueve a **Local** todas las cuentas y proveedores de API sincronizados o guardados en la nube. Después, desactiva o desinstala esa instalación, ejecuta **Developer: Reload Window**, instala la versión de reemplazo desde el enlace anterior y vuelve a introducir la contraseña de almacenamiento.
+Si instalaste Codex SwitchBridge desde una publicación anterior de Marketplace, abre primero la instalación anterior y mueve a **Local** todas las cuentas y proveedores de API sincronizados o guardados en la nube. Después, desactiva o desinstala esa instalación, ejecuta **Developer: Reload Window**, instala Codex RouteSync desde el enlace anterior y vuelve a introducir la contraseña de almacenamiento.
 
 Las cuentas, los proveedores de API, los archivos de configuración, las copias de seguridad y el historial compartido del `CODEX_HOME` configurado siguen disponibles. Los ajustes `codex-switchbridge.*` existentes también siguen vigentes. Las dos publicaciones usan identidades de extensión distintas, por lo que `globalState`, `SecretStorage` y la atribución por ruta guardada por la instalación anterior no se migran automáticamente.
 
-Abre la vista **Codex SwitchBridge** de la barra de actividad. La lista plana **Accounts & API Routes** coloca las cuentas guardadas y los proveedores de API en el mismo directorio de la barra lateral. El panel se abrirá automáticamente o volverá al primer plano en el editor central. La acción **Open Dashboard** de la barra de título sigue disponible como alternativa.
+Abre la vista **Codex RouteSync** de la barra de actividad. La lista plana **Accounts & API Routes** coloca las cuentas guardadas y los proveedores de API en el mismo directorio de la barra lateral. El panel se abrirá automáticamente o volverá al primer plano en el editor central. La acción **Open Dashboard** de la barra de título sigue disponible como alternativa.
 
 ### CLI
 
@@ -80,7 +80,7 @@ npm install --global codex-switchbridge-cli
 
 ## Cambiar entre cuentas y proveedores de API
 
-En VS Code, usa **Switch Account** o **Switch API Provider**. SwitchBridge guarda la selección actual, actualiza `auth.json` y `config.toml` y después renueva las vistas de cuentas y proveedores.
+En VS Code, usa **Switch Account** o **Switch API Provider**. RouteSync guarda la selección actual, actualiza `auth.json` y `config.toml` y después renueva las vistas de cuentas y proveedores.
 
 Desde la CLI:
 
@@ -118,29 +118,29 @@ El panel de VS Code lee los metadatos de cuota de la cuenta y los eventos acumul
 - el total, el promedio, el pico y el uso estimado del intervalo seleccionado;
 - la cobertura del índice, el número de sesiones, el inicio del seguimiento y la hora de la última actualización.
 
-Los relojes de restablecimiento prefieren la marca de tiempo absoluta que devuelve el servicio de cuotas. Si solo hay una cuenta atrás relativa, SwitchBridge calcula la marca de tiempo correspondiente cuando realiza la consulta. Los metadatos ausentes, no válidos o ya vencidos se muestran de forma explícita. La cuenta atrás se recalcula con el reloj del sistema y se actualiza sin renovar todo el panel. Las solicitudes de cuota y la renovación de tokens OAuth usan primero `codex-switchbridge.proxy`, después `http.proxy` de VS Code y por último las variables `HTTPS_PROXY`, `HTTP_PROXY` o `ALL_PROXY` del host de extensiones. La resolución de variables de entorno sigue respetando `NO_PROXY`. La configuración dedicada pertenece solo al equipo y se excluye de Settings Sync. VS Code guarda su valor en la configuración local. Es preferible usar un proxy local sin autenticación o proteger el archivo de configuración del equipo si la URL contiene credenciales.
+Los relojes de restablecimiento prefieren la marca de tiempo absoluta que devuelve el servicio de cuotas. Si solo hay una cuenta atrás relativa, RouteSync calcula la marca de tiempo correspondiente cuando realiza la consulta. Los metadatos ausentes, no válidos o ya vencidos se muestran de forma explícita. La cuenta atrás se recalcula con el reloj del sistema y se actualiza sin renovar todo el panel. Las solicitudes de cuota y la renovación de tokens OAuth usan primero `codex-switchbridge.proxy`, después `http.proxy` de VS Code y por último las variables `HTTPS_PROXY`, `HTTP_PROXY` o `ALL_PROXY` del host de extensiones. La resolución de variables de entorno sigue respetando `NO_PROXY`. La configuración dedicada pertenece solo al equipo y se excluye de Settings Sync. VS Code guarda su valor en la configuración local. Es preferible usar un proxy local sin autenticación o proteger el archivo de configuración del equipo si la URL contiene credenciales.
 
 El selector de idioma de la cabecera del panel permite elegir **Auto**, **English** o **简体中文**. Auto sigue el idioma de VS Code. Una selección explícita se guarda como configuración de la ventana y se aplica sin recargar VS Code.
 
-La acción de restablecimiento usa el método oficial de Codex App Server. Comprueba que la misma cuenta guardada siga activa, solicita confirmación, consume como máximo un restablecimiento obtenido mediante una clave de idempotencia y después actualiza la cuota. Si la versión instalada de Codex no admite el consumo de restablecimientos, SwitchBridge abre la página oficial Usage.
+La acción de restablecimiento usa el método oficial de Codex App Server. Comprueba que la misma cuenta guardada siga activa, solicita confirmación, consume como máximo un restablecimiento obtenido mediante una clave de idempotencia y después actualiza la cuota. Si la versión instalada de Codex no admite el consumo de restablecimientos, RouteSync abre la página oficial Usage.
 
 La entrada y la salida componen el total registrado. La entrada en caché ya forma parte de la entrada y la salida de razonamiento ya forma parte de la salida, por lo que esos dos valores no se suman de nuevo. El gráfico de anillo usa únicamente totales atribuidos por origen que no se solapan, de modo que no cuenta dos veces la entrada en caché ni la salida de razonamiento.
 
-La atribución por selección comienza cuando SwitchBridge inicia el seguimiento local. A partir de ese momento, el índice asigna cada incremento de tokens a la cuenta o al proveedor de API activo cuando Codex lo registró, incluso si una conversación continúa después de cambiar de modo. Las sesiones compartidas antiguas de `openai` no se pueden atribuir de forma segura a una entrada guardada concreta y permanecen en **Earlier or unattributed**. Las sesiones antiguas etiquetadas con un proveedor solo se atribuyen cuando su ID corresponde exactamente a un perfil guardado.
+La atribución por selección comienza cuando RouteSync inicia el seguimiento local. A partir de ese momento, el índice asigna cada incremento de tokens a la cuenta o al proveedor de API activo cuando Codex lo registró, incluso si una conversación continúa después de cambiar de modo. Las sesiones compartidas antiguas de `openai` no se pueden atribuir de forma segura a una entrada guardada concreta y permanecen en **Earlier or unattributed**. Las sesiones antiguas etiquetadas con un proveedor solo se atribuyen cuando su ID corresponde exactamente a un perfil guardado.
 
-El servicio de cuentas proporciona un porcentaje restante, no una cantidad absoluta de tokens disponibles. El gráfico de historial contiene contadores de actividad locales del dispositivo, no datos de facturación, costes ni saldo remoto. La actividad indexada antigua cuya fecha no se puede precisar se marca como estimada, y la actividad sin una fecha fiable queda fuera del gráfico. Los perfiles de proveedores de API solo muestran contadores locales, salvo que el proveedor ofrezca una API de cuota compatible. SwitchBridge no sube el contenido de los rollouts. El índice local guarda contadores, marcas de tiempo, huellas de archivos e identificadores opacos, pero no almacena texto de conversaciones, rutas, etiquetas de cuentas, nombres de proveedores ni credenciales. Usa **Refresh Local Token Usage** para reindexar de inmediato. En caso contrario, la extensión lo hará durante el mantenimiento habitual en segundo plano.
+El servicio de cuentas proporciona un porcentaje restante, no una cantidad absoluta de tokens disponibles. El gráfico de historial contiene contadores de actividad locales del dispositivo, no datos de facturación, costes ni saldo remoto. La actividad indexada antigua cuya fecha no se puede precisar se marca como estimada, y la actividad sin una fecha fiable queda fuera del gráfico. Los perfiles de proveedores de API solo muestran contadores locales, salvo que el proveedor ofrezca una API de cuota compatible. RouteSync no sube el contenido de los rollouts. El índice local guarda contadores, marcas de tiempo, huellas de archivos e identificadores opacos, pero no almacena texto de conversaciones, rutas, etiquetas de cuentas, nombres de proveedores ni credenciales. Usa **Refresh Local Token Usage** para reindexar de inmediato. En caso contrario, la extensión lo hará durante el mantenimiento habitual en segundo plano.
 
 ## Cómo se mantiene disponible el historial de conversaciones
 
 Codex suele agrupar los hilos locales por proveedor del modelo. Un ID de proveedor personalizado puede hacer que los hilos parezcan desaparecer al volver al modo de cuenta, aunque los archivos sigan existiendo.
 
-SwitchBridge evita esa separación en los hilos nuevos:
+RouteSync evita esa separación en los hilos nuevos:
 
 1. El modo de cuenta usa el proveedor `openai` incluido en Codex.
-2. Un proveedor de API compatible con Responses conserva la misma identidad de historial mientras SwitchBridge aplica su clave de API y su URL base.
+2. Un proveedor de API compatible con Responses conserva la misma identidad de historial mientras RouteSync aplica su clave de API y su URL base.
 3. Al volver, se restauran las credenciales de la cuenta y la ruta original de OpenAI.
 
-Por tanto, ambos modos leen el mismo historial local dentro del mismo `CODEX_HOME`. SwitchBridge sincroniza la ruta usada para indexar el historial. No copia el texto de las conversaciones después de cada cambio.
+Por tanto, ambos modos leen el mismo historial local dentro del mismo `CODEX_HOME`. RouteSync sincroniza la ruta usada para indexar el historial. No copia el texto de las conversaciones después de cada cambio.
 
 El historial compartido está activado de forma predeterminada en la extensión de VS Code y en los cambios de proveedor compatibles de la CLI. En VS Code se controla con `codex-switchbridge.shareHistoryAcrossProviders`.
 
@@ -149,7 +149,7 @@ El historial compartido está activado de forma predeterminada en la extensión 
 Los hilos creados antes del enrutamiento compartido pueden conservar un ID específico del proveedor. Para incorporarlos al historial local compartido:
 
 1. Detén cualquier salida activa de Codex.
-2. Ejecuta **Codex SwitchBridge: Repair Shared Conversation History**.
+2. Ejecuta **Codex RouteSync: Repair Shared Conversation History**.
 3. Cuando termine la reparación, usa la acción **Reload recommended** de la barra de estado.
 
 El comando de reparación crea copias de seguridad, cambia únicamente los campos de identidad del proveedor, valida los registros JSONL y SQLite y se detiene si un rollout cambia durante la inspección. La activación de la extensión nunca reescribe el historial. Python 3 solo es necesario para este comando de mantenimiento.
@@ -206,13 +206,13 @@ Usa `--auth-dir <path>` o `CODEX_SWITCHBRIDGE_AUTH_DIR` para guardar las entrada
 
 Las cuentas locales usan `auth_{name}.json`. Los proveedores de API locales usan `provider_{name}.json`. VS Code también puede guardar entradas cifradas en el almacenamiento sincronizado de la extensión.
 
-Antes de que un cambio sobrescriba el archivo `auth.json` activo, SwitchBridge vuelve a guardar las credenciales más recientes de la cuenta o del proveedor saliente en la entrada correspondiente. Después actualiza la autenticación, el enrutamiento del proveedor y el estado de la ruta del historial compartido bajo un único bloqueo entre procesos. Los archivos de autenticación se sustituyen de forma atómica y, si una transición falla, se restauran sus instantáneas.
+Antes de que un cambio sobrescriba el archivo `auth.json` activo, RouteSync vuelve a guardar las credenciales más recientes de la cuenta o del proveedor saliente en la entrada correspondiente. Después actualiza la autenticación, el enrutamiento del proveedor y el estado de la ruta del historial compartido bajo un único bloqueo entre procesos. Los archivos de autenticación se sustituyen de forma atómica y, si una transición falla, se restauran sus instantáneas.
 
 La consulta de cuotas y la indexación local de tokens son operaciones de solo lectura. No rotan tokens, no reescriben la autenticación guardada ni modifican archivos de conversaciones. El mantenimiento de tokens es una operación independiente.
 
-Algunas herramientas de Codex almacenan en caché la autenticación al iniciarse. SwitchBridge no puede obligar a otro proceso de extensión a descartar esa caché, por lo que puede ser necesario recargar la ventana de VS Code después de un cambio correcto de archivos. El comportamiento predeterminado mantiene esta recomendación en la barra de estado en lugar de mostrar avisos emergentes repetidos.
+Algunas herramientas de Codex almacenan en caché la autenticación al iniciarse. RouteSync no puede obligar a otro proceso de extensión a descartar esa caché, por lo que puede ser necesario recargar la ventana de VS Code después de un cambio correcto de archivos. El comportamiento predeterminado mantiene esta recomendación en la barra de estado en lugar de mostrar avisos emergentes repetidos.
 
-No ejecutes **Codex Account Switch** y Codex SwitchBridge al mismo tiempo. Ambas extensiones escriben en los mismos archivos locales de Codex.
+No ejecutes **Codex Account Switch** y Codex RouteSync al mismo tiempo. Ambas extensiones escriben en los mismos archivos locales de Codex.
 
 ## Desarrollo
 
@@ -246,6 +246,6 @@ Los procedimientos de publicación se describen en [Despliegue](./docs/deploymen
 
 ## Procedencia y licencia
 
-Codex SwitchBridge es un proyecto independiente de código abierto derivado de [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), con modificaciones sustanciales realizadas por `ShawBob001`.
+Codex RouteSync es un proyecto independiente de código abierto derivado de [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), con modificaciones sustanciales realizadas por `ShawBob001`.
 
 Se publica bajo la [Licencia MIT](./LICENSE). Se conservan el aviso de derechos de autor y el texto de la licencia del proyecto original.

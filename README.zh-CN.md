@@ -1,38 +1,38 @@
 [English](./README.md) | [简体中文](./README.zh-CN.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [Español](./README.es.md) | [Français](./README.fr.md) | [Deutsch](./README.de.md)
 
-# Codex SwitchBridge
+# Codex RouteSync
 
 **在已保存的 Codex 账号与兼容 Responses 的 API 提供商之间无缝切换，让两种模式共用本地对话历史，并分别查看每个账号或 API 的本地 Token 用量。**
 
-Codex SwitchBridge 会在一次受保护的切换操作中同时更新凭据和提供商路由。账号模式与兼容的 API 提供商模式使用同一个本地历史目录，因此更改 Codex 的身份验证方式不会把新对话拆分到不同的时间线中。
+Codex RouteSync 会在一次受保护的切换操作中同时更新凭据和提供商路由。账号模式与兼容的 API 提供商模式使用同一个本地历史目录，因此更改 Codex 的身份验证方式不会把新对话拆分到不同的时间线中。
 
 VS Code 扩展会在编辑器区域打开图形化仪表盘，用于展示当前模式、共享历史状态、账号配额重置时间以及本地 Token 总用量。已保存账号和 API 提供商会显示在同一个扁平路由列表中。Token 明细包含按来源统计的环形图，橙色历史图表则可按天、周或月汇总本地记录。仪表盘既可以跟随 VS Code 的显示语言，也可以立即在英文与简体中文之间切换。
 
 ## 使用预览
 
-打开活动栏中的 **Codex SwitchBridge** 后，已保存账号和 API 提供商会作为同级条目显示在同一个扁平的 **账号与 API 路由** 列表中，同时自动打开仪表盘或将其切换到前台。你可以在路由列表中管理账号和 API，在宽屏仪表盘中查看配额、重置时间、自动切换状态和本地 Token 历史。
+打开活动栏中的 **Codex RouteSync** 后，已保存账号和 API 提供商会作为同级条目显示在同一个扁平的 **账号与 API 路由** 列表中，同时自动打开仪表盘或将其切换到前台。你可以在路由列表中管理账号和 API，在宽屏仪表盘中查看配额、重置时间、自动切换状态和本地 Token 历史。
 
-![Codex SwitchBridge 英文深色仪表盘](./assets/screenshots/dashboard-en-dark.png)
+![Codex RouteSync 英文深色仪表盘](./assets/screenshots/dashboard-en-dark.png)
 
 同一个仪表盘可以立即切换为简体中文：
 
-![Codex SwitchBridge 简体中文浅色仪表盘](./assets/screenshots/dashboard-zh-light.png)
+![Codex RouteSync 简体中文浅色仪表盘](./assets/screenshots/dashboard-zh-light.png)
 
-Codex SwitchBridge 支持 Windows、macOS 和 Linux，可以在 VS Code 中使用，也可以通过命令行使用。
+Codex RouteSync 支持 Windows、macOS 和 Linux，可以在 VS Code 中使用，也可以通过命令行使用。
 
-[![GitHub 版本](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
-[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode)
+[![GitHub 版本](https://img.shields.io/github/v/release/ShawBob001/codex-routesync)](https://github.com/ShawBob001/codex-routesync/releases)
+[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-routesync)
 [![许可证：MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 ## 两种模式，一份本地对话历史
 
 ```text
-Codex 账号模式  <->  Codex SwitchBridge  <->  Responses API 提供商模式
+Codex 账号模式  <->  Codex RouteSync  <->  Responses API 提供商模式
                                |
                        CODEX_HOME 中的共享历史
 ```
 
-| 功能 | SwitchBridge 的处理方式 |
+| 功能 | RouteSync 的处理方式 |
 | --- | --- |
 | 账号与 API 切换 | 同时应用所选账号凭据或 API 提供商配置，以及与其匹配的 Codex 配置 |
 | 共享对话历史 | 两种模式使用同一个 Codex 历史目录，因此都能看到新建的本地对话 |
@@ -47,21 +47,21 @@ Codex 账号模式  <->  Codex SwitchBridge  <->  Responses API 提供商模式
 
 ### VS Code 扩展
 
-从 [Visual Studio Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode) 安装扩展，或打开 VS Code 的扩展视图并搜索 `Codex SwitchBridge for VS Code`。
+从 [Visual Studio Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-routesync) 安装扩展，或打开 VS Code 的扩展视图并搜索 `Codex RouteSync`。
 
-如需离线安装，请从 [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases) 下载最新的 `.vsix` 文件，然后运行 **Extensions: Install from VSIX...**。也可以在终端中执行下面的命令。请将 VERSION 替换为下载文件名中的版本号。
+如需离线安装，请从 [GitHub Releases](https://github.com/ShawBob001/codex-routesync/releases) 下载最新的 `.vsix` 文件，然后运行 **Extensions: Install from VSIX...**。也可以在终端中执行下面的命令。请将 VERSION 替换为下载文件名中的版本号。
 
 ```bash
-code --install-extension codex-switchbridge-vscode-VERSION.vsix
+code --install-extension codex-routesync-VERSION.vsix
 ```
 
 #### 从之前的 Marketplace 版本迁移
 
-如果你通过之前的 Marketplace 版本安装了 SwitchBridge，请先打开之前的安装，将所有同步或云端账号和 API 提供商移动到 **Local**。然后禁用或卸载之前的安装，运行 **Developer: Reload Window**，从上方链接安装替代版本，并重新输入存储密码。
+如果你通过之前的 Marketplace 版本安装了 Codex SwitchBridge，请先打开之前的安装，将所有同步或云端账号和 API 提供商移动到 **Local**。然后禁用或卸载之前的安装，运行 **Developer: Reload Window**，从上方链接安装 Codex RouteSync，并重新输入存储密码。
 
 配置的 `CODEX_HOME` 中的账号、API 提供商、配置文件、备份和共享历史仍可继续使用，现有的 `codex-switchbridge.*` 设置也会保持有效。两个版本使用不同的扩展身份，因此之前安装的 `globalState`、`SecretStorage` 和已保存的逐路由用量归属不会自动迁移。
 
-打开活动栏中的 **Codex SwitchBridge**。扁平的 **账号与 API 路由** 列表会把已保存账号和 API 提供商放在侧边栏的同一个目录下，仪表盘则会在中央编辑器区域自动打开或回到前台。标题栏中的 **打开仪表盘** 操作仍然可以作为备用入口。
+打开活动栏中的 **Codex RouteSync**。扁平的 **账号与 API 路由** 列表会把已保存账号和 API 提供商放在侧边栏的同一个目录下，仪表盘则会在中央编辑器区域自动打开或回到前台。标题栏中的 **打开仪表盘** 操作仍然可以作为备用入口。
 
 ### CLI
 
@@ -80,7 +80,7 @@ npm install --global codex-switchbridge-cli
 
 ## 在账号与 API 提供商之间切换
 
-在 VS Code 中使用 **切换账号** 或 **切换 API 提供商**。SwitchBridge 会保存当前选择，更新 `auth.json` 和 `config.toml`，然后刷新账号与提供商视图。
+在 VS Code 中使用 **切换账号** 或 **切换 API 提供商**。RouteSync 会保存当前选择，更新 `auth.json` 和 `config.toml`，然后刷新账号与提供商视图。
 
 通过 CLI 操作：
 
@@ -118,29 +118,29 @@ VS Code 仪表盘会读取当前 `CODEX_HOME` 下本地 Codex rollout 文件中�
 - 所选范围的总量、平均值、峰值和预估用量；
 - 索引覆盖范围、会话数、开始跟踪时间和最后刷新时间。
 
-重置时钟优先使用配额服务返回的绝对时间戳。如果服务只返回相对倒计时，SwitchBridge 会在查询时计算对应的时间戳。缺失、无效或已经到期的重置元数据都会明确标出。倒计时根据系统时钟重新计算，无需刷新整个仪表盘即可更新。账号配额请求与 OAuth Token 刷新会依次尝试 `codex-switchbridge.proxy`、VS Code 的 `http.proxy`，以及扩展宿主的 `HTTPS_PROXY`、`HTTP_PROXY` 或 `ALL_PROXY` 环境变量。解析环境变量时仍会遵守 `NO_PROXY`。专用代理设置仅作用于当前计算机，不参与设置同步。VS Code 会把它存入本地设置。如果代理 URL 中含有凭据，请优先使用无需身份验证的本地代理，或妥善保护计算机设置文件。
+重置时钟优先使用配额服务返回的绝对时间戳。如果服务只返回相对倒计时，RouteSync 会在查询时计算对应的时间戳。缺失、无效或已经到期的重置元数据都会明确标出。倒计时根据系统时钟重新计算，无需刷新整个仪表盘即可更新。账号配额请求与 OAuth Token 刷新会依次尝试 `codex-switchbridge.proxy`、VS Code 的 `http.proxy`，以及扩展宿主的 `HTTPS_PROXY`、`HTTP_PROXY` 或 `ALL_PROXY` 环境变量。解析环境变量时仍会遵守 `NO_PROXY`。专用代理设置仅作用于当前计算机，不参与设置同步。VS Code 会把它存入本地设置。如果代理 URL 中含有凭据，请优先使用无需身份验证的本地代理，或妥善保护计算机设置文件。
 
 使用仪表盘标题栏中的语言选择器，可以选择 **自动**、**English** 或 **简体中文**。自动模式会跟随 VS Code 的显示语言；明确选择某种语言后，该设置会保存在当前窗口中，并且无需重载 VS Code 即可生效。
 
-重置操作使用官方 Codex App Server 方法。执行前会确认同一个已保存账号仍处于活动状态并请求用户确认；每次最多使用一个已获得的重置次数，带有幂等键，完成后会刷新配额。如果已安装的 Codex 版本不支持使用重置次数，SwitchBridge 会改为打开官方 Usage 页面。
+重置操作使用官方 Codex App Server 方法。执行前会确认同一个已保存账号仍处于活动状态并请求用户确认；每次最多使用一个已获得的重置次数，带有幂等键，完成后会刷新配额。如果已安装的 Codex 版本不支持使用重置次数，RouteSync 会改为打开官方 Usage 页面。
 
 输入和输出共同构成记录的总量。缓存输入已包含在输入中，推理输出也已包含在输出中，因此不会再次累加这两个数值。环形图只使用互斥的已归属来源总量，不会重复计算缓存输入或推理输出。
 
-SwitchBridge 开始本地跟踪后，才会记录每个选项的用量归属。此后，索引会把每次 Token 增量归属到 Codex 记录该增量时处于活动状态的账号或 API 提供商，即使同一段对话跨越了模式切换也是如此。旧的共享 `openai` 会话无法安全地归属到某一个已保存条目，因此会保留在 **早期或未归属** 类别中。旧的提供商标记会话只有在其提供商 ID 只匹配一个已保存配置时才会归属。
+RouteSync 开始本地跟踪后，才会记录每个选项的用量归属。此后，索引会把每次 Token 增量归属到 Codex 记录该增量时处于活动状态的账号或 API 提供商，即使同一段对话跨越了模式切换也是如此。旧的共享 `openai` 会话无法安全地归属到某一个已保存条目，因此会保留在 **早期或未归属** 类别中。旧的提供商标记会话只有在其提供商 ID 只匹配一个已保存配置时才会归属。
 
-账号服务提供的是剩余百分比，而不是绝对的剩余 Token 数。历史图表记录的是设备本地活动计数器，不代表账单、费用或远端余额。无法精确确定日期的旧索引活动会标记为预估，日期不可靠的活动不会进入图表。除非 API 提供商提供兼容的配额接口，否则其配置只显示本地计数器。SwitchBridge 不会上传 rollout 内容。本地索引只保存计数器、时间戳、文件指纹和不透明 ID，不保存对话文本、路径、账号标签、提供商名称或凭据。使用 **刷新本地 Token 用量** 可以立即重新索引；否则扩展会在常规后台维护期间刷新索引。
+账号服务提供的是剩余百分比，而不是绝对的剩余 Token 数。历史图表记录的是设备本地活动计数器，不代表账单、费用或远端余额。无法精确确定日期的旧索引活动会标记为预估，日期不可靠的活动不会进入图表。除非 API 提供商提供兼容的配额接口，否则其配置只显示本地计数器。RouteSync 不会上传 rollout 内容。本地索引只保存计数器、时间戳、文件指纹和不透明 ID，不保存对话文本、路径、账号标签、提供商名称或凭据。使用 **刷新本地 Token 用量** 可以立即重新索引；否则扩展会在常规后台维护期间刷新索引。
 
 ## 对话历史如何保持可见
 
 Codex 通常会按模型提供商对本地对话进行分组。自定义提供商 ID 可能导致返回账号模式后看不到某些对话，即使对应文件仍然存在。
 
-SwitchBridge 会避免新对话出现这种分裂：
+RouteSync 会避免新对话出现这种分裂：
 
 1. 账号模式使用 Codex 内置的 `openai` 提供商。
-2. 兼容 Responses 的 API 提供商保留相同的历史身份，同时由 SwitchBridge 应用其 API 密钥和基础 URL。
+2. 兼容 Responses 的 API 提供商保留相同的历史身份，同时由 RouteSync 应用其 API 密钥和基础 URL。
 3. 切换回账号模式时，恢复账号凭据和原始 OpenAI 路由。
 
-因此，两种模式会读取同一个 `CODEX_HOME` 下的同一份本地对话历史。SwitchBridge 同步的是用于索引历史的路由，而不是在每次切换后复制对话文本。
+因此，两种模式会读取同一个 `CODEX_HOME` 下的同一份本地对话历史。RouteSync 同步的是用于索引历史的路由，而不是在每次切换后复制对话文本。
 
 VS Code 扩展和兼容的 CLI 提供商切换默认都会启用共享历史。在 VS Code 中，可通过 `codex-switchbridge.shareHistoryAcrossProviders` 控制此功能。
 
@@ -149,7 +149,7 @@ VS Code 扩展和兼容的 CLI 提供商切换默认都会启用共享历史。�
 启用共享路由前创建的对话可能仍使用提供商专属 ID。要将它们纳入共享本地历史：
 
 1. 停止当前正在进行的 Codex 输出。
-2. 运行 **Codex SwitchBridge: Repair Shared Conversation History**。
+2. 运行 **Codex RouteSync: Repair Shared Conversation History**。
 3. 修复完成后，使用状态栏中的 **建议重载** 操作。
 
 修复命令会先创建备份，只修改提供商身份字段，并验证 JSONL 与 SQLite 记录。如果检查期间 rollout 文件发生变化，命令会停止。扩展激活时绝不会改写历史。只有执行这项维护命令时才需要 Python 3。
@@ -206,13 +206,13 @@ VS Code 扩展和兼容的 CLI 提供商切换默认都会启用共享历史。�
 
 本地账号使用 `auth_{name}.json`，本地 API 提供商使用 `provider_{name}.json`。VS Code 也可以将加密条目保存在同步的扩展存储中。
 
-切换操作覆盖当前 `auth.json` 前，SwitchBridge 会把即将退出的账号或提供商的最新凭据写回对应的已保存条目。随后，它会在一个跨进程锁内更新身份验证、提供商路由和共享历史路由状态。身份验证文件采用原子替换；如果转换失败，则恢复快照。
+切换操作覆盖当前 `auth.json` 前，RouteSync 会把即将退出的账号或提供商的最新凭据写回对应的已保存条目。随后，它会在一个跨进程锁内更新身份验证、提供商路由和共享历史路由状态。身份验证文件采用原子替换；如果转换失败，则恢复快照。
 
 配额查询和本地 Token 索引都是只读操作。它们不会轮换 Token、改写已保存的身份验证数据或修改对话文件。Token 维护是单独的操作。
 
-部分 Codex 工具会在启动时缓存身份验证。SwitchBridge 无法强制另一个扩展进程清除该缓存，因此成功切换文件后，仍可能需要重载 VS Code 窗口。默认情况下，重载建议会保留在状态栏中，而不会反复弹窗。
+部分 Codex 工具会在启动时缓存身份验证。RouteSync 无法强制另一个扩展进程清除该缓存，因此成功切换文件后，仍可能需要重载 VS Code 窗口。默认情况下，重载建议会保留在状态栏中，而不会反复弹窗。
 
-请勿同时运行 **Codex Account Switch** 和 Codex SwitchBridge。这两个扩展会写入相同的本地 Codex 文件。
+请勿同时运行 **Codex Account Switch** 和 Codex RouteSync。这两个扩展会写入相同的本地 Codex 文件。
 
 ## 开发
 
@@ -246,6 +246,6 @@ docs/       架构、行为和部署说明
 
 ## 项目来源与许可证
 
-Codex SwitchBridge 是一个独立的开源项目，源自 [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch)，并由 `ShawBob001` 进行了大量修改。
+Codex RouteSync 是一个独立的开源项目，源自 [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch)，并由 `ShawBob001` 进行了大量修改。
 
 本项目采用 [MIT 许可证](./LICENSE)发布，并保留上游项目的版权声明和许可证文本。

@@ -72,8 +72,8 @@ implements vscode.Disposable {
 
     const resourceRoot = vscode.Uri.joinPath(this.options.extensionUri, "dist", "webview");
     const panel = vscode.window.createWebviewPanel(
-      "codexSwitchBridgeVscode.dashboard",
-      "Codex SwitchBridge",
+      "codexRouteSync.dashboard",
+      "Codex RouteSync",
       vscode.ViewColumn.Active,
       {
         enableScripts: true,
@@ -288,7 +288,7 @@ function renderHtml(webview: vscode.Webview, resourceRoot: vscode.Uri): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   <link rel="stylesheet" href="${cssUri}">
-  <title>Codex SwitchBridge</title>
+  <title>Codex RouteSync</title>
 </head>
 <body>
   <a class="skip-link" href="#app">Skip to dashboard</a>

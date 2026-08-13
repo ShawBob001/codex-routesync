@@ -1,6 +1,6 @@
 # Security Policy
 
-Codex SwitchBridge handles authentication files, API-provider settings, proxy
+Codex RouteSync handles authentication files, API-provider settings, proxy
 configuration, and local conversation metadata. Please report security problems
 privately so users have time to update before technical details are published.
 
@@ -17,12 +17,12 @@ have been fixed.
 
 ## Report a vulnerability
 
-Use [GitHub's private vulnerability reporting form](https://github.com/ShawBob001/codex-switchbridge/security/advisories/new).
+Use [GitHub's private vulnerability reporting form](https://github.com/ShawBob001/codex-routesync/security/advisories/new).
 Do not open a public issue for a suspected vulnerability.
 
 Include the following when it is safe to do so:
 
-- the affected SwitchBridge version and installation source;
+- the affected RouteSync version and installation source;
 - the VS Code or CLI surface, operating system, and Codex version;
 - a minimal reproduction using fake credentials and a temporary `CODEX_HOME`;
 - the expected impact and any conditions needed to reproduce it;

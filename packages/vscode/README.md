@@ -1,51 +1,51 @@
-# Codex SwitchBridge for VS Code
+# Codex RouteSync
 
 **Switch between saved Codex accounts and Responses-compatible API providers with one click, keep local conversation history available in both modes, and track local token usage by selection.**
 
-Codex SwitchBridge manages the active credentials, provider route, and saved selection as one guarded transition. Shared conversation history is enabled by default for new local threads.
+Codex RouteSync manages the active credentials, provider route, and saved selection as one guarded transition. Shared conversation history is enabled by default for new local threads.
 
 ## Usage preview
 
-Open **Codex SwitchBridge** from the Activity Bar. Saved accounts and API providers appear together in one flat **Accounts & API Routes** list, while the central Dashboard opens or focuses automatically.
+Open **Codex RouteSync** from the Activity Bar. Saved accounts and API providers appear together in one flat **Accounts & API Routes** list, while the central Dashboard opens or focuses automatically.
 
-![Codex SwitchBridge Dashboard in English dark mode](https://raw.githubusercontent.com/ShawBob001/codex-switchbridge/main/packages/vscode/images/dashboard-en-dark.png)
+![Codex RouteSync Dashboard in English dark mode](https://raw.githubusercontent.com/ShawBob001/codex-routesync/main/packages/vscode/images/dashboard-en-dark.png)
 
 Switch the Dashboard language to **简体中文** at any time:
 
-![Codex SwitchBridge Dashboard in Simplified Chinese light mode](https://raw.githubusercontent.com/ShawBob001/codex-switchbridge/main/packages/vscode/images/dashboard-zh-light.png)
+![Codex RouteSync Dashboard in Simplified Chinese light mode](https://raw.githubusercontent.com/ShawBob001/codex-routesync/main/packages/vscode/images/dashboard-zh-light.png)
 
 ## Install
 
-Install the extension from its [Visual Studio Marketplace page](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode), or open Extensions in VS Code and search for `Codex SwitchBridge for VS Code`.
+Install the extension from its [Visual Studio Marketplace page](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-routesync), or open Extensions in VS Code and search for `Codex RouteSync`.
 
-For offline installation, download the latest `.vsix` from [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases), then run **Extensions: Install from VSIX...**. To use the terminal instead, run the command below. Replace VERSION with the version in the downloaded filename.
+For offline installation, download the latest `.vsix` from [GitHub Releases](https://github.com/ShawBob001/codex-routesync/releases), then run **Extensions: Install from VSIX...**. To use the terminal instead, run the command below. Replace VERSION with the version in the downloaded filename.
 
 ```bash
-code --install-extension codex-switchbridge-vscode-VERSION.vsix
+code --install-extension codex-routesync-VERSION.vsix
 ```
 
 #### Move from the previous Marketplace listing
 
-If you installed SwitchBridge from the previous Marketplace listing, complete these steps before enabling the replacement:
+If you installed Codex SwitchBridge from an earlier Marketplace listing, complete these steps before enabling Codex RouteSync:
 
 1. Open the previous installation and move every synced or cloud account and API provider to **Local**.
 2. Disable or uninstall the previous installation, then run **Developer: Reload Window**.
-3. Install the replacement from the link above and re-enter your storage password.
+3. Install Codex RouteSync from the link above and re-enter your storage password.
 
 Accounts, API providers, configuration files, backups, and shared history under the configured `CODEX_HOME` remain available. Existing `codex-switchbridge.*` settings also remain in effect. The listings have different extension identities, so the previous installation's `globalState`, `SecretStorage`, and stored per-route usage attribution do not migrate automatically.
 
-Disable or uninstall **Codex Account Switch** before enabling Codex SwitchBridge. Both extensions write the same local Codex files.
+Disable or uninstall **Codex Account Switch** before enabling Codex RouteSync. Both extensions write the same local Codex files.
 
 ## Account and API-provider switching
 
-Open **Codex SwitchBridge** from the Activity Bar. Saved accounts and API providers appear as peers in the sidebar instead of living in separate directories. The graphical Dashboard automatically opens or returns to the foreground in the central editor area. The explicit **Open Dashboard** action remains available as a fallback.
+Open **Codex RouteSync** from the Activity Bar. Saved accounts and API providers appear as peers in the sidebar instead of living in separate directories. The graphical Dashboard automatically opens or returns to the foreground in the central editor area. The explicit **Open Dashboard** action remains available as a fallback.
 
-| When you select | SwitchBridge applies |
+| When you select | RouteSync applies |
 | --- | --- |
 | A Codex account | Saved account credentials, account routing, and the original OpenAI base URL |
 | An API provider | Saved API authentication, provider configuration, and the shared-history route |
 
-Before applying the next selection, SwitchBridge writes the latest active credentials back to the outgoing saved entry. It uses atomic authentication writes, a cross-window switch lock, and rollback snapshots.
+Before applying the next selection, RouteSync writes the latest active credentials back to the outgoing saved entry. It uses atomic authentication writes, a cross-window switch lock, and rollback snapshots.
 
 After a successful switch, the Codex extension may still hold its old authentication in memory. The default **Reload recommended** status-bar action lets you reload when needed without repeated notification popups.
 
@@ -57,7 +57,7 @@ The Dashboard also indexes cumulative `token_count` events from local Codex roll
 
 The header language selector supports **Auto**, **English**, and **简体中文**. Auto follows the VS Code display language; explicit choices take effect immediately and persist without a window reload. VS Code command, view, welcome, and setting text is also localized in English and Simplified Chinese.
 
-SwitchBridge assigns each new token increment to the selection active when Codex recorded it, even if one conversation continues across an account/API switch. Per-selection tracking begins locally after this version is activated. Older shared `openai` sessions cannot be assigned safely and appear as **Earlier or unattributed**; uniquely identifiable older provider sessions can still be mapped to their saved profile.
+RouteSync assigns each new token increment to the selection active when Codex recorded it, even if one conversation continues across an account/API switch. Per-selection tracking begins locally after this version is activated. Older shared `openai` sessions cannot be assigned safely and appear as **Earlier or unattributed**; uniquely identifiable older provider sessions can still be mapped to their saved profile.
 
 The dashboard is an activity view, not a bill or cost estimate. The account service supplies remaining percentages rather than an absolute remaining-token allowance; API-provider routes expose only locally recorded token use unless the provider offers a compatible quota API. Older activity that cannot be dated exactly is marked estimated or kept outside the chart. Cached input is included in input, and reasoning output is included in output. Account quota requests and OAuth token refresh use `codex-switchbridge.proxy`, VS Code's `http.proxy`, or the extension-host proxy environment in that order; environment resolution honors `NO_PROXY`. The dedicated setting is machine-scoped and excluded from Settings Sync. VS Code stores its value in local settings, so prefer an unauthenticated local proxy or protect the settings file if the URL contains credentials. Index data remains on this device and contains counters, timestamps, fingerprints, and opaque IDs, not conversation text, file paths, labels, provider names, or credentials. Run **Refresh Local Token Usage** for an immediate rescan.
 
@@ -76,11 +76,11 @@ base_url = "https://your-provider.example/v1"
 
 ### Repair older threads
 
-Older threads may carry a provider-specific history ID. Stop active Codex output, then run **Codex SwitchBridge: Repair Shared Conversation History**.
+Older threads may carry a provider-specific history ID. Stop active Codex output, then run **Codex RouteSync: Repair Shared Conversation History**.
 
 The repair process creates backups, updates only provider identity fields, validates rollout JSONL and SQLite records, and stops if a rollout changes while it is being checked. Activation never rewrites history. Python 3 is required only for this maintenance command.
 
-See [Conversation history across modes](https://github.com/ShawBob001/codex-switchbridge/blob/main/docs/shared-history.md) for details.
+See [Conversation history across modes](https://github.com/ShawBob001/codex-routesync/blob/main/docs/shared-history.md) for details.
 
 ## Features
 
@@ -99,18 +99,18 @@ See [Conversation history across modes](https://github.com/ShawBob001/codex-swit
 
 ## Commands
 
-- `Codex SwitchBridge: Add Account`
-- `Codex SwitchBridge: Add API Provider`
-- `Codex SwitchBridge: Switch Account`
-- `Codex SwitchBridge: Switch API Provider`
-- `Codex SwitchBridge: Switch Mode`
-- `Codex SwitchBridge: Refresh Token`
-- `Codex SwitchBridge: Refresh Quota`
-- `Codex SwitchBridge: Refresh Local Token Usage`
-- `Codex SwitchBridge: Import Accounts`
-- `Codex SwitchBridge: Export Accounts`
-- `Codex SwitchBridge: Repair Shared Conversation History`
-- `Codex SwitchBridge: Reload Window`
+- `Codex RouteSync: Add Account`
+- `Codex RouteSync: Add API Provider`
+- `Codex RouteSync: Switch Account`
+- `Codex RouteSync: Switch API Provider`
+- `Codex RouteSync: Switch Mode`
+- `Codex RouteSync: Refresh Token`
+- `Codex RouteSync: Refresh Quota`
+- `Codex RouteSync: Refresh Local Token Usage`
+- `Codex RouteSync: Import Accounts`
+- `Codex RouteSync: Export Accounts`
+- `Codex RouteSync: Repair Shared Conversation History`
+- `Codex RouteSync: Reload Window`
 
 ## Settings
 
@@ -136,10 +136,10 @@ See [Conversation history across modes](https://github.com/ShawBob001/codex-swit
 
 ## Project
 
-- [Repository](https://github.com/ShawBob001/codex-switchbridge)
-- [Issues](https://github.com/ShawBob001/codex-switchbridge/issues)
-- [Releases](https://github.com/ShawBob001/codex-switchbridge/releases)
+- [Repository](https://github.com/ShawBob001/codex-routesync)
+- [Issues](https://github.com/ShawBob001/codex-routesync/issues)
+- [Releases](https://github.com/ShawBob001/codex-routesync/releases)
 
-Codex SwitchBridge is an independent open-source project derived from [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), with substantial modifications by `ShawBob001`.
+Codex RouteSync is an independent open-source project derived from [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), with substantial modifications by `ShawBob001`.
 
 Released under the MIT License.

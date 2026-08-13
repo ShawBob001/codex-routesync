@@ -2,10 +2,10 @@
 
 ## Project purpose
 
-Codex SwitchBridge addresses a practical compatibility gap in local Codex use.
+Codex RouteSync addresses a practical compatibility gap in local Codex use.
 Conversations created through official Codex account authentication and through
 Responses-compatible third-party API routes can otherwise appear in separate
-local histories when the model-provider identity changes. SwitchBridge applies
+local histories when the model-provider identity changes. RouteSync applies
 credentials and routing as one guarded transition while retaining a shared local
 history identity for compatible routes.
 
@@ -31,7 +31,7 @@ security work will continue as Codex changes and users report concrete needs.
 
 ## Maintainer commitment
 
-Codex SwitchBridge is intended to remain an actively maintained, long-term
+Codex RouteSync is intended to remain an actively maintained, long-term
 open-source project. Maintenance includes issue triage, review of focused
 contributions, compatibility testing, security response, documentation, and
 release management.

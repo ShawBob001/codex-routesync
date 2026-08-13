@@ -30,7 +30,7 @@ program
 program
   .option("--auth-dir <path>", "Directory for saving and loading auth_{name}.json files; defaults to the Codex config directory")
   .option("--password <password>", "Password to decrypt encrypted saved accounts; can also be set via CODEX_SWITCHBRIDGE_PASSWORD env var")
-  .option("--debug", "Write diagnostic performance logs to the Codex SwitchBridge CLI log file", false);
+  .option("--debug", "Write diagnostic performance logs to the Codex RouteSync CLI log file", false);
 
 program.hook("preAction", () => {
   const opts = program.opts<{ authDir?: string; password?: string; debug?: boolean }>();

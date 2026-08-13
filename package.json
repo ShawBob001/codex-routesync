@@ -1,15 +1,15 @@
 {
-  "name": "codex-switchbridge-monorepo",
-  "version": "0.8.0",
+  "name": "codex-routesync-monorepo",
+  "version": "0.8.1",
   "private": true,
   "description": "Seamless Codex account and API-provider switching with shared local history and per-selection token usage",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ShawBob001/codex-switchbridge"
+    "url": "https://github.com/ShawBob001/codex-routesync"
   },
-  "homepage": "https://github.com/ShawBob001/codex-switchbridge",
+  "homepage": "https://github.com/ShawBob001/codex-routesync",
   "bugs": {
-    "url": "https://github.com/ShawBob001/codex-switchbridge/issues"
+    "url": "https://github.com/ShawBob001/codex-routesync/issues"
   },
   "workspaces": [
     "packages/*"

@@ -238,7 +238,7 @@ export async function runRateLimitReset(
     const initialized = await request("initialize", {
       clientInfo: {
         name: "codex-switchbridge",
-        title: "Codex SwitchBridge",
+        title: "Codex RouteSync",
         version: options.clientVersion,
       },
       capabilities: {

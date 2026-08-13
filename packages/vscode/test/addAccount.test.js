@@ -366,7 +366,7 @@ function getAccountTreeRootItems(treeDataProvider) {
 }
 
 function getRoutesTree(mocked) {
-  return mocked.treeViews.get("codexSwitchBridgeVscodeRoutes").treeDataProvider;
+  return mocked.treeViews.get("codexRouteSyncRoutes").treeDataProvider;
 }
 
 function getAccountRoots(mocked) {
@@ -906,7 +906,7 @@ function createVscodeMock(options) {
     treeRevealCalls,
     webviewPanels,
     async readyDashboard() {
-      await registeredCommands.get("codex-switchbridge-vscode.openDashboard")();
+      await registeredCommands.get("codex-routesync.openDashboard")();
       const created = webviewPanels.at(-1);
       assert.ok(created, "openDashboard should create the dashboard WebviewPanel");
       created.deliver({ type: "dashboard.ready" });
@@ -1054,7 +1054,7 @@ async function historyRepairDiscoversOrphanedProvider(t) {
         false,
       );
 
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.repairSharedHistory")();
+      await mocked.registeredCommands.get("codex-routesync.repairSharedHistory")();
       const repaired = JSON.parse(fs.readFileSync(rollout, "utf-8"));
       assert.equal(repaired.payload.model_provider, "openai");
       const manifests = fs
@@ -1065,7 +1065,7 @@ async function historyRepairDiscoversOrphanedProvider(t) {
         )));
       assert.deepEqual(manifests.map((manifest) => manifest.source), ["orphaned-provider"]);
       const reloadItem = mocked.createdStatusBarItems.find(
-        (item) => item.command === "codex-switchbridge-vscode.reloadWindow",
+        (item) => item.command === "codex-routesync.reloadWindow",
       );
       assert.ok(reloadItem);
       assert.equal(reloadItem.visible, true);
@@ -1458,7 +1458,7 @@ test("addAccount can use device auth for a new account", async (t) => {
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.addAccount")();
+        await mocked.registeredCommands.get("codex-routesync.addAccount")();
 
         for (const subscription of context.subscriptions.reverse()) {
           subscription?.dispose?.();
@@ -1545,7 +1545,7 @@ test("addAccount saves a new local account without switching away from the activ
         await waitForRefreshCoordinatorIdle(context);
         requestLog.length = 0;
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.addAccount")();
+        await mocked.registeredCommands.get("codex-routesync.addAccount")();
         await waitForRefreshCoordinatorIdle(context);
 
         const savedNew = JSON.parse(fs.readFileSync(path.join(authDir, "auth_new-user.json"), "utf-8"));
@@ -1672,7 +1672,7 @@ test("addAccount saves bob1990 without replacing the active cloud google1 auth",
         await waitForRefreshCoordinatorIdle(context);
         requestLog.length = 0;
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.addAccount")();
+        await mocked.registeredCommands.get("codex-routesync.addAccount")();
         await waitForRefreshCoordinatorIdle(context);
 
         core.setSavedAuthPassphrase("cloud-passphrase");
@@ -1786,7 +1786,7 @@ test("addAccount restores the active account when a duplicate local login is rej
         await extension.activate(context);
         await waitForRefreshCoordinatorIdle(context);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.addAccount")();
+        await mocked.registeredCommands.get("codex-routesync.addAccount")();
         await waitForRefreshCoordinatorIdle(context);
 
         const currentAuth = JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8"));
@@ -1858,7 +1858,7 @@ test("activate restores the saved storage password from SecretStorage", async ()
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")({
+        await mocked.registeredCommands.get("codex-routesync.useAccount")({
           account: { name: "work" },
         });
 
@@ -2143,7 +2143,7 @@ test("delayed synced cloud account payload becomes available after refresh", asy
       ]);
 
       await mocked.globalState.update(getSyncedCloudAccountKey("apple1"), delayedAccount);
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshList")();
+      await mocked.registeredCommands.get("codex-routesync.refreshList")();
 
       [appleItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
         .filter((item) => item.account.name === "apple1" && item.account.source === "cloud");
@@ -2213,7 +2213,7 @@ test("delayed synced cloud provider payload is pending until it becomes availabl
       );
 
       mocked.globalStateValues.get(SYNCED_CLOUD_STATE_KEY).providerNames = ["qingteng"];
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshList")();
+      await mocked.registeredCommands.get("codex-routesync.refreshList")();
 
       let [providerItem] = providerTreeView.treeDataProvider
         .getChildren()
@@ -2228,7 +2228,7 @@ test("delayed synced cloud provider payload is pending until it becomes availabl
       ]);
 
       await mocked.globalState.update(getSyncedCloudProviderKey("qingteng"), delayedProvider);
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshList")();
+      await mocked.registeredCommands.get("codex-routesync.refreshList")();
 
       [providerItem] = providerTreeView.treeDataProvider
         .getChildren()
@@ -2294,7 +2294,7 @@ test("remove account deletes a names-only cloud account index entry", async () =
 
       assert.ok(appleItem);
       assert.equal(fs.existsSync(backupPath), true);
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.removeAccount")(appleItem);
+      await mocked.registeredCommands.get("codex-routesync.removeAccount")(appleItem);
 
       assert.deepEqual(mocked.errorMessages, []);
       assert.deepEqual(mocked.warningMessages.map((message) => message.message), [
@@ -2513,9 +2513,9 @@ test("forget storage password removes the local secret and locks encrypted saved
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.forgetStoragePassword")();
+        await mocked.registeredCommands.get("codex-routesync.forgetStoragePassword")();
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")({
+        await mocked.registeredCommands.get("codex-routesync.useAccount")({
           account: { name: "work" },
         });
 
@@ -2685,7 +2685,7 @@ test("unlock command restores access to locked cloud accounts", async () => {
         assert.equal(lockedItem.account.storageState, "locked");
         assert.equal(lockedItem.contextValue, "accountCloudLocked");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.unlockStorage")();
+        await mocked.registeredCommands.get("codex-routesync.unlockStorage")();
 
         const [unlockedItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user");
@@ -2760,7 +2760,7 @@ test("useAccount prompts again to unlock locked cloud auth after activation was 
         const [lockedItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(lockedItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(lockedItem);
 
         const currentAuth = JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8"));
         assert.equal(currentAuth.tokens.account_id, "acct-sync");
@@ -2827,7 +2827,7 @@ test("addAccount can save to synced settings when cloud storage is selected", as
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.addAccount")();
+        await mocked.registeredCommands.get("codex-routesync.addAccount")();
 
         const syncedEntry = mocked.config.syncedStorage.accounts["sync-user"];
         assert.equal(typeof syncedEntry, "object");
@@ -2905,7 +2905,7 @@ test("addAccount to cloud fails when the payload cannot be verified after write"
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.addAccount")();
+        await mocked.registeredCommands.get("codex-routesync.addAccount")();
 
         assert.equal(mocked.config.syncedStorage.accounts["sync-user"], undefined);
         assert.equal(fs.existsSync(path.join(authDir, "auth_sync-user.json")), false);
@@ -3003,7 +3003,7 @@ test("reloginAccount updates an active local account and marks reload recommende
         const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "active" && item.account.source === "local");
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.reloginAccount")(accountItem);
+        await mocked.registeredCommands.get("codex-routesync.reloginAccount")(accountItem);
         await waitForRefreshCoordinatorIdle(context);
 
         const terminalHome = mocked.createdTerminals.at(-1)?.options?.env?.CODEX_HOME;
@@ -3034,7 +3034,7 @@ test("reloginAccount updates an active local account and marks reload recommende
         assert.equal(recommendation.recommended, true);
         assert.match(recommendation.reason ?? "", /account "active"/i);
         const reloadItem = mocked.createdStatusBarItems.find(
-          (item) => item.command === "codex-switchbridge-vscode.reloadWindow",
+          (item) => item.command === "codex-routesync.reloadWindow",
         );
         assert.ok(reloadItem);
         assert.equal(reloadItem.visible, true);
@@ -3085,7 +3085,7 @@ test("reloginAccount removes its transient home when startup logging fails", asy
       os.tmpdir = () => loginTempParent;
       try {
         await assert.rejects(
-          mocked.registeredCommands.get("codex-switchbridge-vscode.reloginAccount")(accountItem),
+          mocked.registeredCommands.get("codex-routesync.reloginAccount")(accountItem),
           /output channel write failed/,
         );
       } finally {
@@ -3158,7 +3158,7 @@ test("reloginAccount activation does not asynchronously rewrite the current sele
         const [accountAItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "a" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.reloginAccount")(accountAItem);
+        await mocked.registeredCommands.get("codex-routesync.reloginAccount")(accountAItem);
         await waitForRefreshCoordinatorIdle(context);
 
         const savedAuth = JSON.parse(fs.readFileSync(path.join(authDir, "auth_a.json"), "utf-8"));
@@ -3250,7 +3250,7 @@ test("reloginAccount does not activate or reload when selection changes while lo
         const [accountAItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "a" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.reloginAccount")(accountAItem);
+        await mocked.registeredCommands.get("codex-routesync.reloginAccount")(accountAItem);
         await waitForRefreshCoordinatorIdle(context);
 
         const savedAccountA = JSON.parse(fs.readFileSync(path.join(authDir, "auth_a.json"), "utf-8"));
@@ -3339,7 +3339,7 @@ test("reloginAccount activates cloud auth, safely defers marker reconciliation, 
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "cloud" && item.account.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.reloginAccount")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.reloginAccount")(cloudItem);
         await waitForRefreshCoordinatorIdle(context);
 
         const savedAuth = readCloudAccount(mocked.config, "cloud", passphrase);
@@ -3358,7 +3358,7 @@ test("reloginAccount activates cloud auth, safely defers marker reconciliation, 
         assert.equal(mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length, 1);
         assert.equal(mocked.errorMessages.length, 0);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(cloudItem);
         await waitForRefreshCoordinatorIdle(context);
         const markerAfterReconcile = mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection");
         assert.equal(markerAfterReconcile?.entryVersion, envelope.entryVersion);
@@ -3426,7 +3426,7 @@ test("reloginAccount rejects a different identity without changing saved or runt
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "active" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.reloginAccount")(accountItem);
+        await mocked.registeredCommands.get("codex-routesync.reloginAccount")(accountItem);
 
         const transientTerminal = mocked.createdTerminals.at(-1);
         assert.equal(transientTerminal?.disposed, true);
@@ -3502,7 +3502,7 @@ test("reloginAccount rejects a cloud login result without a stable identity", as
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "cloud" && item.account.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.reloginAccount")(accountItem);
+        await mocked.registeredCommands.get("codex-routesync.reloginAccount")(accountItem);
 
         assert.deepEqual(getCloudEnvelope(mocked.config, "account", "cloud"), savedBefore);
         assert.deepEqual(fs.readFileSync(path.join(codexHome, "auth.json")), liveBefore);
@@ -3575,7 +3575,7 @@ test("reloginAccount reports an activation failure after saving refreshed auth",
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "active" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.reloginAccount")(accountItem);
+        await mocked.registeredCommands.get("codex-routesync.reloginAccount")(accountItem);
         await waitForRefreshCoordinatorIdle(context);
 
         const savedAuth = JSON.parse(fs.readFileSync(path.join(authDir, "auth_active.json"), "utf-8"));
@@ -3638,7 +3638,7 @@ test("reloginAccount leaves state unchanged when Done has no transient auth", as
         const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "active" && item.account.source === "local");
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.reloginAccount")(accountItem);
+        await mocked.registeredCommands.get("codex-routesync.reloginAccount")(accountItem);
 
         const transientTerminal = mocked.createdTerminals.at(-1);
         assert.equal(transientTerminal?.disposed, true);
@@ -3746,7 +3746,7 @@ test("reloginAccount updates an inactive cloud account without changing the acti
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "cloud" && item.account.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.reloginAccount")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.reloginAccount")(cloudItem);
         await waitForRefreshCoordinatorIdle(context);
 
         const updated = readCloudAccount(mocked.config, "cloud", "cloud-passphrase");
@@ -3847,7 +3847,7 @@ test("legacy cloud account upgrades with visible sync metadata on manual refresh
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshToken")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.refreshToken")(cloudItem);
 
         const syncedEntry = getCloudEnvelope(mocked.config, "account", "sync-user");
         assert.equal(syncedEntry.entryVersion, 1);
@@ -3979,7 +3979,7 @@ test("a delayed cloud-account refresh cannot overwrite a committed provider swit
 
       try {
         const refreshPromise = mocked.registeredCommands
-          .get("codex-switchbridge-vscode.refreshToken")(cloudItem);
+          .get("codex-routesync.refreshToken")(cloudItem);
         await requestStarted;
         core.activateProviderProfile(
           {
@@ -4107,7 +4107,7 @@ test("manual cloud refresh increments visible sync version metadata", async (t) 
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshToken")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.refreshToken")(cloudItem);
 
         const nextEntry = getCloudEnvelope(mocked.config, "account", "sync-user");
         assert.equal(nextEntry.entryVersion, 2);
@@ -4201,7 +4201,7 @@ test("switching identical account auth from local to cloud updates selection wit
         const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "same" && item.account.source === "cloud");
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(cloudItem);
 
         assert.equal(
           mocked.executedCommands.some((entry) => entry.name === "workbench.action.reloadWindow"),
@@ -4310,7 +4310,7 @@ test("switching identical provider profile from local to cloud updates selection
       const [cloudItem] = providerTreeView.treeDataProvider
         .getChildren()
         .filter((item) => item.provider?.name === "same-proxy" && item.provider?.source === "cloud");
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.switchProvider")(cloudItem);
+      await mocked.registeredCommands.get("codex-routesync.switchProvider")(cloudItem);
 
       assert.equal(
         mocked.executedCommands.some((entry) => entry.name === "workbench.action.reloadWindow"),
@@ -4400,7 +4400,7 @@ test("shared history local provider syncs current auth before switching accounts
           .getChildren()
           .filter((item) => item.provider?.name === "proxy" && item.provider?.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.switchProvider")(providerItem);
+        await mocked.registeredCommands.get("codex-routesync.switchProvider")(providerItem);
 
         const config = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
         assert.doesNotMatch(config, /^model_provider\s*=/m);
@@ -4415,7 +4415,7 @@ test("shared history local provider syncs current auth before switching accounts
           false,
         );
         const reloadItem = mocked.createdStatusBarItems.find(
-          (item) => item.command === "codex-switchbridge-vscode.reloadWindow",
+          (item) => item.command === "codex-routesync.reloadWindow",
         );
         assert.ok(reloadItem);
         const statusBarManager = context.subscriptions.find(
@@ -4449,7 +4449,7 @@ test("shared history local provider syncs current auth before switching accounts
           "utf-8",
         );
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.switchProvider")(providerItem);
+        await mocked.registeredCommands.get("codex-routesync.switchProvider")(providerItem);
 
         assert.deepEqual(
           JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8")),
@@ -4461,7 +4461,7 @@ test("shared history local provider syncs current auth before switching accounts
         assert.equal(providerAfterReselect.status, "ok");
         assert.equal(providerAfterReselect.value.auth.OPENAI_API_KEY, "sk-proxy-refreshed");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(accountItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(accountItem);
 
         assert.deepEqual(mocked.errorMessages, []);
         assert.equal(
@@ -4577,7 +4577,7 @@ test("shared history cloud provider syncs its current auth before switching to a
           .getChildren()
           .filter((item) => item.provider?.name === "cloud-proxy" && item.provider?.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.switchProvider")(providerItem);
+        await mocked.registeredCommands.get("codex-routesync.switchProvider")(providerItem);
 
         const config = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
         assert.doesNotMatch(config, /^model_provider\s*=/m);
@@ -4594,7 +4594,7 @@ test("shared history cloud provider syncs its current auth before switching to a
           "utf-8",
         );
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.switchProvider")(providerItem);
+        await mocked.registeredCommands.get("codex-routesync.switchProvider")(providerItem);
 
         assert.deepEqual(
           JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8")),
@@ -4615,7 +4615,7 @@ test("shared history cloud provider syncs its current auth before switching to a
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "alpha" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(accountItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(accountItem);
 
         const savedProvider = readCloudProvider(
           mocked.config,
@@ -4723,13 +4723,13 @@ test("Switch Mode Account Mode prompts for and activates a saved account", async
         const [providerItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider?.name === "proxy" && item.provider?.source === "local");
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.switchProvider")(providerItem);
+        await mocked.registeredCommands.get("codex-routesync.switchProvider")(providerItem);
         assert.deepEqual(
           JSON.parse(fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8")),
           { OPENAI_API_KEY: "sk-proxy" },
         );
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.switchMode")();
+        await mocked.registeredCommands.get("codex-routesync.switchMode")();
 
         assert.equal(accountModePrompted, true);
         assert.equal(accountSelectionPrompted, true);
@@ -4818,7 +4818,7 @@ test("provider switches keep model_provider when shared history setting is disab
           .getChildren()
           .filter((item) => item.provider?.name === "proxy" && item.provider?.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.switchProvider")(providerItem);
+        await mocked.registeredCommands.get("codex-routesync.switchProvider")(providerItem);
 
         const config = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
         assert.match(config, /^model_provider = "proxy"$/m);
@@ -4899,7 +4899,7 @@ test("cancelled relogin leaves an active local provider byte-for-byte unchanged"
         const [providerItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider?.name === "proxy" && item.provider?.source === "local");
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.switchProvider")(providerItem);
+        await mocked.registeredCommands.get("codex-routesync.switchProvider")(providerItem);
         assert.equal(core.getSharedHistoryRouteState()?.activeProvider, "proxy");
         const liveAuthBefore = fs.readFileSync(path.join(codexHome, "auth.json"));
         const configBefore = fs.readFileSync(path.join(codexHome, "config.toml"));
@@ -4912,7 +4912,7 @@ test("cancelled relogin leaves an active local provider byte-for-byte unchanged"
         const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "alpha" && item.account.source === "local");
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.reloginAccount")(accountItem);
+        await mocked.registeredCommands.get("codex-routesync.reloginAccount")(accountItem);
 
         assert.equal(mocked.informationMessages.some((entry) => entry.message.includes("Exited provider mode")), false);
         const terminalHome = mocked.createdTerminals.at(-1)?.options?.env?.CODEX_HOME;
@@ -5030,7 +5030,7 @@ test("cancelled relogin leaves an active cloud provider and same-name local prov
         const [cloudProviderItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider?.name === "proxy" && item.provider?.source === "cloud");
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.switchProvider")(cloudProviderItem);
+        await mocked.registeredCommands.get("codex-routesync.switchProvider")(cloudProviderItem);
         assert.equal(core.getSharedHistoryRouteState()?.activeProvider, "proxy");
 
         fs.writeFileSync(
@@ -5050,7 +5050,7 @@ test("cancelled relogin leaves an active cloud provider and same-name local prov
         const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "alpha" && item.account.source === "local");
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.reloginAccount")(accountItem);
+        await mocked.registeredCommands.get("codex-routesync.reloginAccount")(accountItem);
 
         const savedCloudProvider = readCloudProvider(mocked.config, "proxy", "cloud-relogin-passphrase");
         assert.equal(savedCloudProvider.auth.OPENAI_API_KEY, "sk-cloud-old");
@@ -5174,7 +5174,7 @@ test("syncing stale active cloud auth does not overwrite newer cloud auth", asyn
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(localItem);
 
         const cloudAuth = readCloudAccount(mocked.config, "apple1", "newer-wins-passphrase");
         assert.equal(cloudAuth.tokens.access_token, "access-apple-fresh");
@@ -5283,7 +5283,7 @@ test("aggregate globalState cloud accounts materialize before single-account ref
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshToken")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.refreshToken")(cloudItem);
 
         const nextEntry = getCloudEnvelope(mocked.config, "account", "sync-user");
         assert.equal(nextEntry.entryVersion, 2);
@@ -5456,7 +5456,7 @@ test("account details hide last refresh and support copying email", async (t) =>
         assert.doesNotMatch(String(accountItem.tooltip ?? ""), /Last refresh:/);
         assert.equal(details.some((item) => item.label === "Refresh token"), false);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.copyAccountField")(emailItem);
+        await mocked.registeredCommands.get("codex-routesync.copyAccountField")(emailItem);
 
         assert.deepEqual(mocked.clipboardWrites, ["ryanwalker@example.com"]);
         assert.match(mocked.informationMessages.at(-1)?.message ?? "", /copied email/i);
@@ -5543,7 +5543,7 @@ test("refresh quota command writes command, account tree, and status bar perform
         );
         assert.equal(quotaStores.length, 1);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshQuota")();
+        await mocked.registeredCommands.get("codex-routesync.refreshQuota")();
         await waitForRefreshCoordinatorIdle(context);
 
         const lines = mocked.createdChannels.flatMap((channel) => channel.entries.map((entry) => entry.line));
@@ -5617,12 +5617,12 @@ test("refresh command tolerates non-account context payloads", async (t) => {
       const context = createExtensionContext(mocked);
       await extension.activate(context);
 
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.refresh")({});
+      await mocked.registeredCommands.get("codex-routesync.refresh")({});
       await waitForRefreshCoordinatorIdle(context);
 
       assert.equal(mocked.errorMessages.length, 0);
       assert.equal(
-        mocked.executedCommands.some((entry) => entry.name === "codex-switchbridge-vscode.refreshList"),
+        mocked.executedCommands.some((entry) => entry.name === "codex-routesync.refreshList"),
         true,
       );
 
@@ -5714,7 +5714,7 @@ test("refreshToken command offers All and refreshes every saved account", async 
         await waitForRefreshCoordinatorIdle(context);
         requestLog.length = 0;
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshToken")();
+        await mocked.registeredCommands.get("codex-routesync.refreshToken")();
         await waitForRefreshCoordinatorIdle(context);
 
         assert.equal(countAuthRefreshRequests(requestLog), 2);
@@ -6184,7 +6184,7 @@ test("refreshQuota command on Local Accounts group refreshes all local account q
           .find((item) => item.contextValue === "accountGroupLocal");
         assert.ok(localGroup);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshQuota")(localGroup);
+        await mocked.registeredCommands.get("codex-routesync.refreshQuota")(localGroup);
 
         const usageRequests = requestLog.filter((request) => request.hostname === "chatgpt.com");
         assert.equal(usageRequests.length, 2);
@@ -6468,7 +6468,7 @@ test("provider switch refreshes views without triggering quota requests", async 
         await waitForRefreshCoordinatorIdle(context);
 
         requestLog.length = 0;
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.switchProvider")();
+        await mocked.registeredCommands.get("codex-routesync.switchProvider")();
         await waitForRefreshCoordinatorIdle(context);
 
         assert.equal(requestLog.length, 0);
@@ -6537,13 +6537,13 @@ test("account and provider name prompts reject unsafe cross-platform filenames w
       const context = createExtensionContext(mocked);
       await extension.activate(context);
 
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.addAccount")();
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.addProvider")();
+      await mocked.registeredCommands.get("codex-routesync.addAccount")();
+      await mocked.registeredCommands.get("codex-routesync.addProvider")();
 
       const accountTreeView = getAccountTreeView(mocked);
       const [workItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
         .filter((item) => item.account.name === "work" && item.account.source === "local");
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.renameAccount")(workItem);
+      await mocked.registeredCommands.get("codex-routesync.renameAccount")(workItem);
 
       assert.equal(mocked.inputBoxCalls.length, 3);
       assert.match(mocked.inputBoxCalls[0].validateInput("nested/account"), /path separators/i);
@@ -6620,7 +6620,7 @@ test("creating a provider keeps each input box open across focus changes", async
       const context = createExtensionContext(mocked);
       await extension.activate(context);
 
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.switchMode")();
+      await mocked.registeredCommands.get("codex-routesync.switchMode")();
 
       assert.equal(mocked.inputBoxCalls.length, 4);
       assert.deepEqual(
@@ -6701,7 +6701,7 @@ test("refresh quota command reuses one saved entries snapshot for tree and statu
 
         core.writeSavedAuthFile(path.join(authDir, "auth_beta.json"), makeAuthFile("acct-beta"));
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshQuota")();
+        await mocked.registeredCommands.get("codex-routesync.refreshQuota")();
         await waitForRefreshCoordinatorIdle(context);
 
         const accountTreeView = getAccountTreeView(mocked);
@@ -6894,7 +6894,7 @@ test("account tree shows relogin required only after manual token refresh fails"
           .filter((item) => item.account.name === "google1" && item.account.source === "cloud");
         assert.doesNotMatch(String(resetGoogleItem.description ?? ""), /Relogin required/);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshToken")(resetGoogleItem);
+        await mocked.registeredCommands.get("codex-routesync.refreshToken")(resetGoogleItem);
         const [manualGoogleItem] = getAccountTreeItems(provider)
           .filter((item) => item.account.name === "google1" && item.account.source === "cloud");
         assert.match(String(manualGoogleItem.description ?? ""), /Relogin required/);
@@ -7068,7 +7068,7 @@ test("stale cloud account mutations are blocked and can open settings json", asy
         core.setSavedAuthPassphrase(null);
         mocked.config.syncedStorage.accounts.stale = bumpedEntry;
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.removeAccount")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.removeAccount")(cloudItem);
 
         assert.equal(mocked.config.syncedStorage.accounts.stale.entryVersion, 2);
         assert.equal(mocked.errorMessages.length, 0);
@@ -7149,7 +7149,7 @@ test("versioned cloud account snapshots do not recreate missing synced payloads 
 
         delete mocked.config.syncedStorage.accounts.stale;
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshToken")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.refreshToken")(cloudItem);
 
         assert.equal(mocked.config.syncedStorage.accounts.stale, undefined);
         assert.match(mocked.errorMessages.at(-1)?.message ?? "", /no longer has a synced payload/i);
@@ -7257,7 +7257,7 @@ test("stale cloud provider mutations are blocked and keep the latest synced entr
         core.setSavedAuthPassphrase(null);
         mocked.config.syncedStorage.providers.proxy = bumpedEntry;
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.moveProviderToLocal")(providerItem);
+        await mocked.registeredCommands.get("codex-routesync.moveProviderToLocal")(providerItem);
 
         assert.equal(fs.existsSync(path.join(authDir, "provider_proxy.json")), false);
         assert.equal(mocked.config.syncedStorage.providers.proxy.entryVersion, 2);
@@ -7378,7 +7378,7 @@ test("move account to local rejects an existing local account before cloud remov
           core.setSavedAuthPassphrase(null);
           mocked.config.syncedStorage.accounts.work = bumpedEntry;
 
-          await mocked.registeredCommands.get("codex-switchbridge-vscode.moveAccountToLocal")(cloudItem);
+          await mocked.registeredCommands.get("codex-routesync.moveAccountToLocal")(cloudItem);
 
           core.setNamedAuthDir(authDir);
           const localResult = core.readSavedAuthFileResult(localAuthPath);
@@ -7505,7 +7505,7 @@ test("move provider to local rejects an existing local provider before cloud rem
         core.setSavedAuthPassphrase(null);
         mocked.config.syncedStorage.providers[localProviderName] = bumpedEntry;
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.moveProviderToLocal")(providerItem);
+        await mocked.registeredCommands.get("codex-routesync.moveProviderToLocal")(providerItem);
 
         core.setNamedAuthDir(authDir);
         const localResult = core.readProviderProfileResult(localProviderName);
@@ -7615,7 +7615,7 @@ test("moving one local provider to cloud does not rewrite sibling cloud provider
           .filter((item) => item.provider.name === "local-proxy" && item.provider.source === "local");
         const siblingBefore = JSON.parse(JSON.stringify(mocked.globalStateValues.get(getSyncedCloudProviderKey("sibling"))));
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.moveProviderToCloud")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.moveProviderToCloud")(localItem);
 
         assert.deepEqual(mocked.globalStateValues.get(getSyncedCloudProviderKey("sibling")), siblingBefore);
         assert.equal(typeof mocked.globalStateValues.get(getSyncedCloudProviderKey("local-proxy"))?.ciphertext, "string");
@@ -7697,7 +7697,7 @@ test("moving a provider to cloud keeps the local profile when payload verificati
         .getChildren()
         .filter((item) => item.provider.name === "qingteng" && item.provider.source === "local");
 
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.moveProviderToCloud")(localItem);
+      await mocked.registeredCommands.get("codex-routesync.moveProviderToCloud")(localItem);
       await waitForRefreshCoordinatorIdle(context);
 
       assert.equal(fs.existsSync(path.join(authDir, "provider_qingteng.json")), true);
@@ -7762,7 +7762,7 @@ test("addProvider saves a new local provider without switching mode", async (t) 
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
 
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.addProvider")();
+      await mocked.registeredCommands.get("codex-routesync.addProvider")();
       await waitForRefreshCoordinatorIdle(context);
 
       core.setNamedAuthDir(authDir);
@@ -7845,7 +7845,7 @@ test("addProvider saves and verifies a new cloud provider payload", async (t) =>
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
 
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.addProvider")();
+      await mocked.registeredCommands.get("codex-routesync.addProvider")();
       await waitForRefreshCoordinatorIdle(context);
 
       const storedProvider = mocked.globalStateValues.get(getSyncedCloudProviderKey("qingteng"));
@@ -7920,7 +7920,7 @@ test("addProvider reports failure when a cloud provider payload cannot be read b
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
 
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.addProvider")();
+      await mocked.registeredCommands.get("codex-routesync.addProvider")();
       await waitForRefreshCoordinatorIdle(context);
 
       assert.equal(mocked.globalStateValues.has(getSyncedCloudProviderKey("qingteng")), false);
@@ -7992,7 +7992,7 @@ test("manual token refresh marks invalidated refresh token as relogin required",
           const [accountItem] = getAccountTreeItems(provider)
             .filter((item) => item.account.name === "microsoft1" && item.account.source === "cloud");
 
-          await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshToken")(accountItem);
+          await mocked.registeredCommands.get("codex-routesync.refreshToken")(accountItem);
 
           const [manualItem] = getAccountTreeItems(provider)
             .filter((item) => item.account.name === "microsoft1" && item.account.source === "cloud");
@@ -8073,7 +8073,7 @@ test("remove provider asks for confirmation before deleting a local provider", a
           .getChildren()
           .filter((item) => item.provider.name === "proxy" && item.provider.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.removeProvider")(providerItem);
+        await mocked.registeredCommands.get("codex-routesync.removeProvider")(providerItem);
 
         assert.equal(fs.existsSync(providerPath), false);
         assert.equal(mocked.warningMessages.length, 1);
@@ -8153,7 +8153,7 @@ test("removing a cloud account writes a tombstone that blocks stale payload revi
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "cloud-old" && item.account.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.removeAccount")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.removeAccount")(cloudItem);
 
         const tombstone = mocked.globalStateValues.get(getSyncedCloudAccountKey("cloud-old"));
         assert.equal(tombstone?.deleted, true);
@@ -8164,7 +8164,7 @@ test("removing a cloud account writes a tombstone that blocks stale payload revi
         const syncedState = mocked.globalStateValues.get(SYNCED_CLOUD_STATE_KEY);
         syncedState.accounts = { "cloud-old": initialEntry };
         syncedState.accountNames = ["cloud-old"];
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshList")();
+        await mocked.registeredCommands.get("codex-routesync.refreshList")();
 
         const revivedItems = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "cloud-old" && item.account.source === "cloud");
@@ -8249,7 +8249,7 @@ test("removing a cloud provider writes a tombstone that blocks stale payload rev
           .getChildren()
           .filter((item) => item.provider.name === "proxy" && item.provider.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.removeProvider")(providerItem);
+        await mocked.registeredCommands.get("codex-routesync.removeProvider")(providerItem);
 
         const tombstone = mocked.globalStateValues.get(getSyncedCloudProviderKey("proxy"));
         assert.equal(tombstone?.deleted, true);
@@ -8260,7 +8260,7 @@ test("removing a cloud provider writes a tombstone that blocks stale payload rev
         const syncedState = mocked.globalStateValues.get(SYNCED_CLOUD_STATE_KEY);
         syncedState.providers = { proxy: initialEntry };
         syncedState.providerNames = ["proxy"];
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshList")();
+        await mocked.registeredCommands.get("codex-routesync.refreshList")();
 
         const revivedItems = providerTreeView.treeDataProvider
           .getChildren()
@@ -8428,7 +8428,7 @@ test("moving a local provider to cloud records provider audit metadata", async (
             .getChildren()
             .filter((item) => item.provider.name === "proxy" && item.provider.source === "local");
 
-          await mocked.registeredCommands.get("codex-switchbridge-vscode.moveProviderToCloud")(providerItem);
+          await mocked.registeredCommands.get("codex-routesync.moveProviderToCloud")(providerItem);
 
           const envelope = getCloudEnvelope(mocked.config, "provider", "proxy");
           assert.equal(envelope.entryVersion, 1);
@@ -8590,7 +8590,7 @@ test("account migration moves saved auth between local and cloud storage", async
           const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "work" && item.account.source === "local");
 
-          await mocked.registeredCommands.get("codex-switchbridge-vscode.moveAccountToCloud")(localItem);
+          await mocked.registeredCommands.get("codex-routesync.moveAccountToCloud")(localItem);
 
           const backupPath = getProtectedCloudAccountBackupPath(mocked, "work");
           assert.equal(fs.existsSync(backupPath), true);
@@ -8604,7 +8604,7 @@ test("account migration moves saved auth between local and cloud storage", async
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "work" && item.account.source === "cloud");
 
-          await mocked.registeredCommands.get("codex-switchbridge-vscode.moveAccountToLocal")(cloudItem);
+          await mocked.registeredCommands.get("codex-routesync.moveAccountToLocal")(cloudItem);
 
           assert.equal(fs.existsSync(path.join(authDir, "auth_work.json")), true);
           assert.equal(mocked.config.syncedStorage.accounts.work?.deleted, true);
@@ -8680,7 +8680,7 @@ test("renaming a cloud account moves its protected backup", async (t) => {
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "work" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.moveAccountToCloud")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.moveAccountToCloud")(localItem);
 
         const oldBackupPath = getProtectedCloudAccountBackupPath(mocked, "work");
         const newBackupPath = getProtectedCloudAccountBackupPath(mocked, "renamed-work");
@@ -8690,7 +8690,7 @@ test("renaming a cloud account moves its protected backup", async (t) => {
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "work" && item.account.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.renameAccount")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.renameAccount")(cloudItem);
 
         assert.equal(fs.existsSync(oldBackupPath), false);
         assert.equal(fs.existsSync(newBackupPath), true);
@@ -8774,7 +8774,7 @@ test("moveAccountToCloud syncs the payload together with the cloud index for ano
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "apple1" && item.account.source === "local");
 
-        await source.registeredCommands.get("codex-switchbridge-vscode.moveAccountToCloud")(localItem);
+        await source.registeredCommands.get("codex-routesync.moveAccountToCloud")(localItem);
 
         for (const subscription of context.subscriptions.reverse()) {
           subscription?.dispose?.();
@@ -8873,12 +8873,12 @@ test("restoreCloudAccountPayload restores an index-only cloud account from prote
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "bob1990" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.moveAccountToCloud")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.moveAccountToCloud")(localItem);
 
         assert.equal(fs.existsSync(path.join(authDir, "auth_bob1990.json")), false);
         assert.equal(fs.existsSync(getProtectedCloudAccountBackupPath(mocked, "bob1990")), true);
         mocked.globalStateValues.delete(getSyncedCloudAccountKey("bob1990"));
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshList")();
+        await mocked.registeredCommands.get("codex-routesync.refreshList")();
 
         let [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "bob1990" && item.account.source === "cloud");
@@ -8888,7 +8888,7 @@ test("restoreCloudAccountPayload restores an index-only cloud account from prote
         assert.equal(cloudItem.contextValue, "accountCloudRecoverable");
         assert.match(cloudItem.account.storageMessage, /protected local backup/i);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.restoreCloudAccountPayload")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.restoreCloudAccountPayload")(cloudItem);
 
         assert.equal(typeof mocked.globalStateValues.get(getSyncedCloudAccountKey("bob1990"))?.ciphertext, "string");
         [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
@@ -8965,7 +8965,7 @@ test("restoreCloudAccountPayload lists orphan protected backup when cloud index 
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "fanfan" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.moveAccountToCloud")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.moveAccountToCloud")(localItem);
 
         assert.equal(fs.existsSync(path.join(authDir, "auth_fanfan.json")), false);
         assert.equal(fs.existsSync(getProtectedCloudAccountBackupPath(mocked, "fanfan")), true);
@@ -8973,7 +8973,7 @@ test("restoreCloudAccountPayload lists orphan protected backup when cloud index 
         mocked.globalStateValues.delete(getSyncedCloudAccountKey("fanfan"));
         const cloudState = mocked.globalStateValues.get(SYNCED_CLOUD_STATE_KEY);
         cloudState.accountNames = cloudState.accountNames.filter((name) => name !== "fanfan");
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshList")();
+        await mocked.registeredCommands.get("codex-routesync.refreshList")();
 
         let [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "fanfan" && item.account.source === "cloud");
@@ -8984,7 +8984,7 @@ test("restoreCloudAccountPayload lists orphan protected backup when cloud index 
         assert.equal(cloudItem.contextValue, "accountCloudRecoverable");
         assert.match(cloudItem.account.storageMessage, /synced index and payload are missing/i);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.restoreCloudAccountPayload")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.restoreCloudAccountPayload")(cloudItem);
 
         assert.equal(typeof mocked.globalStateValues.get(getSyncedCloudAccountKey("fanfan"))?.ciphertext, "string");
         assert.deepEqual(mocked.globalStateValues.get(SYNCED_CLOUD_STATE_KEY).accountNames, ["fanfan"]);
@@ -9067,7 +9067,7 @@ test("moveAccountToCloud keeps local auth when cloud payload cannot be read back
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "apple1" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.moveAccountToCloud")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.moveAccountToCloud")(localItem);
 
         assert.equal(fs.existsSync(path.join(authDir, "auth_apple1.json")), true);
         assert.equal(mocked.globalStateValues.has(getSyncedCloudAccountKey("apple1")), false);
@@ -9140,7 +9140,7 @@ test("useAccount shares one cloud quota request between tree and status bar", as
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync" && item.account.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(cloudItem);
         await waitForRefreshCoordinatorIdle(context);
 
         assert.equal(countUsageRequests(requestLog), 1);
@@ -9214,7 +9214,7 @@ test("moveAccountToCloud avoids duplicate quota refresh after synced storage upd
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "work" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.moveAccountToCloud")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.moveAccountToCloud")(localItem);
         await waitForRefreshCoordinatorIdle(context);
 
         assert.equal(countUsageRequests(requestLog), 1);
@@ -9284,10 +9284,10 @@ test("hidden status bar also hides reload recommendations without extra quota re
 
         assert.equal(countUsageRequests(requestLog), 0);
         const quotaItem = mocked.createdStatusBarItems.find(
-          (item) => item.command === "codex-switchbridge-vscode.refreshQuota"
+          (item) => item.command === "codex-routesync.refreshQuota"
         );
         const reloadItem = mocked.createdStatusBarItems.find(
-          (item) => item.command === "codex-switchbridge-vscode.reloadWindow"
+          (item) => item.command === "codex-routesync.reloadWindow"
         );
         assert.ok(quotaItem);
         assert.ok(reloadItem);
@@ -9299,7 +9299,7 @@ test("hidden status bar also hides reload recommendations without extra quota re
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "hidden" && item.account.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(cloudItem);
         await waitForRefreshCoordinatorIdle(context);
 
         assert.equal(countUsageRequests(requestLog), 1);
@@ -9384,7 +9384,7 @@ test("moveAccountToLocal refreshes only the affected account quota", async (t) =
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "work" && item.account.source === "cloud");
 
-          await mocked.registeredCommands.get("codex-switchbridge-vscode.moveAccountToLocal")(cloudItem);
+          await mocked.registeredCommands.get("codex-routesync.moveAccountToLocal")(cloudItem);
           await waitForRefreshCoordinatorIdle(context);
 
           assert.equal(countUsageRequests(requestLog), 1);
@@ -9499,7 +9499,7 @@ test("current cloud account reselect preserves rotated auth without reload befor
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(cloudItem);
 
         const authAfterReselect = JSON.parse(
           fs.readFileSync(path.join(codexHome, "auth.json"), "utf-8"),
@@ -9511,7 +9511,7 @@ test("current cloud account reselect preserves rotated auth without reload befor
           0,
         );
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(localItem);
 
         const cloudAuth = readCloudAccount(
           mocked.config,
@@ -9635,7 +9635,7 @@ test("switching away from a cloud account ignores legacy device authority and up
           const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
-          await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(localItem);
+          await mocked.registeredCommands.get("codex-routesync.useAccount")(localItem);
 
           const cloudAuth = readCloudAccount(
             mocked.config,
@@ -9748,7 +9748,7 @@ test("stale cloud provider marker self-heals without overwriting newer cloud cre
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(localItem);
 
         const savedProvider = readCloudProvider(mocked.config, "proxy", "provider-heal-passphrase");
         assert.equal(savedProvider.auth.OPENAI_API_KEY, "sk-cloud-new");
@@ -9882,7 +9882,7 @@ test("stale cloud provider marker self-heals without overwriting newer cloud cre
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.switchMode")();
+        await mocked.registeredCommands.get("codex-routesync.switchMode")();
 
         const savedProvider = readCloudProvider(mocked.config, "proxy", "provider-heal-switch-passphrase");
         assert.equal(savedProvider.auth.OPENAI_API_KEY, "sk-cloud-new");
@@ -10000,7 +10000,7 @@ test("missing provider marker does not write active cloud credentials into a sam
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(localItem);
 
         core.setSavedAuthPassphrase(passphrase);
         const savedLocalProvider = core.readProviderProfile("proxy");
@@ -10126,7 +10126,7 @@ test("missing provider marker adopts a uniquely matching same-name local provide
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(localItem);
 
         const savedCloudProvider = readCloudProvider(mocked.config, "proxy", passphrase);
         assert.equal(savedCloudProvider.auth.OPENAI_API_KEY, "sk-cloud-keep");
@@ -10259,7 +10259,7 @@ test("stale local provider marker resolves the only cloud entry without overwrit
         const targetItem = getAccountTreeItems(accountTreeView.treeDataProvider)
           .find((item) => item.account.name === "target" && item.account.source === "local");
         assert.ok(targetItem);
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(targetItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(targetItem);
         await Promise.resolve();
         await Promise.resolve();
         const routeAfterSwitch = dashboard.latestState()?.route;
@@ -10396,7 +10396,7 @@ test("stale cloud account marker self-heals without overwriting newer cloud cred
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(localItem);
 
         const cloudAuth = readCloudAccount(mocked.config, "sync-user", "account-heal-passphrase");
         assert.equal(cloudAuth.tokens.access_token, "access-cloud-new");
@@ -10500,7 +10500,7 @@ test("versioned cloud account marker does not recreate missing synced payload be
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(localItem);
 
         assert.equal(mocked.config.syncedStorage.accounts["sync-user"], undefined);
         assert.match(mocked.errorMessages.at(-1)?.message ?? "", /no longer has a synced payload/i);
@@ -10614,7 +10614,7 @@ test("current cloud marker does not prompt when already up to date", async (t) =
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(localItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(localItem);
 
         assert.equal(mocked.warningMessages.length, 0);
         assert.equal(mocked.errorMessages.length, 0);
@@ -10727,7 +10727,7 @@ test("stale cloud account marker does not overwrite a different current account"
         const [targetItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "target-user" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(targetItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(targetItem);
 
         const cloudAuth = readCloudAccount(mocked.config, "cloud-user", "account-marker-guard-passphrase");
         assert.equal(cloudAuth.tokens.account_id, "acct-cloud");
@@ -10820,7 +10820,7 @@ test("moving the current local account to cloud updates the current marker", asy
         const [movingItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "moving-user" && item.account.source === "local");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.moveAccountToCloud")(movingItem);
+        await mocked.registeredCommands.get("codex-routesync.moveAccountToCloud")(movingItem);
 
         const marker = mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection");
         assert.equal(marker.kind, "account");
@@ -10907,7 +10907,7 @@ test("manual refresh still updates cloud tokens when automatic sync is disabled"
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshToken")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.refreshToken")(cloudItem);
 
         const cloudAuth = readCloudAccount(
           mocked.config,
@@ -11071,7 +11071,7 @@ test("manual cloud token refresh reloads newer synced tokens before consuming re
         core.setSavedAuthPassphrase(null);
         mocked.config.syncedStorage.accounts["sync-user"] = newerEntry;
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshToken")(staleCloudItem);
+        await mocked.registeredCommands.get("codex-routesync.refreshToken")(staleCloudItem);
 
         assert.equal(authRequestBodies.length, 1, JSON.stringify({
           warnings: mocked.warningMessages,
@@ -11242,7 +11242,7 @@ test("manual cloud token refresh persists rotated tokens after metadata conflict
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshToken")(cloudItem);
+        await mocked.registeredCommands.get("codex-routesync.refreshToken")(cloudItem);
 
         assert.equal(conflictInjected, true);
         const cloudAuth = readCloudAccount(
@@ -12893,7 +12893,7 @@ test("manual cloud token refresh ignores legacy selected device", async (t) => {
 
           assert.equal(cloudItem.contextValue, "accountCloud");
 
-          await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshToken")(cloudItem);
+          await mocked.registeredCommands.get("codex-routesync.refreshToken")(cloudItem);
 
           cloudAuth = readCloudAccount(
             mocked.config,
@@ -13069,7 +13069,7 @@ test("select auto-refresh device command is not registered", async (t) => {
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        assert.equal(mocked.registeredCommands.has("codex-switchbridge-vscode.selectAutoRefreshDevice"), false);
+        assert.equal(mocked.registeredCommands.has("codex-routesync.selectAutoRefreshDevice"), false);
 
         for (const subscription of context.subscriptions.reverse()) {
           subscription?.dispose?.();
@@ -13165,7 +13165,7 @@ test("missing account marker keeps duplicate local and cloud identities unattrib
           })}\n${JSON.stringify(makeTokenCountRecord(40, new Date(startedAt + 10).toISOString()))}\n`,
           "utf-8",
         );
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshUsage")();
+        await mocked.registeredCommands.get("codex-routesync.refreshUsage")();
 
         const dashboard = await mocked.readyDashboard();
         const dashboardState = dashboard.latestState();
@@ -13283,7 +13283,7 @@ test("missing account marker skips outgoing sync for ambiguous local and cloud i
           .filter((item) => item.account.name === "target" && item.account.source === "local");
         assert.ok(targetItem);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(targetItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(targetItem);
 
         core.setSavedAuthPassphrase(passphrase);
         const savedLocal = core.readNamedAuth("duplicate");
@@ -13356,9 +13356,9 @@ test("activation registers one unified route tree and focuses one dashboard pane
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
 
-      assert.deepEqual([...mocked.treeViews.keys()], ["codexSwitchBridgeVscodeRoutes"]);
+      assert.deepEqual([...mocked.treeViews.keys()], ["codexRouteSyncRoutes"]);
       assert.equal(mocked.webviewPanels.length, 0);
-      const routesView = mocked.treeViews.get("codexSwitchBridgeVscodeRoutes");
+      const routesView = mocked.treeViews.get("codexRouteSyncRoutes");
       routesView.setVisible(true);
       assert.equal(mocked.webviewPanels.length, 1);
       routesView.setVisible(false);
@@ -13367,7 +13367,7 @@ test("activation registers one unified route tree and focuses one dashboard pane
 
       const dashboard = await mocked.readyDashboard();
       assert.equal(mocked.webviewPanels.length, 1);
-      assert.equal(dashboard.viewType, "codexSwitchBridgeVscode.dashboard");
+      assert.equal(dashboard.viewType, "codexRouteSync.dashboard");
       assert.equal(dashboard.showOptions, mocked.vscode.ViewColumn.Active);
       assert.equal(dashboard.latestState()?.usage.total.totalTokens, 125);
       assert.equal(dashboard.latestState()?.usage.compactTotal, "125");
@@ -13376,7 +13376,7 @@ test("activation registers one unified route tree and focuses one dashboard pane
         effective: "zh-cn",
       });
 
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.openDashboard")();
+      await mocked.registeredCommands.get("codex-routesync.openDashboard")();
       assert.equal(mocked.webviewPanels.length, 1);
       assert.deepEqual(dashboard.panel.revealCalls, [undefined, undefined, undefined]);
 
@@ -13492,16 +13492,16 @@ test("an initially visible unified route tree opens one dashboard during activat
   try {
     const mocked = createVscodeMock({
       authDirectory: authDir,
-      visibleTreeViewIds: ["codexSwitchBridgeVscodeRoutes"],
+      visibleTreeViewIds: ["codexRouteSyncRoutes"],
     });
     await withDisabledIntervals(async () => {
       const extension = loadExtensionWithMockedVscode(mocked.vscode);
       const context = createExtensionContext(mocked);
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
-      assert.deepEqual([...mocked.treeViews.keys()], ["codexSwitchBridgeVscodeRoutes"]);
+      assert.deepEqual([...mocked.treeViews.keys()], ["codexRouteSyncRoutes"]);
       assert.equal(mocked.webviewPanels.length, 1);
-      mocked.treeViews.get("codexSwitchBridgeVscodeRoutes").setVisible(true);
+      mocked.treeViews.get("codexRouteSyncRoutes").setVisible(true);
       assert.equal(mocked.webviewPanels.length, 1);
       for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
     });
@@ -13536,9 +13536,9 @@ test("expand all accounts reveals flat account rows through the unified tree", a
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
 
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.expandAllAccounts")();
+      await mocked.registeredCommands.get("codex-routesync.expandAllAccounts")();
       assert.ok(mocked.treeRevealCalls.length > 0);
-      assert.ok(mocked.treeRevealCalls.every((call) => call.id === "codexSwitchBridgeVscodeRoutes"));
+      assert.ok(mocked.treeRevealCalls.every((call) => call.id === "codexRouteSyncRoutes"));
       assert.ok(mocked.treeRevealCalls.every((call) => call.options.expand === true));
       const routes = getRoutesTree(mocked);
       for (const { element } of mocked.treeRevealCalls) {
@@ -13577,7 +13577,7 @@ test("refreshUsage reindexes rollout files and posts a newer dashboard state", a
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
 
-      const refreshUsage = mocked.registeredCommands.get("codex-switchbridge-vscode.refreshUsage");
+      const refreshUsage = mocked.registeredCommands.get("codex-routesync.refreshUsage");
       assert.equal(typeof refreshUsage, "function", "refreshUsage should be registered");
       const dashboard = await mocked.readyDashboard();
       const initialRevision = dashboard.posted.at(-1)?.revision ?? 0;
@@ -13603,7 +13603,7 @@ test("refreshUsage reindexes rollout files and posts a newer dashboard state", a
         `${JSON.stringify(makeTokenCountRecord(350, "2025-01-02T03:07:00.000Z"))}\n`,
         "utf-8",
       );
-      const refreshDashboard = mocked.registeredCommands.get("codex-switchbridge-vscode.refreshDashboard");
+      const refreshDashboard = mocked.registeredCommands.get("codex-routesync.refreshDashboard");
       assert.equal(typeof refreshDashboard, "function", "refreshDashboard should be registered");
       await refreshDashboard();
       await Promise.resolve();
@@ -13683,11 +13683,11 @@ test("quota failure keeps attributed and overall token usage in the status bar",
           })}\n${JSON.stringify(makeTokenCountRecord(40, new Date(startedAt + 10).toISOString()))}\n`,
           "utf-8",
         );
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshUsage")();
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshQuota")();
+        await mocked.registeredCommands.get("codex-routesync.refreshUsage")();
+        await mocked.registeredCommands.get("codex-routesync.refreshQuota")();
 
         const quotaItem = mocked.createdStatusBarItems.find(
-          (item) => item.command === "codex-switchbridge-vscode.refreshQuota",
+          (item) => item.command === "codex-routesync.refreshQuota",
         );
         assert.ok(quotaItem);
         assert.match(quotaItem.text, /40 tokens/);
@@ -13775,7 +13775,7 @@ test("provider tree masks API keys while the explicit copy command retains the v
       assert.doesNotMatch(renderedText, new RegExp(apiKey));
       assert.match(apiKeyItem.description, /^Configured \(/);
 
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.copyProviderField")(apiKeyItem);
+      await mocked.registeredCommands.get("codex-routesync.copyProviderField")(apiKeyItem);
       assert.deepEqual(mocked.clipboardWrites, [apiKey]);
 
       for (const subscription of context.subscriptions.reverse()) {
@@ -13828,7 +13828,7 @@ test("regression: a same-tick usage refresh preserves the current quota percenta
         await waitForRefreshCoordinatorIdle(context);
 
         const statusItem = mocked.createdStatusBarItems.find(
-          (item) => item.command !== "codex-switchbridge-vscode.reloadWindow",
+          (item) => item.command !== "codex-routesync.reloadWindow",
         );
         assert.ok(statusItem);
         assert.match(statusItem.text, /work: 90%/);
@@ -13876,7 +13876,7 @@ test("regression: switching records the new usage selection before quota resolve
         assert.ok(betaItem);
 
         controlled = installControlledQuotaHttps();
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(betaItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(betaItem);
         idlePromise = waitForRefreshCoordinatorIdle(context);
         await controlled.requestStarted;
 
@@ -13969,7 +13969,7 @@ test("regression: provider switching persists usage selection before an automati
         return originalExecuteCommand(name, ...args);
       };
 
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.switchProvider")(providerItem);
+      await mocked.registeredCommands.get("codex-routesync.switchProvider")(providerItem);
 
       assert.equal(
         subjectAtReload,
@@ -14024,15 +14024,15 @@ test("regression: a stale quota response cannot overwrite a newer selection", as
         assert.ok(alphaItem);
         assert.ok(betaItem);
         const statusItem = mocked.createdStatusBarItems.find(
-          (item) => item.command !== "codex-switchbridge-vscode.reloadWindow",
+          (item) => item.command !== "codex-routesync.reloadWindow",
         );
         assert.ok(statusItem);
 
         controlled = installControlledQuotaHttps();
         staleRefreshPromise = mocked.registeredCommands
-          .get("codex-switchbridge-vscode.refreshQuota")(alphaItem);
+          .get("codex-routesync.refreshQuota")(alphaItem);
         await controlled.requestStarted;
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.useAccount")(betaItem);
+        await mocked.registeredCommands.get("codex-routesync.useAccount")(betaItem);
         assert.match(statusItem.text, /beta/);
 
         controlled.release();
@@ -14138,14 +14138,14 @@ test("regression: provider-mode status bar refreshes the displayed token usage",
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
       const statusItem = mocked.createdStatusBarItems.find(
-        (item) => item.command !== "codex-switchbridge-vscode.reloadWindow",
+        (item) => item.command !== "codex-routesync.reloadWindow",
       );
       assert.ok(statusItem);
       assert.match(statusItem.text, /proxy/i);
       const command = typeof statusItem.command === "string"
         ? statusItem.command
         : statusItem.command?.command;
-      assert.equal(command, "codex-switchbridge-vscode.refreshUsage");
+      assert.equal(command, "codex-routesync.refreshUsage");
     } finally {
       for (const subscription of context.subscriptions.reverse()) {
         subscription?.dispose?.();
@@ -14287,10 +14287,10 @@ test("storage moves reject same-name destinations without changing credentials o
       const cloudBefore = cloudKeys.map((key) => structuredClone(mocked.globalStateValues.get(key)));
       const usageBefore = structuredClone(getLocalTokenUsageState(mocked.globalStateValues)?.remaps ?? {});
 
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.moveAccountToCloud")(accountToCloud);
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.moveAccountToLocal")(accountToLocal);
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.moveProviderToCloud")(providerToCloud);
-      await mocked.registeredCommands.get("codex-switchbridge-vscode.moveProviderToLocal")(providerToLocal);
+      await mocked.registeredCommands.get("codex-routesync.moveAccountToCloud")(accountToCloud);
+      await mocked.registeredCommands.get("codex-routesync.moveAccountToLocal")(accountToLocal);
+      await mocked.registeredCommands.get("codex-routesync.moveProviderToCloud")(providerToCloud);
+      await mocked.registeredCommands.get("codex-routesync.moveProviderToLocal")(providerToLocal);
 
       assert.equal(mocked.errorMessages.length, 4);
       for (const { message } of mocked.errorMessages) assert.match(message, /already exists/i);

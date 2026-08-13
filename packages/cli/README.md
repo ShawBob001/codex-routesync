@@ -1,4 +1,4 @@
-# Codex SwitchBridge CLI
+# Codex RouteSync CLI
 
 **Switch between Codex account mode and Responses-compatible API-provider mode from the terminal without splitting new local conversation history.**
 
@@ -6,7 +6,7 @@ The npm package is `codex-switchbridge-cli`. It installs the `codex-switchbridge
 
 ## Install
 
-Install a tarball from [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases):
+Install a tarball from [GitHub Releases](https://github.com/ShawBob001/codex-routesync/releases):
 
 ```bash
 npm install --global ./codex-switchbridge-cli-0.3.0.tgz
@@ -73,12 +73,12 @@ Use `--auth-dir <path>` or `CODEX_SWITCHBRIDGE_AUTH_DIR` to select a separate sa
 
 ## Project
 
-- [Documentation](https://github.com/ShawBob001/codex-switchbridge#readme)
-- [Releases](https://github.com/ShawBob001/codex-switchbridge/releases)
-- [Issues](https://github.com/ShawBob001/codex-switchbridge/issues)
+- [Documentation](https://github.com/ShawBob001/codex-routesync#readme)
+- [Releases](https://github.com/ShawBob001/codex-routesync/releases)
+- [Issues](https://github.com/ShawBob001/codex-routesync/issues)
 
 ## Provenance and license
 
-Codex SwitchBridge is an independent open-source project derived from [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), with substantial modifications by `ShawBob001`.
+Codex RouteSync is an independent open-source project derived from [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), with substantial modifications by `ShawBob001`.
 
 Released under the MIT License.

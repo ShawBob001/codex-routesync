@@ -316,10 +316,10 @@ function createVscodeMock() {
   };
 }
 
-test("installed legacy extension blocks activation and offers its Extensions search", async (t) => {
+test("installed previous extension blocks activation and offers its Extensions search", async (t) => {
   const mocked = createVscodeMock();
   mocked.installedExtensions.set("baoshichao001-dev.codex-switchbridge", { isActive: false });
-  mocked.setWarningMessageResult(Promise.resolve("Open Legacy Extension"));
+  mocked.setWarningMessageResult(Promise.resolve("Open Previous Extension"));
   const extension = loadExtensionWithMockedVscode(mocked.vscode);
   const context = createExtensionContext(mocked);
 
@@ -336,7 +336,8 @@ test("installed legacy extension blocks activation and offers its Extensions sea
 
   assert.deepEqual(mocked.extensionLookups, ["baoshichao001-dev.codex-switchbridge"]);
   assert.equal(mocked.warningMessages.length, 1);
-  assert.match(mocked.warningMessages[0].message, /legacy/i);
+  assert.match(mocked.warningMessages[0].message, /previous/i);
+  assert.match(mocked.warningMessages[0].message, /Codex RouteSync/);
   assert.match(mocked.warningMessages[0].message, /synced\/cloud accounts and API providers/i);
   assert.match(mocked.warningMessages[0].message, /move.*to Local/i);
   assert.match(mocked.warningMessages[0].message, /disable or uninstall/i);
@@ -346,7 +347,7 @@ test("installed legacy extension blocks activation and offers its Extensions sea
       < mocked.warningMessages[0].message.indexOf("disable or uninstall"),
     "the warning must require local migration before disabling the legacy extension",
   );
-  assert.deepEqual(mocked.warningMessages[0].items, ["Open Legacy Extension"]);
+  assert.deepEqual(mocked.warningMessages[0].items, ["Open Previous Extension"]);
   assert.deepEqual(mocked.executedCommands, [{
     name: "workbench.extensions.search",
     args: ["@id:baoshichao001-dev.codex-switchbridge"],
@@ -376,6 +377,43 @@ test("legacy guard does not wait for warning dismissal", async () => {
 
   assert.equal(mocked.warningMessages.length, 1);
   assert.equal(context.subscriptions.length, 0);
+});
+
+test("installed 0.8.0 replacement identity also blocks RouteSync activation", async (t) => {
+  const mocked = createVscodeMock();
+  mocked.installedExtensions.set("ShawBob001.codex-switchbridge-vscode", { isActive: false });
+  mocked.setWarningMessageResult(Promise.resolve("Open Previous Extension"));
+  const extension = loadExtensionWithMockedVscode(mocked.vscode);
+  const context = createExtensionContext(mocked);
+
+  t.after(() => {
+    for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+    extension.deactivate();
+  });
+
+  await withDisabledIntervals(async () => {
+    await extension.activate(context);
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(mocked.extensionLookups, [
+    "baoshichao001-dev.codex-switchbridge",
+    "ShawBob001.codex-switchbridge-vscode",
+  ]);
+  assert.equal(mocked.warningMessages.length, 1);
+  assert.match(mocked.warningMessages[0].message, /Codex RouteSync/);
+  assert.deepEqual(mocked.warningMessages[0].items, ["Open Previous Extension"]);
+  assert.deepEqual(mocked.executedCommands, [{
+    name: "workbench.extensions.search",
+    args: ["@id:ShawBob001.codex-switchbridge-vscode"],
+  }]);
+  assert.equal(mocked.registeredCommands.size, 0);
+  assert.equal(mocked.createdTreeViews.length, 0);
+  assert.equal(mocked.createdStatusBarItems.length, 0);
+  assert.equal(mocked.createdChannels.length, 0);
+  assert.deepEqual(mocked.secretOperations, []);
+  assert.deepEqual(mocked.globalStateOperations, []);
 });
 
 function makeJwt(payload) {
@@ -563,7 +601,7 @@ test("activate creates a dedicated VS Code log channel and writes startup logs i
 
   assert.equal(mocked.createdChannels.length, 1);
   assert.equal(mocked.createdPanels.length, 0);
-  assert.equal(mocked.createdChannels[0].name, "Codex SwitchBridge");
+  assert.equal(mocked.createdChannels[0].name, "Codex RouteSync");
   assert.deepEqual(mocked.createdChannels[0].options, { log: true });
   assert.ok(mocked.createdChannels[0].entries.length > 0);
   assert.ok(
@@ -593,6 +631,7 @@ test("activate aggregates active auth-writing extensions into one non-blocking w
 
   assert.deepEqual(mocked.extensionLookups, [
     "baoshichao001-dev.codex-switchbridge",
+    "ShawBob001.codex-switchbridge-vscode",
     "wannanbigpig.codex-accounts-manager",
     "techfetch-dev.codex-account-switch-vscode",
   ]);
@@ -650,6 +689,7 @@ test("activate continues conflict detection when one extension lookup throws", a
 
   assert.deepEqual(mocked.extensionLookups, [
     "baoshichao001-dev.codex-switchbridge",
+    "ShawBob001.codex-switchbridge-vscode",
     "wannanbigpig.codex-accounts-manager",
     "techfetch-dev.codex-account-switch-vscode",
   ]);
@@ -677,7 +717,7 @@ test("showLogs command reveals the dedicated VS Code log channel", async () => {
     await extension.activate(context);
   });
 
-  await mocked.registeredCommands.get("codex-switchbridge-vscode.showLogs")();
+  await mocked.registeredCommands.get("codex-routesync.showLogs")();
 
   assert.equal(mocked.createdChannels.length, 1);
   assert.equal(mocked.createdChannels[0].showCount, 1);
@@ -723,7 +763,7 @@ async function withAccountRefreshLoggingScenario(options, runAssertions) {
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshQuota")();
+        await mocked.registeredCommands.get("codex-routesync.refreshQuota")();
 
         await runAssertions(mocked, requestLog);
 

@@ -65,14 +65,14 @@ export class StatusBarManager implements vscode.Disposable {
       vscode.StatusBarAlignment.Right,
       100
     );
-    this.statusBarItem.command = "codex-switchbridge-vscode.refreshQuota";
-    this.statusBarItem.name = "Codex SwitchBridge Quota";
+    this.statusBarItem.command = "codex-routesync.refreshQuota";
+    this.statusBarItem.name = "Codex RouteSync Quota";
     this.reloadStatusBarItem = vscode.window.createStatusBarItem(
       vscode.StatusBarAlignment.Right,
       101,
     );
-    this.reloadStatusBarItem.command = "codex-switchbridge-vscode.reloadWindow";
-    this.reloadStatusBarItem.name = "Codex SwitchBridge Reload Recommendation";
+    this.reloadStatusBarItem.command = "codex-routesync.reloadWindow";
+    this.reloadStatusBarItem.name = "Codex RouteSync Reload Recommendation";
     this.reloadStatusBarItem.text = "$(debug-restart) Reload recommended";
     this.reloadStatusBarItem.tooltip = "Reload this VS Code window so Codex uses the newly selected account or provider.";
     this.updateVisibility();
@@ -180,7 +180,7 @@ export class StatusBarManager implements vscode.Disposable {
       });
 
       if (selection.kind === "provider") {
-        this.statusBarItem.command = "codex-switchbridge-vscode.refreshUsage";
+        this.statusBarItem.command = "codex-routesync.refreshUsage";
         const modeLabel = getModeDisplayName(selection.name);
         const sourceLabel = selection.source === "cloud" ? "cloud" : "local";
         const usage = this.getTrackedUsage("provider", selection.source, selection.name);
@@ -204,7 +204,7 @@ export class StatusBarManager implements vscode.Disposable {
       }
 
       if (selection.kind !== "account") {
-        this.statusBarItem.command = "codex-switchbridge-vscode.switchMode";
+        this.statusBarItem.command = "codex-routesync.switchMode";
         this.statusBarItem.text = "$(account) Codex: No account";
         this.statusBarItem.tooltip = "No active Codex account detected";
         perf.finish({
@@ -214,7 +214,7 @@ export class StatusBarManager implements vscode.Disposable {
       }
 
       const name = selection.name;
-      this.statusBarItem.command = "codex-switchbridge-vscode.refreshQuota";
+      this.statusBarItem.command = "codex-routesync.refreshQuota";
       if (options?.skipQuota) {
         const usage = this.getTrackedUsage("account", selection.source, selection.name);
         const usageLabel = usage == null ? "indexing" : `${formatCompactTokens(usage)} tokens`;
@@ -379,7 +379,7 @@ export class StatusBarManager implements vscode.Disposable {
         error: error instanceof Error ? error.message : String(error),
       });
       if (generation === this.refreshGeneration) {
-        this.statusBarItem.text = "$(warning) Codex SwitchBridge";
+        this.statusBarItem.text = "$(warning) Codex RouteSync";
         this.statusBarItem.tooltip = "Quota lookup failed";
       }
       perf.fail(error);
@@ -400,7 +400,7 @@ export class StatusBarManager implements vscode.Disposable {
     }
     if (selection.kind !== "account") return;
 
-    this.statusBarItem.command = "codex-switchbridge-vscode.refreshQuota";
+    this.statusBarItem.command = "codex-routesync.refreshQuota";
     const usage = this.getTrackedUsage("account", selection.source, selection.name);
     const usageLabel = usage == null ? "indexing" : `${formatCompactTokens(usage)} tokens`;
     if (!this.statusBarItem.text.includes(selection.name)) {

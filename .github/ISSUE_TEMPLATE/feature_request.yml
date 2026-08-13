@@ -1,12 +1,12 @@
 name: Feature request
-description: Propose an improvement to Codex SwitchBridge
+description: Propose an improvement to Codex RouteSync
 title: "[Feature]: "
 labels:
   - enhancement
 body:
   - type: markdown
     attributes:
-      value: Explain the user problem before the proposed interface. This helps evaluate whether the change belongs in SwitchBridge and whether it can preserve credentials and local history safely.
+      value: Explain the user problem before the proposed interface. This helps evaluate whether the change belongs in RouteSync and whether it can preserve credentials and local history safely.
   - type: textarea
     id: problem
     attributes:

@@ -1,6 +1,6 @@
-# Contributing to Codex SwitchBridge
+# Contributing to Codex RouteSync
 
-Thanks for taking the time to improve Codex SwitchBridge. Small, focused changes
+Thanks for taking the time to improve Codex RouteSync. Small, focused changes
 are easier to review and release. For a large behavior change, open a feature
 request first so its compatibility and data-migration impact can be discussed.
 
@@ -9,7 +9,7 @@ request first so its compatibility and data-migration impact can be discussed.
 - Use the bug form for reproducible failures.
 - Use the feature form for a new workflow or behavior.
 - Use the question form when the documentation does not answer a usage question.
-- Use [private vulnerability reporting](https://github.com/ShawBob001/codex-switchbridge/security/advisories/new)
+- Use [private vulnerability reporting](https://github.com/ShawBob001/codex-routesync/security/advisories/new)
   for anything that could expose credentials, conversations, or local files.
 
 Do not put secrets or private conversation content in issues, pull requests,
@@ -22,7 +22,7 @@ You need Node.js 20 or later and npm. Python 3 is required only for the shared-
 history migration tests and repair script.
 
 ```bash
-git clone https://github.com/ShawBob001/codex-switchbridge.git
+git clone https://github.com/ShawBob001/codex-routesync.git
 cd codex-switchbridge
 npm ci
 npm run build

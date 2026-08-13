@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible problem in Codex SwitchBridge
+description: Report a reproducible problem in Codex RouteSync
 title: "[Bug]: "
 labels:
   - bug
@@ -13,7 +13,7 @@ body:
     attributes:
       label: Preflight checks
       options:
-        - label: I reproduced this with the latest stable Codex SwitchBridge release.
+        - label: I reproduced this with the latest stable Codex RouteSync release.
           required: true
         - label: I searched existing issues for the same problem.
           required: true
@@ -24,8 +24,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: SwitchBridge version
-      placeholder: 0.8.0
+      label: RouteSync version
+      placeholder: 0.8.1
     validations:
       required: true
   - type: dropdown

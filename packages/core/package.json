@@ -4,12 +4,12 @@
   "description": "Core auth, provider routing, safe switching, and shared local history for Codex SwitchBridge",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ShawBob001/codex-switchbridge",
+    "url": "https://github.com/ShawBob001/codex-routesync",
     "directory": "packages/core"
   },
-  "homepage": "https://github.com/ShawBob001/codex-switchbridge",
+  "homepage": "https://github.com/ShawBob001/codex-routesync",
   "bugs": {
-    "url": "https://github.com/ShawBob001/codex-switchbridge/issues"
+    "url": "https://github.com/ShawBob001/codex-routesync/issues"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

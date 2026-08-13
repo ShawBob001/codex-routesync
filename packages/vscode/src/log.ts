@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-const OUTPUT_CHANNEL_NAME = "Codex SwitchBridge";
+const OUTPUT_CHANNEL_NAME = "Codex RouteSync";
 const DETAILED_PERFORMANCE_LOGGING_SETTING = "detailedPerformanceLogging";
 
 interface PerformanceTimer {

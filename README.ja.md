@@ -1,38 +1,38 @@
 [English](./README.md) | [简体中文](./README.zh-CN.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [Español](./README.es.md) | [Français](./README.fr.md) | [Deutsch](./README.de.md)
 
-# Codex SwitchBridge
+# Codex RouteSync
 
 **保存済みの Codex アカウントと Responses 互換 API プロバイダーをシームレスに切り替え、どちらのモードでもローカル会話履歴を共有し、選択項目ごとのローカルトークン使用量を確認できます。**
 
-Codex SwitchBridge は、認証情報とプロバイダールーティングを 1 回の保護された切り替え処理で更新します。アカウントモードと互換 API プロバイダーモードは同じローカル履歴領域を使うため、Codex の認証方法を変更しても新しい会話が別々のタイムラインに分かれません。
+Codex RouteSync は、認証情報とプロバイダールーティングを 1 回の保護された切り替え処理で更新します。アカウントモードと互換 API プロバイダーモードは同じローカル履歴領域を使うため、Codex の認証方法を変更しても新しい会話が別々のタイムラインに分かれません。
 
 VS Code 拡張機能は、現在のモード、共有履歴の状態、アカウントクォータのリセット時刻、ローカルトークンの合計使用量を表示するグラフィカルなダッシュボードをエディター領域に開きます。保存済みアカウントと API プロバイダーは 1 つのフラットなルート一覧に並びます。トークン詳細にはソース別ドーナツグラフがあり、オレンジ色の履歴グラフはローカル観測値を日、週、月単位で集計します。ダッシュボードは VS Code の表示言語に追従するほか、英語と簡体字中国語をすぐに切り替えられます。
 
 ## 使用イメージ
 
-アクティビティバーの **Codex SwitchBridge** を開くと、保存済みアカウントと API プロバイダーが同じ階層に並ぶフラットな **Accounts & API Routes** 一覧が表示され、ダッシュボードが自動的に開くか前面に移動します。アカウントや API の管理にはルート一覧を使い、クォータ、リセット時刻、自動切り替え、ローカルトークン履歴の確認には広いダッシュボードを使います。
+アクティビティバーの **Codex RouteSync** を開くと、保存済みアカウントと API プロバイダーが同じ階層に並ぶフラットな **Accounts & API Routes** 一覧が表示され、ダッシュボードが自動的に開くか前面に移動します。アカウントや API の管理にはルート一覧を使い、クォータ、リセット時刻、自動切り替え、ローカルトークン履歴の確認には広いダッシュボードを使います。
 
-![英語のダークテーマで表示した Codex SwitchBridge ダッシュボード](./assets/screenshots/dashboard-en-dark.png)
+![英語のダークテーマで表示した Codex RouteSync ダッシュボード](./assets/screenshots/dashboard-en-dark.png)
 
 同じダッシュボードを簡体字中国語へすぐに切り替えられます。
 
-![簡体字中国語のライトテーマで表示した Codex SwitchBridge ダッシュボード](./assets/screenshots/dashboard-zh-light.png)
+![簡体字中国語のライトテーマで表示した Codex RouteSync ダッシュボード](./assets/screenshots/dashboard-zh-light.png)
 
-Codex SwitchBridge は Windows、macOS、Linux で動作します。VS Code またはコマンドラインから利用できます。
+Codex RouteSync は Windows、macOS、Linux で動作します。VS Code またはコマンドラインから利用できます。
 
-[![GitHub リリース](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
-[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode)
+[![GitHub リリース](https://img.shields.io/github/v/release/ShawBob001/codex-routesync)](https://github.com/ShawBob001/codex-routesync/releases)
+[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-routesync)
 [![ライセンス: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 ## 2 つのモード、1 つのローカル会話履歴
 
 ```text
-Codex アカウントモード  <->  Codex SwitchBridge  <->  Responses API プロバイダーモード
+Codex アカウントモード  <->  Codex RouteSync  <->  Responses API プロバイダーモード
                                |
                        CODEX_HOME 内の共有履歴
 ```
 
-| 機能 | SwitchBridge の動作 |
+| 機能 | RouteSync の動作 |
 | --- | --- |
 | アカウントと API の切り替え | 選択したアカウント認証情報または API プロバイダープロファイルを、対応する Codex 設定と一緒に適用します |
 | 会話履歴の共有 | 1 つの Codex 履歴領域を使い、両方のモードから新しいローカルスレッドを参照できるようにします |
@@ -47,21 +47,21 @@ Codex アカウントモード  <->  Codex SwitchBridge  <->  Responses API プ�
 
 ### VS Code 拡張機能
 
-[Visual Studio Marketplace のページ](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode)から拡張機能をインストールするか、VS Code の拡張機能ビューで `Codex SwitchBridge for VS Code` を検索してください。
+[Visual Studio Marketplace のページ](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-routesync)から拡張機能をインストールするか、VS Code の拡張機能ビューで `Codex RouteSync` を検索してください。
 
-オフラインでインストールする場合は、[GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases) から最新の `.vsix` をダウンロードし、**Extensions: Install from VSIX...** を実行します。ターミナルでは次のコマンドを使えます。VERSION はダウンロードしたファイル名のバージョンに置き換えてください。
+オフラインでインストールする場合は、[GitHub Releases](https://github.com/ShawBob001/codex-routesync/releases) から最新の `.vsix` をダウンロードし、**Extensions: Install from VSIX...** を実行します。ターミナルでは次のコマンドを使えます。VERSION はダウンロードしたファイル名のバージョンに置き換えてください。
 
 ```bash
-code --install-extension codex-switchbridge-vscode-VERSION.vsix
+code --install-extension codex-routesync-VERSION.vsix
 ```
 
 #### 以前の Marketplace 版から移行する
 
-以前の Marketplace 版から SwitchBridge をインストールした場合は、まず以前のインストールを開き、同期またはクラウドにあるすべてのアカウントと API プロバイダーを **Local** に移動します。次に、以前のインストールを無効化またはアンインストールし、**Developer: Reload Window** を実行してから、上記のリンクで置き換え版をインストールし、ストレージパスワードを再入力します。
+以前の Marketplace 版から Codex SwitchBridge をインストールした場合は、まず以前のインストールを開き、同期またはクラウドにあるすべてのアカウントと API プロバイダーを **Local** に移動します。次に、以前のインストールを無効化またはアンインストールし、**Developer: Reload Window** を実行してから、上記のリンクで Codex RouteSync をインストールし、ストレージパスワードを再入力します。
 
 設定済みの `CODEX_HOME` にあるアカウント、API プロバイダー、設定ファイル、バックアップ、共有履歴は引き続き利用でき、既存の `codex-switchbridge.*` 設定もそのまま有効です。2 つの版は拡張機能 ID が異なるため、以前のインストールの `globalState`、`SecretStorage`、保存済みのルート別使用量割り当ては自動的に移行されません。
 
-アクティビティバーの **Codex SwitchBridge** ビューを開きます。フラットな **Accounts & API Routes** 一覧では、保存済みアカウントと API プロバイダーがサイドバーの同じディレクトリに並びます。ダッシュボードは中央のエディター領域で自動的に開くか前面に戻ります。タイトルバーの **Open Dashboard** アクションも予備の入口として利用できます。
+アクティビティバーの **Codex RouteSync** ビューを開きます。フラットな **Accounts & API Routes** 一覧では、保存済みアカウントと API プロバイダーがサイドバーの同じディレクトリに並びます。ダッシュボードは中央のエディター領域で自動的に開くか前面に戻ります。タイトルバーの **Open Dashboard** アクションも予備の入口として利用できます。
 
 ### CLI
 
@@ -80,7 +80,7 @@ npm install --global codex-switchbridge-cli
 
 ## アカウントと API プロバイダーの切り替え
 
-VS Code では **Switch Account** または **Switch API Provider** を使います。SwitchBridge は現在の選択を保存し、`auth.json` と `config.toml` を更新してから、アカウントとプロバイダーのビューを更新します。
+VS Code では **Switch Account** または **Switch API Provider** を使います。RouteSync は現在の選択を保存し、`auth.json` と `config.toml` を更新してから、アカウントとプロバイダーのビューを更新します。
 
 CLI から操作する場合:
 
@@ -118,29 +118,29 @@ VS Code ダッシュボードは、現在の `CODEX_HOME` にあるローカル 
 - 選択範囲の合計、平均、ピーク、推定使用量
 - インデックスの対象範囲、セッション数、追跡開始時刻、最終更新時刻
 
-リセット時計はクォータサービスが返す絶対タイムスタンプを優先します。相対カウントダウンしかない場合、SwitchBridge は問い合わせ時に対応するタイムスタンプを算出します。欠落、不正、または期限を過ぎたリセットメタデータは明示されます。カウントダウンは実時間から再計算されるため、ダッシュボード全体を更新せずに変化します。アカウントクォータの取得と OAuth トークン更新では、最初に `codex-switchbridge.proxy`、次に VS Code の `http.proxy`、最後に拡張機能ホストの `HTTPS_PROXY`、`HTTP_PROXY`、`ALL_PROXY` 環境変数を使います。環境変数の解決では引き続き `NO_PROXY` が尊重されます。専用設定は端末固有で、Settings Sync の対象外です。VS Code は値をローカル設定に保存するため、認証不要のローカルプロキシを使うか、URL に認証情報が含まれる場合は端末設定ファイルを保護してください。
+リセット時計はクォータサービスが返す絶対タイムスタンプを優先します。相対カウントダウンしかない場合、RouteSync は問い合わせ時に対応するタイムスタンプを算出します。欠落、不正、または期限を過ぎたリセットメタデータは明示されます。カウントダウンは実時間から再計算されるため、ダッシュボード全体を更新せずに変化します。アカウントクォータの取得と OAuth トークン更新では、最初に `codex-switchbridge.proxy`、次に VS Code の `http.proxy`、最後に拡張機能ホストの `HTTPS_PROXY`、`HTTP_PROXY`、`ALL_PROXY` 環境変数を使います。環境変数の解決では引き続き `NO_PROXY` が尊重されます。専用設定は端末固有で、Settings Sync の対象外です。VS Code は値をローカル設定に保存するため、認証不要のローカルプロキシを使うか、URL に認証情報が含まれる場合は端末設定ファイルを保護してください。
 
 ダッシュボード上部の言語セレクターでは **Auto**、**English**、**简体中文** を選べます。Auto は VS Code の表示言語に従います。明示的な選択はウィンドウ設定として保存され、VS Code を再読み込みせずに反映されます。
 
-リセット操作は公式の Codex App Server メソッドを使います。同じ保存済みアカウントが有効なままであることを確認してからユーザーに確認を求め、冪等性キーを付けて獲得済みリセットを最大 1 回分だけ使用し、その後クォータを更新します。インストール済みの Codex がリセット消費に対応していない場合、SwitchBridge は代わりに公式 Usage ページを開きます。
+リセット操作は公式の Codex App Server メソッドを使います。同じ保存済みアカウントが有効なままであることを確認してからユーザーに確認を求め、冪等性キーを付けて獲得済みリセットを最大 1 回分だけ使用し、その後クォータを更新します。インストール済みの Codex がリセット消費に対応していない場合、RouteSync は代わりに公式 Usage ページを開きます。
 
 記録済み合計は入力と出力から構成されます。キャッシュ入力は入力に、推論出力は出力にすでに含まれているため、この 2 つを再び加算することはありません。ドーナツグラフには互いに重複しない帰属済みソース合計だけを使うため、キャッシュ入力や推論出力を二重計上しません。
 
-選択項目ごとの帰属は、SwitchBridge がローカル追跡を始めた時点から記録されます。以後、インデックスは Codex がトークン増分を記録した時点で有効だったアカウントまたは API プロバイダーに、その増分を割り当てます。1 つの会話がモード切り替えをまたいだ場合も同様です。以前の共有 `openai` セッションは、特定の保存済み項目へ安全に割り当てられないため、**Earlier or unattributed** に残ります。以前のプロバイダータグ付きセッションは、そのプロバイダー ID が保存済みプロファイル 1 つだけに対応する場合に限り割り当てられます。
+選択項目ごとの帰属は、RouteSync がローカル追跡を始めた時点から記録されます。以後、インデックスは Codex がトークン増分を記録した時点で有効だったアカウントまたは API プロバイダーに、その増分を割り当てます。1 つの会話がモード切り替えをまたいだ場合も同様です。以前の共有 `openai` セッションは、特定の保存済み項目へ安全に割り当てられないため、**Earlier or unattributed** に残ります。以前のプロバイダータグ付きセッションは、そのプロバイダー ID が保存済みプロファイル 1 つだけに対応する場合に限り割り当てられます。
 
-アカウントサービスが返すのは残り割合であり、残りトークンの絶対数ではありません。履歴グラフは端末上のローカルアクティビティカウンターであり、請求、料金、リモート残高を表すものではありません。正確な日時を特定できない過去の索引済みアクティビティは推定として表示され、信頼できる日付がないものはグラフに入りません。API プロバイダープロファイルは、そのプロバイダーに互換クォータ API がある場合を除き、ローカルカウンターだけを表示します。SwitchBridge は rollout の内容をアップロードしません。ローカルインデックスが保存するのはカウンター、タイムスタンプ、ファイル指紋、不透明 ID です。会話本文、パス、アカウントラベル、プロバイダー名、認証情報は保存しません。すぐに再索引するには **Refresh Local Token Usage** を使います。それ以外の場合は通常のバックグラウンドメンテナンス中に更新されます。
+アカウントサービスが返すのは残り割合であり、残りトークンの絶対数ではありません。履歴グラフは端末上のローカルアクティビティカウンターであり、請求、料金、リモート残高を表すものではありません。正確な日時を特定できない過去の索引済みアクティビティは推定として表示され、信頼できる日付がないものはグラフに入りません。API プロバイダープロファイルは、そのプロバイダーに互換クォータ API がある場合を除き、ローカルカウンターだけを表示します。RouteSync は rollout の内容をアップロードしません。ローカルインデックスが保存するのはカウンター、タイムスタンプ、ファイル指紋、不透明 ID です。会話本文、パス、アカウントラベル、プロバイダー名、認証情報は保存しません。すぐに再索引するには **Refresh Local Token Usage** を使います。それ以外の場合は通常のバックグラウンドメンテナンス中に更新されます。
 
 ## 会話履歴が利用可能な状態を保つ仕組み
 
 Codex は通常、ローカルスレッドをモデルプロバイダーごとに分類します。カスタムプロバイダー ID を使うと、ファイルが残っていても、アカウントモードへ戻った際にスレッドが消えたように見えることがあります。
 
-SwitchBridge は新しいスレッドが分離しないようにします。
+RouteSync は新しいスレッドが分離しないようにします。
 
 1. アカウントモードは Codex 組み込みの `openai` プロバイダーを使います。
-2. Responses 互換 API プロバイダーは同じ履歴 ID を維持し、SwitchBridge が API キーとベース URL を適用します。
+2. Responses 互換 API プロバイダーは同じ履歴 ID を維持し、RouteSync が API キーとベース URL を適用します。
 3. 元に戻すと、アカウント認証情報と本来の OpenAI ルートが復元されます。
 
-このため、両方のモードが同じ `CODEX_HOME` にある同じローカル会話履歴を読み取ります。SwitchBridge が同期するのは履歴の索引に使われるルートです。切り替えるたびに会話本文をコピーするわけではありません。
+このため、両方のモードが同じ `CODEX_HOME` にある同じローカル会話履歴を読み取ります。RouteSync が同期するのは履歴の索引に使われるルートです。切り替えるたびに会話本文をコピーするわけではありません。
 
 VS Code 拡張機能と互換 CLI プロバイダー切り替えでは、共有履歴が既定で有効です。VS Code では `codex-switchbridge.shareHistoryAcrossProviders` で制御できます。
 
@@ -149,7 +149,7 @@ VS Code 拡張機能と互換 CLI プロバイダー切り替えでは、共有�
 共有ルーティングを使う前に作られたスレッドには、プロバイダー固有 ID が残っている場合があります。それらを共有ローカル履歴へ移す手順は次のとおりです。
 
 1. 実行中の Codex 出力を停止します。
-2. **Codex SwitchBridge: Repair Shared Conversation History** を実行します。
+2. **Codex RouteSync: Repair Shared Conversation History** を実行します。
 3. 修復が完了したら、ステータスバーの **Reload recommended** アクションを使います。
 
 修復コマンドはバックアップを作成し、プロバイダー ID のフィールドだけを変更して、JSONL と SQLite のレコードを検証します。検査中に rollout が変更された場合は停止します。拡張機能の起動時に履歴が書き換えられることはありません。Python 3 が必要なのはこのメンテナンスコマンドだけです。
@@ -206,13 +206,13 @@ VS Code 拡張機能と互換 CLI プロバイダー切り替えでは、共有�
 
 ローカルアカウントは `auth_{name}.json`、ローカル API プロバイダーは `provider_{name}.json` を使います。VS Code では暗号化された項目を同期拡張機能ストレージに保存することもできます。
 
-切り替えで有効な `auth.json` を上書きする前に、SwitchBridge は切り替え元の最新認証情報を、対応する保存済みアカウントまたはプロバイダーへ書き戻します。その後、1 つのプロセス間ロックの中で認証、プロバイダールーティング、共有履歴ルートの状態を更新します。認証ファイルはアトミックに置き換えられ、切り替えに失敗した場合はスナップショットから復元されます。
+切り替えで有効な `auth.json` を上書きする前に、RouteSync は切り替え元の最新認証情報を、対応する保存済みアカウントまたはプロバイダーへ書き戻します。その後、1 つのプロセス間ロックの中で認証、プロバイダールーティング、共有履歴ルートの状態を更新します。認証ファイルはアトミックに置き換えられ、切り替えに失敗した場合はスナップショットから復元されます。
 
 クォータ参照とローカルトークン索引は読み取り専用です。トークンのローテーション、保存済み認証情報の書き換え、会話ファイルの変更は行いません。トークン保守は別の処理です。
 
-一部の Codex ツールは起動時に認証情報をキャッシュします。SwitchBridge は別の拡張機能プロセスにそのキャッシュを破棄させることができません。そのため、ファイル切り替えが成功した後でも VS Code ウィンドウの再読み込みが必要になる場合があります。既定の動作ではポップアップを何度も表示せず、この推奨をステータスバーに残します。
+一部の Codex ツールは起動時に認証情報をキャッシュします。RouteSync は別の拡張機能プロセスにそのキャッシュを破棄させることができません。そのため、ファイル切り替えが成功した後でも VS Code ウィンドウの再読み込みが必要になる場合があります。既定の動作ではポップアップを何度も表示せず、この推奨をステータスバーに残します。
 
-**Codex Account Switch** と Codex SwitchBridge を同時に実行しないでください。どちらの拡張機能も同じローカル Codex ファイルへ書き込みます。
+**Codex Account Switch** と Codex RouteSync を同時に実行しないでください。どちらの拡張機能も同じローカル Codex ファイルへ書き込みます。
 
 ## 開発
 
@@ -246,6 +246,6 @@ docs/       アーキテクチャ、動作、デプロイに関する文書
 
 ## 来歴とライセンス
 
-Codex SwitchBridge は [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch) から派生した独立オープンソースプロジェクトで、`ShawBob001` による大幅な変更が加えられています。
+Codex RouteSync は [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch) から派生した独立オープンソースプロジェクトで、`ShawBob001` による大幅な変更が加えられています。
 
 [MIT License](./LICENSE) の下で公開されています。上流の著作権表示とライセンス本文は保持されています。

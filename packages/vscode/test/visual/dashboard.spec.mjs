@@ -404,7 +404,7 @@ async function mount(page, model, {
   });
   await page.goto("about:blank");
   if (now) await page.clock.install({ time: new Date(now) });
-  await page.setContent("<!doctype html><html lang='en'><head><title>Codex SwitchBridge</title></head><body><a class='skip-link' href='#app'>Skip to dashboard</a><main id='app' tabindex='-1'></main></body></html>");
+  await page.setContent("<!doctype html><html lang='en'><head><title>Codex RouteSync</title></head><body><a class='skip-link' href='#app'>Skip to dashboard</a><main id='app' tabindex='-1'></main></body></html>");
   await page.evaluate((value) => { window.__initialDashboardState = value; }, persisted);
   await page.evaluate(() => {
     const state = { persisted: window.__initialDashboardState, outbound: [] };
@@ -537,7 +537,7 @@ test("language control switches immediately when the host confirms a new locale"
   expect(focusKeys.every(Boolean)).toBe(true);
   expect(new Set(focusKeys).size).toBe(focusKeys.length);
   await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
-  await expect(page).toHaveTitle("Codex SwitchBridge Dashboard");
+  await expect(page).toHaveTitle("Codex RouteSync Dashboard");
   await page.getByLabel("Dashboard language").selectOption("zh-cn");
   expect(await page.evaluate(() => window.__dashboardHarness.outbound.at(-1))).toMatchObject({
     type: "dashboard.locale.set",
@@ -555,7 +555,7 @@ test("language control switches immediately when the host confirms a new locale"
   await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
   await sendState(page, fixtures.accountReady, 2, localeZh);
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
-  await expect(page).toHaveTitle("Codex SwitchBridge 仪表板");
+  await expect(page).toHaveTitle("Codex RouteSync 仪表板");
   await expect(page.getByRole("button", { name: "刷新", exact: true })).toBeVisible();
   await expect(page.getByText("当前路由", { exact: true })).toBeVisible();
   await expect(page.getByText("共享历史记录", { exact: true })).toBeVisible();
@@ -1043,7 +1043,7 @@ test.beforeAll(async ({ browser }) => {
   expect(fs.existsSync(dashboardScript)).toBe(true);
   expect(fs.existsSync(dashboardCss)).toBe(true);
   const page = await browser.newPage();
-  await page.setContent("<span id='font-check'>SwitchBridge</span>");
+  await page.setContent("<span id='font-check'>RouteSync</span>");
   const textWidth = await page.locator("#font-check").evaluate((node) => node.getBoundingClientRect().width);
   await page.close();
   expect(

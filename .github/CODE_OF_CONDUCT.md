@@ -60,7 +60,7 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported privately through the repository's
-[confidential report form](https://github.com/ShawBob001/codex-switchbridge/security/advisories/new).
+[confidential report form](https://github.com/ShawBob001/codex-routesync/security/advisories/new).
 Start the report title with `Code of Conduct` so it can be separated from product
 security reports. All complaints will be reviewed and investigated promptly and
 fairly.

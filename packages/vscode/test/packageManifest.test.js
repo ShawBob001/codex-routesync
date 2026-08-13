@@ -114,11 +114,11 @@ test("VS Code-owned user-visible contributions use complete English and Chinese 
   );
 });
 
-test("extension identity is Codex SwitchBridge for VS Code 0.8.0", () => {
-  assert.equal(manifest.name, "codex-switchbridge-vscode");
-  assert.equal(manifest.displayName, "Codex SwitchBridge for VS Code");
+test("extension identity is Codex RouteSync 0.8.1", () => {
+  assert.equal(manifest.name, "codex-routesync");
+  assert.equal(manifest.displayName, "Codex RouteSync");
   assert.equal(manifest.publisher, "ShawBob001");
-  assert.equal(manifest.version, "0.8.0");
+  assert.equal(manifest.version, "0.8.1");
   assert.match(manifest.description, /accounts and API providers/i);
   assert.match(manifest.description, /shared local conversation history/i);
   assert.match(manifest.description, /token usage/i);
@@ -127,7 +127,7 @@ test("extension identity is Codex SwitchBridge for VS Code 0.8.0", () => {
   assert.ok(manifest.keywords.includes("responses-api"));
 });
 
-test("workspace release metadata bumps only the root and VS Code package to 0.8.0", () => {
+test("workspace release metadata bumps only the root and VS Code package to 0.8.1", () => {
   const rootManifest = JSON.parse(
     fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf-8"),
   );
@@ -141,8 +141,8 @@ test("workspace release metadata bumps only the root and VS Code package to 0.8.
     fs.readFileSync(path.join(repositoryRoot, "packages", "cli", "package.json"), "utf-8"),
   );
 
-  assert.equal(rootManifest.name, "codex-switchbridge-monorepo");
-  assert.equal(rootManifest.version, "0.8.0");
+  assert.equal(rootManifest.name, "codex-routesync-monorepo");
+  assert.equal(rootManifest.version, "0.8.1");
   assert.equal(lock.name, rootManifest.name);
   assert.equal(lock.version, rootManifest.version);
   assert.equal(lock.packages[""].name, rootManifest.name);
@@ -155,7 +155,7 @@ test("workspace release metadata bumps only the root and VS Code package to 0.8.
   assert.equal(lock.packages["packages/cli"].version, cliManifest.version);
 });
 
-test("S-Bridge brand assets are self-contained and Marketplace-ready", () => {
+test("RouteSync brand assets are self-contained and Marketplace-ready", () => {
   const resources = path.join(__dirname, "..", "resources");
   const colorSvg = fs.readFileSync(
     path.join(resources, "icon-color.svg"),
@@ -200,10 +200,10 @@ test("S-Bridge brand assets are self-contained and Marketplace-ready", () => {
 });
 
 test("activity view contributes one native bilingual routes tree", () => {
-  const views = manifest.contributes.views["codex-switchbridge-vscode"] ?? [];
+  const views = manifest.contributes.views["codex-routesync"] ?? [];
   assert.deepEqual(
     views.map((view) => view.id),
-    ["codexSwitchBridgeVscodeRoutes"],
+    ["codexRouteSyncRoutes"],
   );
 
   const routes = views[0];
@@ -212,17 +212,17 @@ test("activity view contributes one native bilingual routes tree", () => {
   assert.equal(routes.showCollapseAll, true);
 
   const routesTitleCommands = (manifest.contributes.menus["view/title"] ?? [])
-    .filter((item) => item.when === "view == codexSwitchBridgeVscodeRoutes")
+    .filter((item) => item.when === "view == codexRouteSyncRoutes")
     .filter((item) => item.group?.startsWith("navigation@"))
     .sort((left, right) => left.group.localeCompare(right.group))
     .map((item) => item.command);
   assert.deepEqual(
     routesTitleCommands,
     [
-      "codex-switchbridge-vscode.openDashboard",
-      "codex-switchbridge-vscode.refresh",
-      "codex-switchbridge-vscode.addAccount",
-      "codex-switchbridge-vscode.addProvider",
+      "codex-routesync.openDashboard",
+      "codex-routesync.refresh",
+      "codex-routesync.addAccount",
+      "codex-routesync.addProvider",
     ],
   );
 
@@ -233,7 +233,7 @@ test("activity view contributes one native bilingual routes tree", () => {
   });
   assert.doesNotMatch(
     serializedMenus,
-    /codexSwitchBridge(?:Overview|Accounts|Providers)/,
+    /codexRouteSync(?:Overview|Accounts|Providers)/,
   );
 
   const english = readCatalogIfPresent(englishNlsPath);
@@ -242,10 +242,10 @@ test("activity view contributes one native bilingual routes tree", () => {
   assert.equal(chinese["view.routes.name"], "账号与 API 路由");
 
   const openDashboard = commands.find(
-    (command) => command.command === "codex-switchbridge-vscode.openDashboard",
+    (command) => command.command === "codex-routesync.openDashboard",
   );
   assert.equal(openDashboard?.title, "Open Dashboard");
-  assert.equal(openDashboard?.category, "Codex SwitchBridge");
+  assert.equal(openDashboard?.category, "Codex RouteSync");
   assert.equal(openDashboard?.icon, "$(open-preview)");
 });
 
@@ -253,24 +253,24 @@ test("contribution IDs are collision-free while the configuration namespace stay
   const activityContainers = manifest.contributes.viewsContainers.activitybar ?? [];
   assert.deepEqual(
     activityContainers.map((container) => container.id),
-    ["codex-switchbridge-vscode"],
+    ["codex-routesync"],
   );
 
   const commandIds = commands.map((command) => command.command);
   assert.ok(commandIds.length > 0);
-  assert.ok(commandIds.every((command) => command.startsWith("codex-switchbridge-vscode.")));
+  assert.ok(commandIds.every((command) => command.startsWith("codex-routesync.")));
 
   const configurationKeys = Object.keys(manifest.contributes.configuration.properties ?? {});
   assert.ok(configurationKeys.length > 0);
   assert.ok(configurationKeys.every((key) => key.startsWith("codex-switchbridge.")));
-  assert.ok(configurationKeys.every((key) => !key.startsWith("codex-switchbridge-vscode.")));
+  assert.ok(configurationKeys.every((key) => !key.startsWith("codex-routesync.")));
 
   const serializedMenus = JSON.stringify(manifest.contributes.menus ?? {});
   assert.doesNotMatch(serializedMenus, /codex-switchbridge\.(?!vscode\.)/);
-  assert.doesNotMatch(serializedMenus, /codexSwitchBridgeRoutes/);
-  assert.doesNotMatch(serializedMenus, /codexSwitchBridge\.autoSwitchEnabled/);
-  assert.match(serializedMenus, /codexSwitchBridgeVscodeRoutes/);
-  assert.match(serializedMenus, /codexSwitchBridgeVscode\.autoSwitchEnabled/);
+  assert.doesNotMatch(serializedMenus, /codexSwitchBridgeVscodeRoutes/);
+  assert.doesNotMatch(serializedMenus, /codexSwitchBridgeVscode\.autoSwitchEnabled/);
+  assert.match(serializedMenus, /codexRouteSyncRoutes/);
+  assert.match(serializedMenus, /codexRouteSync\.autoSwitchEnabled/);
 });
 
 test("production build includes dashboard browser assets and excludes raw webview sources", () => {
@@ -285,7 +285,7 @@ test("production build includes dashboard browser assets and excludes raw webvie
 
 test("Marketplace README uses stable repository paths for dashboard screenshots", () => {
   const readme = fs.readFileSync(path.join(__dirname, "..", "README.md"), "utf-8");
-  const expectedBase = "https://raw.githubusercontent.com/ShawBob001/codex-switchbridge/main/packages/vscode/images/";
+  const expectedBase = "https://raw.githubusercontent.com/ShawBob001/codex-routesync/main/packages/vscode/images/";
   assert.match(readme, new RegExp(`${expectedBase}dashboard-en-dark\\.png`));
   assert.match(readme, new RegExp(`${expectedBase}dashboard-zh-light\\.png`));
   assert.doesNotMatch(readme, /\]\(images\//);
@@ -332,14 +332,14 @@ test("extension runs in the workspace extension host", () => {
 
 test("extension commands use category for the shared prefix", () => {
   const extensionCommands = commands.filter((command) =>
-    command.command.startsWith("codex-switchbridge-vscode.")
+    command.command.startsWith("codex-routesync.")
   );
 
   assert.ok(extensionCommands.length > 0);
 
   for (const command of extensionCommands) {
-    assert.equal(command.category, "Codex SwitchBridge");
-    assert.match(command.title, /^(?!Codex SwitchBridge: ).+/);
+    assert.equal(command.category, "Codex RouteSync");
+    assert.match(command.title, /^(?!Codex RouteSync: ).+/);
   }
 });
 
@@ -347,19 +347,19 @@ test("account item context actions keep concise titles", () => {
   const byId = new Map(commands.map((command) => [command.command, command]));
 
   assert.equal(
-    byId.get("codex-switchbridge-vscode.reloginAccount")?.title,
+    byId.get("codex-routesync.reloginAccount")?.title,
     "Re-login Account"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.renameAccount")?.title,
+    byId.get("codex-routesync.renameAccount")?.title,
     "Rename Account"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.removeAccount")?.title,
+    byId.get("codex-routesync.removeAccount")?.title,
     "Remove Account"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.refreshToken")?.title,
+    byId.get("codex-routesync.refreshToken")?.title,
     "Refresh Token"
   );
 });
@@ -409,19 +409,19 @@ test("storage password commands are contributed", () => {
   const byId = new Map(commands.map((command) => [command.command, command]));
 
   assert.equal(
-    byId.get("codex-switchbridge-vscode.unlockStorage")?.title,
+    byId.get("codex-routesync.unlockStorage")?.title,
     "Unlock Storage"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.setStoragePassword")?.title,
+    byId.get("codex-routesync.setStoragePassword")?.title,
     "Set Storage Password"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.changeStoragePassword")?.title,
+    byId.get("codex-routesync.changeStoragePassword")?.title,
     "Change Storage Password"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.forgetStoragePassword")?.title,
+    byId.get("codex-routesync.forgetStoragePassword")?.title,
     "Forget Local Storage Password"
   );
 });
@@ -516,7 +516,7 @@ test("shared history is enabled by default for account and provider continuity",
   assert.match(setting?.description ?? "", /Repair Shared Conversation History/i);
 
   const repairCommand = commands.find(
-    (command) => command.command === "codex-switchbridge-vscode.repairSharedHistory"
+    (command) => command.command === "codex-routesync.repairSharedHistory"
   );
   assert.equal(repairCommand?.title, "Repair Shared Conversation History");
 });
@@ -536,39 +536,39 @@ test("storage migration commands are contributed", () => {
   const byId = new Map(commands.map((command) => [command.command, command]));
 
   assert.equal(
-    byId.get("codex-switchbridge-vscode.moveAccountToCloud")?.title,
+    byId.get("codex-routesync.moveAccountToCloud")?.title,
     "Move Account To Cloud"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.restoreCloudAccountPayload")?.title,
+    byId.get("codex-routesync.restoreCloudAccountPayload")?.title,
     "Restore Cloud Payload From Protected Backup"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.moveAccountToLocal")?.title,
+    byId.get("codex-routesync.moveAccountToLocal")?.title,
     "Move Account To Local"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.moveProviderToCloud")?.title,
+    byId.get("codex-routesync.moveProviderToCloud")?.title,
     "Move API Provider To Cloud"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.moveProviderToLocal")?.title,
+    byId.get("codex-routesync.moveProviderToLocal")?.title,
     "Move API Provider To Local"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.removeProvider")?.title,
+    byId.get("codex-routesync.removeProvider")?.title,
     "Remove API Provider"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.enableAutoSwitch")?.title,
+    byId.get("codex-routesync.enableAutoSwitch")?.title,
     "Enable Auto-Switch"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.disableAutoSwitch")?.title,
+    byId.get("codex-routesync.disableAutoSwitch")?.title,
     "Disable Auto-Switch"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.configureAutoSwitch")?.title,
+    byId.get("codex-routesync.configureAutoSwitch")?.title,
     "Auto-Switch Settings"
   );
 });
@@ -578,14 +578,14 @@ test("account inline actions do not include remove", () => {
   const inlineAccountActions = contextMenus.filter(
     (item) =>
       item.when ===
-        "view == codexSwitchBridgeVscodeRoutes && (viewItem == accountLocal || viewItem == accountCloud)" &&
+        "view == codexRouteSyncRoutes && (viewItem == accountLocal || viewItem == accountCloud)" &&
       typeof item.group === "string" &&
       item.group.startsWith("inline@")
   );
 
   assert.deepEqual(
     inlineAccountActions.map((item) => item.command).sort(),
-    ["codex-switchbridge-vscode.useAccount"]
+    ["codex-routesync.useAccount"]
   );
 });
 
@@ -593,7 +593,7 @@ test("refreshable account item context menu exposes refresh actions", () => {
   const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
   const refreshAccountActions = contextMenus.filter((item) =>
     typeof item.when === "string"
-    && item.when.includes("view == codexSwitchBridgeVscodeRoutes")
+    && item.when.includes("view == codexRouteSyncRoutes")
     && item.when.includes("accountLocal")
     && item.when.includes("accountCloud")
     && typeof item.group === "string"
@@ -603,9 +603,9 @@ test("refreshable account item context menu exposes refresh actions", () => {
   assert.deepEqual(
     refreshAccountActions.map((item) => item.command).sort(),
     [
-      "codex-switchbridge-vscode.refreshList",
-      "codex-switchbridge-vscode.refreshQuota",
-      "codex-switchbridge-vscode.refreshToken",
+      "codex-routesync.refreshList",
+      "codex-routesync.refreshQuota",
+      "codex-routesync.refreshToken",
     ]
   );
 });
@@ -615,7 +615,7 @@ test("cloud account context menu exposes refresh token", () => {
   const refreshAccountActions = contextMenus.filter(
     (item) =>
       item.when ===
-        "view == codexSwitchBridgeVscodeRoutes && (viewItem == accountLocal || viewItem == accountCloud)" &&
+        "view == codexRouteSyncRoutes && (viewItem == accountLocal || viewItem == accountCloud)" &&
       typeof item.group === "string" &&
       item.group.startsWith("refresh@")
   );
@@ -623,9 +623,9 @@ test("cloud account context menu exposes refresh token", () => {
   assert.deepEqual(
     refreshAccountActions.map((item) => item.command).sort(),
     [
-      "codex-switchbridge-vscode.refreshList",
-      "codex-switchbridge-vscode.refreshQuota",
-      "codex-switchbridge-vscode.refreshToken",
+      "codex-routesync.refreshList",
+      "codex-routesync.refreshQuota",
+      "codex-routesync.refreshToken",
     ]
   );
 });
@@ -634,8 +634,8 @@ test("cloud account context menu exposes move account to local", () => {
   const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
   const moveAccountToLocal = contextMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.moveAccountToLocal"
-      && item.when === "view == codexSwitchBridgeVscodeRoutes && viewItem == accountCloud"
+      item.command === "codex-routesync.moveAccountToLocal"
+      && item.when === "view == codexRouteSyncRoutes && viewItem == accountCloud"
   );
 
   assert.equal(moveAccountToLocal?.group, "context@4");
@@ -645,14 +645,14 @@ test("recoverable cloud account context menu exposes explicit restore", () => {
   const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
   const restore = contextMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.restoreCloudAccountPayload"
-      && item.when === "view == codexSwitchBridgeVscodeRoutes && viewItem == accountCloudRecoverable"
+      item.command === "codex-routesync.restoreCloudAccountPayload"
+      && item.when === "view == codexRouteSyncRoutes && viewItem == accountCloudRecoverable"
   );
   const remove = contextMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.removeAccount"
+      item.command === "codex-routesync.removeAccount"
       && item.when ===
-        "view == codexSwitchBridgeVscodeRoutes && (viewItem == accountLocal || viewItem == accountCloud || viewItem == accountCloudRecoverable)"
+        "view == codexRouteSyncRoutes && (viewItem == accountLocal || viewItem == accountCloud || viewItem == accountCloudRecoverable)"
   );
 
   assert.equal(restore?.group, "context@1");
@@ -663,15 +663,15 @@ test("flat routes tree does not contribute unreachable account group actions", (
   const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
   const localGroupRefresh = contextMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.refreshQuota"
+      item.command === "codex-routesync.refreshQuota"
       && item.when ===
-        "view == codexSwitchBridgeVscodeRoutes && viewItem == accountGroupLocal"
+        "view == codexRouteSyncRoutes && viewItem == accountGroupLocal"
   );
   const cloudGroupRefresh = contextMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.refreshQuota"
+      item.command === "codex-routesync.refreshQuota"
       && item.when ===
-        "view == codexSwitchBridgeVscodeRoutes && viewItem == accountGroupCloud"
+        "view == codexRouteSyncRoutes && viewItem == accountGroupCloud"
   );
 
   assert.equal(localGroupRefresh, undefined);
@@ -682,9 +682,9 @@ test("provider context menu exposes remove for local and cloud providers", () =>
   const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
   const removeProvider = contextMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.removeProvider" &&
+      item.command === "codex-routesync.removeProvider" &&
       item.when ===
-        "view == codexSwitchBridgeVscodeRoutes && (viewItem == providerLocal || viewItem == providerCloud)"
+        "view == codexRouteSyncRoutes && (viewItem == providerLocal || viewItem == providerCloud)"
   );
 
   assert.equal(removeProvider?.group, "context@3");
@@ -695,13 +695,13 @@ test("provider context menu exposes switch provider inline action", () => {
   const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
   const switchProvider = contextMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.switchProvider" &&
+      item.command === "codex-routesync.switchProvider" &&
       item.when ===
-        "view == codexSwitchBridgeVscodeRoutes && (viewItem == providerLocal || viewItem == providerCloud)"
+        "view == codexRouteSyncRoutes && (viewItem == providerLocal || viewItem == providerCloud)"
   );
 
   assert.equal(
-    byId.get("codex-switchbridge-vscode.switchProvider")?.title,
+    byId.get("codex-routesync.switchProvider")?.title,
     "Switch API Provider"
   );
   assert.equal(switchProvider?.group, "inline@1");
@@ -712,11 +712,11 @@ test("routes view title menu exposes add provider without a welcome fragment", (
   const titleMenus = manifest.contributes.menus["view/title"] ?? [];
   const addProvider = titleMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.addProvider" &&
-      item.when === "view == codexSwitchBridgeVscodeRoutes"
+      item.command === "codex-routesync.addProvider" &&
+      item.when === "view == codexRouteSyncRoutes"
   );
   assert.equal(
-    byId.get("codex-switchbridge-vscode.addProvider")?.title,
+    byId.get("codex-routesync.addProvider")?.title,
     "Add API Provider"
   );
   assert.equal(addProvider?.group, "navigation@4");
@@ -726,27 +726,27 @@ test("routes view title menu exposes add provider without a welcome fragment", (
 test("routes view exposes a single primary refresh entrypoint", () => {
   const titleMenus = manifest.contributes.menus["view/title"] ?? [];
   const accountViewCommands = titleMenus
-    .filter((item) => item.when === "view == codexSwitchBridgeVscodeRoutes")
+    .filter((item) => item.when === "view == codexRouteSyncRoutes")
     .filter((item) => item.group?.startsWith("navigation@"))
     .map((item) => item.command);
 
   const manualRefreshCommands = [
-    "codex-switchbridge-vscode.refresh",
-    "codex-switchbridge-vscode.refreshList",
-    "codex-switchbridge-vscode.refreshQuota",
-    "codex-switchbridge-vscode.refreshToken",
+    "codex-routesync.refresh",
+    "codex-routesync.refreshList",
+    "codex-routesync.refreshQuota",
+    "codex-routesync.refreshToken",
   ];
   const present = manualRefreshCommands.filter((command) =>
     accountViewCommands.includes(command)
   );
 
-  assert.deepEqual(present, ["codex-switchbridge-vscode.refresh"]);
+  assert.deepEqual(present, ["codex-routesync.refresh"]);
 });
 
 test("routes view keeps four primary actions in navigation and moves low-frequency actions to overflow", () => {
   const titleMenus = manifest.contributes.menus["view/title"] ?? [];
   const routeTitleItems = titleMenus.filter(
-    (item) => item.when?.startsWith("view == codexSwitchBridgeVscodeRoutes"),
+    (item) => item.when?.startsWith("view == codexRouteSyncRoutes"),
   );
   const primary = routeTitleItems
     .filter((item) => item.group?.startsWith("navigation@"))
@@ -755,21 +755,21 @@ test("routes view keeps four primary actions in navigation and moves low-frequen
   assert.deepEqual(
     primary.map((item) => item.command),
     [
-      "codex-switchbridge-vscode.openDashboard",
-      "codex-switchbridge-vscode.refresh",
-      "codex-switchbridge-vscode.addAccount",
-      "codex-switchbridge-vscode.addProvider",
+      "codex-routesync.openDashboard",
+      "codex-routesync.refresh",
+      "codex-routesync.addAccount",
+      "codex-routesync.addProvider",
     ]
   );
   const overflowCommands = routeTitleItems
     .filter((item) => !item.group?.startsWith("navigation@"))
     .map((item) => item.command);
   for (const command of [
-    "codex-switchbridge-vscode.expandAllAccounts",
-    "codex-switchbridge-vscode.importAccounts",
-    "codex-switchbridge-vscode.reloadWindow",
-    "codex-switchbridge-vscode.refreshList",
-    "codex-switchbridge-vscode.repairSharedHistory",
+    "codex-routesync.expandAllAccounts",
+    "codex-routesync.importAccounts",
+    "codex-routesync.reloadWindow",
+    "codex-routesync.refreshList",
+    "codex-routesync.repairSharedHistory",
   ]) assert.ok(overflowCommands.includes(command));
 });
 
@@ -777,25 +777,25 @@ test("accounts view title menu hides switch mode and auto-switch settings", () =
   const titleMenus = manifest.contributes.menus["view/title"] ?? [];
   const enabledItem = titleMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.enableAutoSwitch" &&
+      item.command === "codex-routesync.enableAutoSwitch" &&
       item.when ===
-        "view == codexSwitchBridgeVscodeRoutes && !codexSwitchBridgeVscode.autoSwitchEnabled"
+        "view == codexRouteSyncRoutes && !codexRouteSync.autoSwitchEnabled"
   );
   const disabledItem = titleMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.disableAutoSwitch" &&
+      item.command === "codex-routesync.disableAutoSwitch" &&
       item.when ===
-        "view == codexSwitchBridgeVscodeRoutes && codexSwitchBridgeVscode.autoSwitchEnabled"
+        "view == codexRouteSyncRoutes && codexRouteSync.autoSwitchEnabled"
   );
   const settingsItem = titleMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.configureAutoSwitch" &&
-      item.when === "view == codexSwitchBridgeVscodeRoutes"
+      item.command === "codex-routesync.configureAutoSwitch" &&
+      item.when === "view == codexRouteSyncRoutes"
   );
   const switchModeItem = titleMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.switchMode" &&
-      item.when === "view == codexSwitchBridgeVscodeRoutes"
+      item.command === "codex-routesync.switchMode" &&
+      item.when === "view == codexRouteSyncRoutes"
   );
 
   assert.equal(enabledItem?.group, "2_switching@1");
@@ -808,8 +808,8 @@ test("routes view hides switch mode title and has no welcome fragments", () => {
   const titleMenus = manifest.contributes.menus["view/title"] ?? [];
   const providerSwitchModeItem = titleMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.switchMode" &&
-      item.when === "view == codexSwitchBridgeVscodeRoutes"
+      item.command === "codex-routesync.switchMode" &&
+      item.when === "view == codexRouteSyncRoutes"
   );
   assert.equal(providerSwitchModeItem, undefined);
   assert.equal(manifest.contributes.viewsWelcome, undefined);
@@ -819,9 +819,9 @@ test("locked cloud accounts expose unlock in the context menu", () => {
   const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
   const unlockMenuItem = contextMenus.find(
     (item) =>
-      item.command === "codex-switchbridge-vscode.unlockStorage" &&
+      item.command === "codex-routesync.unlockStorage" &&
       item.when ===
-        "view == codexSwitchBridgeVscodeRoutes && viewItem == accountCloudLocked"
+        "view == codexRouteSyncRoutes && viewItem == accountCloudLocked"
   );
 
   assert.equal(unlockMenuItem?.group, "context@1");
@@ -832,15 +832,15 @@ test("account email copy command is contributed", () => {
   const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
 
   assert.equal(
-    byId.get("codex-switchbridge-vscode.copyAccountField")?.title,
+    byId.get("codex-routesync.copyAccountField")?.title,
     "Copy Account Value"
   );
   assert.equal(
     contextMenus.find(
       (item) =>
-        item.command === "codex-switchbridge-vscode.copyAccountField" &&
+        item.command === "codex-routesync.copyAccountField" &&
         item.when ===
-          "view == codexSwitchBridgeVscodeRoutes && viewItem == accountCopyableField"
+          "view == codexRouteSyncRoutes && viewItem == accountCopyableField"
     )?.group,
     "context@1"
   );
