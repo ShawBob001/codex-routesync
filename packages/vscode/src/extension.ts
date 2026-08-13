@@ -55,7 +55,7 @@ function legacyExtensionBlocksActivation(): boolean {
   }
 
   void vscode.window.showWarningMessage(
-    "The legacy Codex SwitchBridge extension is still installed. Disable or uninstall it, then reload VS Code before using this replacement extension.",
+    "The legacy Codex SwitchBridge extension is still installed. First use it to Move all synced/cloud accounts and API providers to Local. Then disable or uninstall it, reload VS Code, and open this replacement extension. You will need to enter the storage password again.",
     OPEN_LEGACY_EXTENSION_ACTION,
   ).then((selected) => {
     if (selected === OPEN_LEGACY_EXTENSION_ACTION) {

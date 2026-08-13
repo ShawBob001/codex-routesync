@@ -337,8 +337,15 @@ test("installed legacy extension blocks activation and offers its Extensions sea
   assert.deepEqual(mocked.extensionLookups, ["baoshichao001-dev.codex-switchbridge"]);
   assert.equal(mocked.warningMessages.length, 1);
   assert.match(mocked.warningMessages[0].message, /legacy/i);
+  assert.match(mocked.warningMessages[0].message, /synced\/cloud accounts and API providers/i);
+  assert.match(mocked.warningMessages[0].message, /move.*to Local/i);
   assert.match(mocked.warningMessages[0].message, /disable or uninstall/i);
   assert.match(mocked.warningMessages[0].message, /reload/i);
+  assert.ok(
+    mocked.warningMessages[0].message.indexOf("Move")
+      < mocked.warningMessages[0].message.indexOf("disable or uninstall"),
+    "the warning must require local migration before disabling the legacy extension",
+  );
   assert.deepEqual(mocked.warningMessages[0].items, ["Open Legacy Extension"]);
   assert.deepEqual(mocked.executedCommands, [{
     name: "workbench.extensions.search",
