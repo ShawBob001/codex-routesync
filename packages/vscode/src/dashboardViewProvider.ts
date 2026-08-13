@@ -72,7 +72,7 @@ implements vscode.Disposable {
 
     const resourceRoot = vscode.Uri.joinPath(this.options.extensionUri, "dist", "webview");
     const panel = vscode.window.createWebviewPanel(
-      "codexSwitchBridge.dashboard",
+      "codexSwitchBridgeVscode.dashboard",
       "Codex SwitchBridge",
       vscode.ViewColumn.Active,
       {

@@ -475,7 +475,7 @@ export class RefreshCoordinator implements vscode.Disposable {
         return;
       }
 
-      void vscode.commands.executeCommand("codex-switchbridge.maybeAutoSwitchExhaustedAccount", {
+      void vscode.commands.executeCommand("codex-switchbridge-vscode.maybeAutoSwitchExhaustedAccount", {
         exhaustedAccountId: currentSelectionAccount.id,
         exhaustedAccountName: currentSelectionAccount.name,
         refreshId,

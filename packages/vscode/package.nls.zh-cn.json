@@ -1,5 +1,5 @@
 {
-  "extension.displayName": "Codex SwitchBridge",
+  "extension.displayName": "Codex SwitchBridge for VS Code",
   "extension.description": "在 Codex 账号与 API 提供商之间切换，共享本地对话历史，并分别统计本地令牌用量",
   "viewContainer.title": "Codex SwitchBridge",
   "view.routes.name": "账号与 API 路由",

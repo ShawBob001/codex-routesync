@@ -42,10 +42,31 @@ import {
 } from "./rateLimitReset";
 
 const LOG_PREFIX = "[codex-switchbridge:vscode:extension]";
+const LEGACY_EXTENSION_ID = "baoshichao001-dev.codex-switchbridge";
+const OPEN_LEGACY_EXTENSION_ACTION = "Open Legacy Extension";
 const CONFLICTING_EXTENSION_IDS = [
   "wannanbigpig.codex-accounts-manager",
   "techfetch-dev.codex-account-switch-vscode",
 ] as const;
+
+function legacyExtensionBlocksActivation(): boolean {
+  if (!vscode.extensions.getExtension(LEGACY_EXTENSION_ID)) {
+    return false;
+  }
+
+  void vscode.window.showWarningMessage(
+    "The legacy Codex SwitchBridge extension is still installed. Disable or uninstall it, then reload VS Code before using this replacement extension.",
+    OPEN_LEGACY_EXTENSION_ACTION,
+  ).then((selected) => {
+    if (selected === OPEN_LEGACY_EXTENSION_ACTION) {
+      void vscode.commands.executeCommand(
+        "workbench.extensions.search",
+        `@id:${LEGACY_EXTENSION_ID}`,
+      );
+    }
+  });
+  return true;
+}
 
 function warnAboutConflictingExtensions(): void {
   const activeExtensionIds: string[] = [];
@@ -125,6 +146,10 @@ function dashboardNeedsQuotaRefresh(model: DashboardModel): boolean {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+  if (legacyExtensionBlocksActivation()) {
+    return;
+  }
+
   initializeLogging();
   logInfo(LOG_PREFIX, "activate-start", {});
   warnAboutConflictingExtensions();
@@ -211,14 +236,14 @@ export async function activate(context: vscode.ExtensionContext) {
       ...listSavedProviders().map((provider) => provider.id),
     ],
     handlers: {
-      refreshDashboard: () => vscode.commands.executeCommand("codex-switchbridge.refreshDashboard"),
-      switchMode: () => vscode.commands.executeCommand("codex-switchbridge.switchMode"),
+      refreshDashboard: () => vscode.commands.executeCommand("codex-switchbridge-vscode.refreshDashboard"),
+      switchMode: () => vscode.commands.executeCommand("codex-switchbridge-vscode.switchMode"),
       setAutoSwitch: (enabled) => vscode.commands.executeCommand(
-        enabled ? "codex-switchbridge.enableAutoSwitch" : "codex-switchbridge.disableAutoSwitch",
+        enabled ? "codex-switchbridge-vscode.enableAutoSwitch" : "codex-switchbridge-vscode.disableAutoSwitch",
       ),
-      configureAutoSwitch: () => vscode.commands.executeCommand("codex-switchbridge.configureAutoSwitch"),
-      addAccount: () => vscode.commands.executeCommand("codex-switchbridge.addAccount"),
-      addProvider: () => vscode.commands.executeCommand("codex-switchbridge.addProvider"),
+      configureAutoSwitch: () => vscode.commands.executeCommand("codex-switchbridge-vscode.configureAutoSwitch"),
+      addAccount: () => vscode.commands.executeCommand("codex-switchbridge-vscode.addAccount"),
+      addProvider: () => vscode.commands.executeCommand("codex-switchbridge-vscode.addProvider"),
       useRateLimitReset: async () => {
         const localize = (key: Parameters<typeof translate>[1], args: Record<string, string | number> = {}) => {
           const preference = getDashboardLanguagePreference();
@@ -326,7 +351,7 @@ export async function activate(context: vscode.ExtensionContext) {
             await vscode.window.showErrorMessage(localize("quota.resetCredits.failed"));
             return;
           }
-          await vscode.commands.executeCommand("codex-switchbridge.refreshDashboard");
+          await vscode.commands.executeCommand("codex-switchbridge-vscode.refreshDashboard");
           const outcomeKey = `quota.resetCredits.outcome.${result.outcome}` as Parameters<typeof translate>[1];
           const message = localize(outcomeKey, { account: account.name });
           if (result.outcome === "reset" || result.outcome === "alreadyRedeemed") {
@@ -341,10 +366,10 @@ export async function activate(context: vscode.ExtensionContext) {
       },
       reloginAccount: (targetId) => {
         const account = createSavedEntriesSnapshot().byId.get(targetId);
-        if (account) return vscode.commands.executeCommand("codex-switchbridge.reloginAccount", { account });
+        if (account) return vscode.commands.executeCommand("codex-switchbridge-vscode.reloginAccount", { account });
       },
-      unlockStorage: (_targetId) => vscode.commands.executeCommand("codex-switchbridge.unlockStorage"),
-      reloadWindow: () => vscode.commands.executeCommand("codex-switchbridge.reloadWindow"),
+      unlockStorage: (_targetId) => vscode.commands.executeCommand("codex-switchbridge-vscode.unlockStorage"),
+      reloadWindow: () => vscode.commands.executeCommand("codex-switchbridge-vscode.reloadWindow"),
     },
     onActionError: (action) => logInfo(LOG_PREFIX, "dashboard-action-failed", { action }),
     onLocaleError: () => logInfo(LOG_PREFIX, "dashboard-locale-update-failed", {}),
@@ -359,7 +384,7 @@ export async function activate(context: vscode.ExtensionContext) {
     providerTree,
     () => resolveDashboardLocale(getDashboardLanguagePreference(), vscode.env.language),
   );
-  const routesTreeView = vscode.window.createTreeView<RoutesTreeNode>("codexSwitchBridgeRoutes", {
+  const routesTreeView = vscode.window.createTreeView<RoutesTreeNode>("codexSwitchBridgeVscodeRoutes", {
     treeDataProvider: routesTree,
     showCollapseAll: true,
   });

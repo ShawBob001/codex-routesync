@@ -20,6 +20,11 @@ function createVscodeMock() {
   const configurationListeners = new Set();
   const createdChannels = [];
   const createdPanels = [];
+  const createdTreeViews = [];
+  const createdStatusBarItems = [];
+  const executedCommands = [];
+  const secretOperations = [];
+  const globalStateOperations = [];
   const extensionLookups = [];
   const extensionLookupErrors = new Map();
   const installedExtensions = new Map();
@@ -112,18 +117,21 @@ function createVscodeMock() {
         createdPanels.push({});
         assert.fail("activation must not create the dashboard panel");
       },
-      createTreeView() {
-        return {
+      createTreeView(id) {
+        const treeView = {
           ...createDisposable(),
+          id,
           visible: false,
           onDidChangeVisibility() {
             return createDisposable();
           },
           reveal: async () => {},
         };
+        createdTreeViews.push(treeView);
+        return treeView;
       },
       createStatusBarItem() {
-        return {
+        const item = {
           show() {},
           hide() {},
           dispose() {},
@@ -132,6 +140,8 @@ function createVscodeMock() {
           command: undefined,
           name: "",
         };
+        createdStatusBarItems.push(item);
+        return item;
       },
       createOutputChannel(name, options) {
         const entries = [];
@@ -225,6 +235,7 @@ function createVscodeMock() {
         return createDisposable(() => registeredCommands.delete(name));
       },
       async executeCommand(name, ...args) {
+        executedCommands.push({ name, args });
         const command = registeredCommands.get(name);
         return command ? command(...args) : undefined;
       },
@@ -257,6 +268,12 @@ function createVscodeMock() {
     registeredCommands,
     createdChannels,
     createdPanels,
+    createdTreeViews,
+    createdStatusBarItems,
+    executedCommands,
+    configurationListeners,
+    secretOperations,
+    globalStateOperations,
     extensionLookups,
     extensionLookupErrors,
     installedExtensions,
@@ -267,20 +284,28 @@ function createVscodeMock() {
     config,
     globalStoragePath,
     secrets: {
-      async get() {
+      async get(key) {
+        secretOperations.push({ operation: "get", key });
         return undefined;
       },
-      async store() {},
-      async delete() {},
+      async store(key, value) {
+        secretOperations.push({ operation: "store", key, value });
+      },
+      async delete(key) {
+        secretOperations.push({ operation: "delete", key });
+      },
     },
     globalState: {
       get(key) {
+        globalStateOperations.push({ operation: "get", key });
         return globalStateValues.get(key);
       },
       setKeysForSync(keys) {
+        globalStateOperations.push({ operation: "setKeysForSync", keys: [...keys] });
         this.syncedKeys = [...keys];
       },
       async update(key, value) {
+        globalStateOperations.push({ operation: "update", key, value });
         if (value === undefined) {
           globalStateValues.delete(key);
         } else {
@@ -290,6 +315,61 @@ function createVscodeMock() {
     },
   };
 }
+
+test("installed legacy extension blocks activation and offers its Extensions search", async (t) => {
+  const mocked = createVscodeMock();
+  mocked.installedExtensions.set("baoshichao001-dev.codex-switchbridge", { isActive: false });
+  mocked.setWarningMessageResult(Promise.resolve("Open Legacy Extension"));
+  const extension = loadExtensionWithMockedVscode(mocked.vscode);
+  const context = createExtensionContext(mocked);
+
+  t.after(() => {
+    for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+    extension.deactivate();
+  });
+
+  await withDisabledIntervals(async () => {
+    await extension.activate(context);
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(mocked.extensionLookups, ["baoshichao001-dev.codex-switchbridge"]);
+  assert.equal(mocked.warningMessages.length, 1);
+  assert.match(mocked.warningMessages[0].message, /legacy/i);
+  assert.match(mocked.warningMessages[0].message, /disable or uninstall/i);
+  assert.match(mocked.warningMessages[0].message, /reload/i);
+  assert.deepEqual(mocked.warningMessages[0].items, ["Open Legacy Extension"]);
+  assert.deepEqual(mocked.executedCommands, [{
+    name: "workbench.extensions.search",
+    args: ["@id:baoshichao001-dev.codex-switchbridge"],
+  }]);
+  assert.equal(mocked.registeredCommands.size, 0);
+  assert.equal(mocked.createdTreeViews.length, 0);
+  assert.equal(mocked.createdStatusBarItems.length, 0);
+  assert.equal(mocked.createdChannels.length, 0);
+  assert.equal(mocked.createdPanels.length, 0);
+  assert.equal(context.subscriptions.length, 0);
+  assert.equal(mocked.configurationListeners.size, 0);
+  assert.deepEqual(mocked.secretOperations, []);
+  assert.deepEqual(mocked.globalStateOperations, []);
+});
+
+test("legacy guard does not wait for warning dismissal", async () => {
+  const mocked = createVscodeMock();
+  mocked.installedExtensions.set("baoshichao001-dev.codex-switchbridge", { isActive: true });
+  mocked.setWarningMessageResult(new Promise(() => {}));
+  const extension = loadExtensionWithMockedVscode(mocked.vscode);
+  const context = createExtensionContext(mocked);
+
+  await Promise.race([
+    extension.activate(context),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("legacy guard waited for warning dismissal")), 250)),
+  ]);
+
+  assert.equal(mocked.warningMessages.length, 1);
+  assert.equal(context.subscriptions.length, 0);
+});
 
 function makeJwt(payload) {
   const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
@@ -505,6 +585,7 @@ test("activate aggregates active auth-writing extensions into one non-blocking w
   });
 
   assert.deepEqual(mocked.extensionLookups, [
+    "baoshichao001-dev.codex-switchbridge",
     "wannanbigpig.codex-accounts-manager",
     "techfetch-dev.codex-account-switch-vscode",
   ]);
@@ -561,6 +642,7 @@ test("activate continues conflict detection when one extension lookup throws", a
   });
 
   assert.deepEqual(mocked.extensionLookups, [
+    "baoshichao001-dev.codex-switchbridge",
     "wannanbigpig.codex-accounts-manager",
     "techfetch-dev.codex-account-switch-vscode",
   ]);
@@ -588,7 +670,7 @@ test("showLogs command reveals the dedicated VS Code log channel", async () => {
     await extension.activate(context);
   });
 
-  await mocked.registeredCommands.get("codex-switchbridge.showLogs")();
+  await mocked.registeredCommands.get("codex-switchbridge-vscode.showLogs")();
 
   assert.equal(mocked.createdChannels.length, 1);
   assert.equal(mocked.createdChannels[0].showCount, 1);
@@ -634,7 +716,7 @@ async function withAccountRefreshLoggingScenario(options, runAssertions) {
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        await mocked.registeredCommands.get("codex-switchbridge.refreshQuota")();
+        await mocked.registeredCommands.get("codex-switchbridge-vscode.refreshQuota")();
 
         await runAssertions(mocked, requestLog);
 
