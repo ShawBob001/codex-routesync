@@ -184,3 +184,29 @@ test("debug core performance logging emits timings for quota and refresh flows",
   core.setDiagnosticLogger(null);
   core.setDiagnosticLogOptions({ detailedPerformanceLogging: false });
 });
+
+test("detailed quota performance logs record hasEmail without exposing the email", async () => {
+  const email = "private@example.test";
+  const lines = captureDiagnosticLogs();
+  core.setDiagnosticLogOptions({ detailedPerformanceLogging: true });
+
+  try {
+    await withMockedHttpsRequest(async () => {
+      const quotaInfo = await core.getQuotaInfo(makeAuthFile("acct-private", { email }));
+      assert.equal(quotaInfo.email, email);
+      assert.equal(quotaInfo.unavailableReason, null);
+    });
+
+    assert.equal(lines.some((entry) => entry.line.includes(email)), false);
+    assert.equal(
+      lines.some(
+        (entry) => entry.line.includes('"stage":"decode-id-token"')
+          && entry.line.includes('"hasEmail":true'),
+      ),
+      true,
+    );
+  } finally {
+    core.setDiagnosticLogger(null);
+    core.setDiagnosticLogOptions({ detailedPerformanceLogging: false });
+  }
+});

@@ -20,7 +20,11 @@ import {
   syncCurrentAuthToSavedAccount,
   writeSavedAuthFile,
 } from "./auth";
-import { applyRefreshResponse, refreshAccessToken } from "./refresh";
+import {
+  applyRefreshResponse,
+  refreshAccessToken,
+  RefreshRequestOptions,
+} from "./refresh";
 import { getQuotaInfo, QuotaPerformanceOptions } from "./quota";
 import { AuthFile, AccountMeta, QuotaInfo, ExportData, CurrentSelection, SharedHistorySwitchOptions } from "./types";
 import { getActiveModelProvider } from "./config";
@@ -67,7 +71,7 @@ export interface SavedAccountPersistContext {
   displayName: string;
 }
 
-export interface SavedAccountOperationOptions {
+export interface SavedAccountOperationOptions extends RefreshRequestOptions {
   syncCurrentAuthBeforeRead?: boolean;
   persistUpdatedAuth?: (context: SavedAccountPersistContext) => void | Promise<void>;
 }
@@ -923,7 +927,9 @@ export async function refreshAccount(name?: string, options: SavedAccountOperati
 
       try {
         const updated = auth;
-        const refreshed = await refreshAccessToken(updated);
+        const refreshed = await refreshAccessToken(updated, {
+          proxyUrl: options.proxyUrl,
+        });
         applyRefreshResponse(updated, refreshed);
         if (options.persistUpdatedAuth) {
           await options.persistUpdatedAuth({

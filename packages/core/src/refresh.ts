@@ -1,9 +1,9 @@
 import * as fs from "fs";
-import * as https from "https";
 import * as querystring from "querystring";
 import { AuthFile } from "./types";
 import { readSavedAuthFileResult, writeAuthFile, writeSavedAuthFile } from "./auth";
 import { createDiagnosticPerformanceTimer } from "./log";
+import { requestHttpsText } from "./httpTransport";
 
 const TOKEN_URL = "https://auth.openai.com/oauth/token";
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -14,6 +14,14 @@ interface RefreshResponse {
   id_token?: string;
   access_token?: string;
   refresh_token?: string;
+}
+
+export interface RefreshRequestOptions {
+  proxyUrl?: string | null;
+}
+
+export interface RefreshAndSaveOptions extends RefreshRequestOptions {
+  saved?: boolean;
 }
 
 export function isReloginRequiredRefreshError(error: unknown): boolean {
@@ -43,61 +51,57 @@ export function applyRefreshResponse(auth: AuthFile, result: RefreshResponse, no
   auth.last_refresh = new Date(now).toISOString();
 }
 
-function postForm(url: string, data: string): Promise<string> {
+async function postForm(
+  url: string,
+  data: string,
+  options: RefreshRequestOptions,
+): Promise<string> {
   const perf = createDiagnosticPerformanceTimer(LOG_PREFIX, "postForm", {
     url,
     contentLength: Buffer.byteLength(data),
   });
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const options = {
-      hostname: parsed.hostname,
-      port: 443,
-      path: parsed.pathname,
+  let response;
+  try {
+    response = await requestHttpsText({
+      url,
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        "Content-Length": Buffer.byteLength(data),
+        "Content-Length": String(Buffer.byteLength(data)),
       },
-    };
+      body: data,
+      timeoutMs: 15_000,
+      proxyUrl: options.proxyUrl,
+    });
+  } catch (error) {
+    perf.fail(error);
+    throw error;
+  }
 
-    const req = https.request(options, (res) => {
-      let body = "";
-      res.on("data", (chunk) => (body += chunk));
-      res.on("end", () => {
-        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-          perf.finish({
-            statusCode: res.statusCode,
-            responseBytes: body.length,
-          });
-          resolve(body);
-        } else {
-          const error = new Error(`HTTP ${res.statusCode}: ${body}`);
-          perf.fail(error, {
-            statusCode: res.statusCode ?? null,
-            responseBytes: body.length,
-          });
-          reject(error);
-        }
-      });
+  if (
+    response.statusCode !== null
+    && response.statusCode >= 200
+    && response.statusCode < 300
+  ) {
+    perf.finish({
+      statusCode: response.statusCode,
+      responseBytes: response.body.length,
     });
+    return response.body;
+  }
 
-    req.on("error", (error) => {
-      perf.fail(error);
-      reject(error);
-    });
-    req.setTimeout(15000, () => {
-      req.destroy();
-      const error = new Error("Request timeout");
-      perf.fail(error);
-      reject(error);
-    });
-    req.write(data);
-    req.end();
+  const error = new Error(`HTTP ${response.statusCode ?? undefined}: ${response.body}`);
+  perf.fail(error, {
+    statusCode: response.statusCode,
+    responseBytes: response.body.length,
   });
+  throw error;
 }
 
-export async function refreshAccessToken(auth: AuthFile): Promise<RefreshResponse> {
+export async function refreshAccessToken(
+  auth: AuthFile,
+  options: RefreshRequestOptions = {},
+): Promise<RefreshResponse> {
   const perf = createDiagnosticPerformanceTimer(LOG_PREFIX, "refreshAccessToken", {
     hasRefreshToken: Boolean(auth.tokens?.refresh_token),
   });
@@ -116,7 +120,7 @@ export async function refreshAccessToken(auth: AuthFile): Promise<RefreshRespons
     });
     perf.mark("serialize-request");
 
-    const raw = await postForm(TOKEN_URL, body);
+    const raw = await postForm(TOKEN_URL, body, options);
     perf.mark("post-form");
 
     const parsed = JSON.parse(raw) as RefreshResponse;
@@ -137,7 +141,10 @@ export async function refreshAccessToken(auth: AuthFile): Promise<RefreshRespons
   }
 }
 
-export async function refreshAndSave(authPath: string, options?: { saved?: boolean }): Promise<AuthFile> {
+export async function refreshAndSave(
+  authPath: string,
+  options: RefreshAndSaveOptions = {},
+): Promise<AuthFile> {
   const auth = options?.saved
     ? (() => {
         const result = readSavedAuthFileResult(authPath);
@@ -147,7 +154,7 @@ export async function refreshAndSave(authPath: string, options?: { saved?: boole
         return result.value;
       })()
     : (JSON.parse(fs.readFileSync(authPath, "utf-8")) as AuthFile);
-  const result = await refreshAccessToken(auth);
+  const result = await refreshAccessToken(auth, { proxyUrl: options.proxyUrl });
   applyRefreshResponse(auth, result);
 
   if (options?.saved) {
