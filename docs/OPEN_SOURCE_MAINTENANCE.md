@@ -57,12 +57,13 @@ data, or misrepresent local usage as billing data will not be accepted.
 
 ## How OpenAI support would be used
 
-The maintainer plans to apply to Codex for Open Source. If selected, OpenAI
-support would be used for repository maintenance rather than redistributed to
-extension users: pull request review, issue triage, security analysis, release
-checks, compatibility-test generation, and maintenance documentation. This
-statement records the intended use of support and does not imply OpenAI
-endorsement or selection.
+The maintainer plans to apply to Codex for Open Source and, as a current student,
+would value OpenAI's support in sustaining this long-term maintenance commitment.
+If selected, that support would be used for repository maintenance rather than
+redistributed to extension users: pull request review, issue triage, security
+analysis, release checks, compatibility-test generation, and maintenance
+documentation. This statement records the intended use of support and does not
+imply OpenAI endorsement or selection.
 
 ## Participate
 
