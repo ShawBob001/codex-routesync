@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import {
   DiagnosticLogLevel,
+  getAccountIdentity,
   getCodexConfigDir,
+  readCurrentAuth,
   setDiagnosticLogger,
   setDiagnosticLogOptions,
   setNamedAuthDir,
@@ -13,7 +15,7 @@ import { RefreshCoordinator } from "./refreshCoordinator";
 import { StatusBarManager } from "./statusBar";
 import { registerCommands } from "./commands";
 import { buildDashboardModel, DashboardModel } from "./dashboardModel";
-import { resolveDashboardLocale, LanguagePreference } from "./dashboardI18n";
+import { resolveDashboardLocale, LanguagePreference, translate } from "./dashboardI18n";
 import { DashboardViewProvider } from "./dashboardViewProvider";
 import { RoutesTreeProvider, RoutesTreeNode } from "./routesTree";
 import { disposeLogging, initializeLogging, logInfo, logWarn, writeRawLog } from "./log";
@@ -28,6 +30,16 @@ import { shareHistoryAcrossProviders } from "./sharedHistory";
 import { UsageService } from "./tokenUsage";
 import { knownUsageSubjects } from "./usageSubjects";
 import { maintainQuotaCache } from "./quotaCache";
+import { resolveQuotaProxy } from "./quotaProxy";
+import {
+  AppServerUnsupportedError,
+  createAppServerEnvironment,
+  getRateLimitResetAction,
+  RateLimitResetError,
+  RateLimitResetRefreshError,
+  resolveBundledCodexExecutable,
+  runRateLimitReset,
+} from "./rateLimitReset";
 
 const LOG_PREFIX = "[codex-switchbridge:vscode:extension]";
 const CONFLICTING_EXTENSION_IDS = [
@@ -140,6 +152,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const providerTree = new ProviderTreeProvider(usageService);
   const statusBarManager = new StatusBarManager(usageService);
   let dashboardView: DashboardViewProvider;
+  let rateLimitResetPending = false;
   const refreshCoordinator = new RefreshCoordinator(
     accountTree,
     quotaStore,
@@ -206,6 +219,126 @@ export async function activate(context: vscode.ExtensionContext) {
       configureAutoSwitch: () => vscode.commands.executeCommand("codex-switchbridge.configureAutoSwitch"),
       addAccount: () => vscode.commands.executeCommand("codex-switchbridge.addAccount"),
       addProvider: () => vscode.commands.executeCommand("codex-switchbridge.addProvider"),
+      useRateLimitReset: async () => {
+        const localize = (key: Parameters<typeof translate>[1], args: Record<string, string | number> = {}) => {
+          const preference = getDashboardLanguagePreference();
+          return translate(resolveDashboardLocale(preference, vscode.env.language), key, args);
+        };
+        const activeAccount = (expectedId?: string) => {
+          const snapshot = createSavedEntriesSnapshot();
+          if (snapshot.selection.kind !== "account") return null;
+          const account = snapshot.accounts.find((entry) => entry.isCurrent) ?? null;
+          if (
+            !account
+            || (expectedId != null && account.id !== expectedId)
+            || account.storageState !== "ready"
+            || !account.auth
+          ) return null;
+          const savedIdentity = getAccountIdentity(account.auth);
+          const liveIdentity = getAccountIdentity(readCurrentAuth());
+          return savedIdentity && liveIdentity === savedIdentity ? account : null;
+        };
+        if (rateLimitResetPending) {
+          await vscode.window.showInformationMessage(localize("quota.resetCredits.pending"));
+          return;
+        }
+        const account = activeAccount();
+        if (!account) {
+          await vscode.window.showWarningMessage(localize("quota.resetCredits.accountChanged"));
+          return;
+        }
+        const quota = quotaStore.get(account.id)?.info?.resetCredits ?? null;
+        const resetAction = getRateLimitResetAction(quota);
+        if (!quota || quota.availableCount <= 0) {
+          await vscode.window.showInformationMessage(localize("quota.resetCredits.noneAvailable"));
+          return;
+        }
+        if (resetAction === "none") {
+          await vscode.window.showInformationMessage(localize("quota.resetCredits.noneApplicable"));
+          return;
+        }
+        const usageUri = vscode.Uri.parse("https://chatgpt.com/codex/settings/usage");
+        if (resetAction === "manage") {
+          await vscode.env.openExternal(usageUri);
+          return;
+        }
+
+        rateLimitResetPending = true;
+        try {
+          const confirmAction = localize("quota.resetCredits.confirmAction");
+          const confirmed = await vscode.window.showWarningMessage(
+            localize("quota.resetCredits.confirm", { account: account.name }),
+            {
+              modal: true,
+              detail: localize("quota.resetCredits.confirmDetail"),
+            },
+            confirmAction,
+          );
+          if (confirmed !== confirmAction) return;
+          if (!activeAccount(account.id)) {
+            await vscode.window.showWarningMessage(localize("quota.resetCredits.accountChanged"));
+            return;
+          }
+          const proxy = resolveQuotaProxy();
+          if (!proxy.valid) {
+            await vscode.window.showErrorMessage(localize("quota.resetCredits.invalidProxy"));
+            return;
+          }
+          const openOfficialUsage = async () => {
+            await vscode.window.showInformationMessage(localize("quota.resetCredits.unsupported"));
+            await vscode.env.openExternal(usageUri);
+          };
+          const openAiExtensionPath = vscode.extensions.getExtension("openai.chatgpt")?.extensionUri.fsPath;
+          const bundledExecutable = openAiExtensionPath
+            ? resolveBundledCodexExecutable({ extensionPath: openAiExtensionPath })
+            : null;
+          if (!bundledExecutable) {
+            await openOfficialUsage();
+            return;
+          }
+          let result;
+          try {
+            result = await runRateLimitReset({
+              executable: bundledExecutable,
+              clientVersion: String(context.extension.packageJSON.version ?? ""),
+              env: createAppServerEnvironment(process.env, proxy.proxyUrl),
+              validateBeforeConsume: () => activeAccount(account.id) != null,
+            });
+          } catch (error) {
+            if (error instanceof AppServerUnsupportedError) {
+              await openOfficialUsage();
+              return;
+            }
+            if (error instanceof RateLimitResetError && error.code === "account_changed") {
+              await vscode.window.showWarningMessage(localize("quota.resetCredits.accountChanged"));
+              return;
+            }
+            if (error instanceof RateLimitResetRefreshError) {
+              const outcomeKey = `quota.resetCredits.outcome.${error.outcome}` as Parameters<typeof translate>[1];
+              const openUsage = localize("quota.resetCredits.openUsage");
+              const selected = await vscode.window.showWarningMessage(
+                `${localize(outcomeKey, { account: account.name })} ${localize("quota.resetCredits.refreshUnconfirmed")}`,
+                openUsage,
+              );
+              if (selected === openUsage) await vscode.env.openExternal(usageUri);
+              return;
+            }
+            await vscode.window.showErrorMessage(localize("quota.resetCredits.failed"));
+            return;
+          }
+          await vscode.commands.executeCommand("codex-switchbridge.refreshDashboard");
+          const outcomeKey = `quota.resetCredits.outcome.${result.outcome}` as Parameters<typeof translate>[1];
+          const message = localize(outcomeKey, { account: account.name });
+          if (result.outcome === "reset" || result.outcome === "alreadyRedeemed") {
+            await vscode.window.showInformationMessage(message);
+          } else {
+            await vscode.window.showWarningMessage(message);
+          }
+        } finally {
+          rateLimitResetPending = false;
+          dashboardView.invalidate();
+        }
+      },
       reloginAccount: (targetId) => {
         const account = createSavedEntriesSnapshot().byId.get(targetId);
         if (account) return vscode.commands.executeCommand("codex-switchbridge.reloginAccount", { account });

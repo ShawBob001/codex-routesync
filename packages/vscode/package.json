@@ -2,7 +2,7 @@
   "name": "codex-switchbridge",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "publisher": "baoshichao001-dev",
   "repository": {
     "type": "git",
@@ -395,16 +395,6 @@
           "command": "codex-switchbridge.copyAccountField",
           "when": "view == codexSwitchBridgeRoutes && viewItem == accountCopyableField",
           "group": "context@1"
-        },
-        {
-          "command": "codex-switchbridge.refreshQuota",
-          "when": "view == codexSwitchBridgeRoutes && viewItem == accountGroupLocal",
-          "group": "refresh@1"
-        },
-        {
-          "command": "codex-switchbridge.refreshQuota",
-          "when": "view == codexSwitchBridgeRoutes && viewItem == accountGroupCloud",
-          "group": "refresh@1"
         },
         {
           "command": "codex-switchbridge.switchProvider",

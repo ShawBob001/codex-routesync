@@ -267,6 +267,13 @@ select {
   font-size: 13px;
 }
 
+.name-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .name-qualifier {
   flex: 0 0 auto;
   color: var(--vscode-descriptionForeground);
@@ -528,6 +535,23 @@ select {
 .reset-credits-label {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.reset-action {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  margin-top: 3px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 9px;
+}
+
+.reset-action-hint {
+  min-width: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .quota-diagnostic {
@@ -1165,6 +1189,75 @@ summary:focus-visible,
   font-size: 11px;
 }
 
+.usage-pie-layout {
+  display: grid;
+  min-width: 0;
+  margin: 10px 0 14px;
+  grid-template-columns: minmax(112px, 150px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.usage-doughnut {
+  position: relative;
+  width: min(100%, 150px);
+  aspect-ratio: 1;
+  justify-self: center;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 50%;
+}
+
+.usage-doughnut::after {
+  position: absolute;
+  inset: 24%;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 50%;
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  content: "";
+}
+
+.usage-doughnut-center {
+  position: absolute;
+  z-index: 1;
+  inset: 25%;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.usage-doughnut-center-value {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-doughnut-center-label {
+  margin-top: 2px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 9px;
+}
+
+.usage-pie-legend {
+  margin-top: 0;
+}
+
+.usage-doughnut-empty {
+  margin: 10px 0 14px;
+  padding: 16px;
+  border: 1px dashed var(--vscode-panel-border);
+  border-radius: 7px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  text-align: center;
+}
+
 .token-metrics {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1412,6 +1505,11 @@ summary:focus-visible,
     gap: 2px;
   }
 
+  .usage-pie-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
   .usage-history-header {
     align-items: flex-start;
     flex-direction: column;
@@ -1458,6 +1556,8 @@ summary:focus-visible,
   .account-row,
   .reset-clock,
   .reset-credits,
+  .usage-doughnut,
+  .usage-doughnut-empty,
   .language-select,
   .quota-bar,
   .usage-bar,

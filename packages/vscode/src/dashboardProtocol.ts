@@ -7,6 +7,7 @@ export type DashboardAction =
   | "configureAutoSwitch"
   | "addAccount"
   | "addProvider"
+  | "useRateLimitReset"
   | "reloginAccount"
   | "unlockStorage"
   | "reloadWindow";
@@ -26,6 +27,7 @@ export type DashboardClientMessage =
   | { type: "dashboard.action"; requestId: string; action: "configureAutoSwitch" }
   | { type: "dashboard.action"; requestId: string; action: "addAccount" }
   | { type: "dashboard.action"; requestId: string; action: "addProvider" }
+  | { type: "dashboard.action"; requestId: string; action: "useRateLimitReset" }
   | { type: "dashboard.action"; requestId: string; action: "reloginAccount"; targetId: string }
   | { type: "dashboard.action"; requestId: string; action: "unlockStorage"; targetId: string }
   | { type: "dashboard.action"; requestId: string; action: "reloadWindow" };
@@ -39,6 +41,7 @@ const ACTIONS = new Set<DashboardAction>([
   "configureAutoSwitch",
   "addAccount",
   "addProvider",
+  "useRateLimitReset",
   "reloginAccount",
   "unlockStorage",
   "reloadWindow",

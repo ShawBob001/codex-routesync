@@ -516,6 +516,11 @@ for (const width of [720, 960, 1200]) {
       getComputedStyle(node).gridTemplateColumns.split(" ").filter(Boolean).length
     ));
     expect(accountColumns).toBeGreaterThanOrEqual(2);
+    if (width === 720) {
+      const nameValue = page.locator(".route-name .name-value");
+      expect(await nameValue.evaluate((node) => getComputedStyle(node).textOverflow)).toBe("ellipsis");
+      expect(await nameValue.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+    }
   });
 }
 
@@ -643,14 +648,69 @@ test("a seven-day-only account shows remaining percent, exact reset time, reset 
   await expect(page.getByText("7 days left", { exact: true })).toBeVisible();
   await expect(page.getByText("Upstream UTC: 2026-08-19T10:00:00.123Z", { exact: true })).toBeVisible();
   await expect(page.getByText("Usage-limit resets applicable now: 2 · total available: 4", { exact: true })).toBeVisible();
+  const useReset = page.getByRole("button", { name: "Use one reset", exact: true });
+  await expect(useReset).toBeEnabled();
+  await useReset.click();
+  expect(await page.evaluate(() => window.__dashboardHarness.outbound.at(-1))).toMatchObject({
+    type: "dashboard.action",
+    action: "useRateLimitReset",
+  });
   await expect(page.getByText("Local recorded consumption: 48,290 tokens", { exact: true })).toBeVisible();
   await expect(page.getByText("Locally recorded token consumption", { exact: true })).toBeVisible();
 
   await sendState(page, weekly, 2, localeZh);
   await expect(page.getByText("7 天剩余", { exact: true })).toBeVisible();
   await expect(page.getByText("当前适用的用量限额重置次数：2 · 总可用次数：4", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "使用一次重置", exact: true })).toBeEnabled();
   await expect(page.getByText("本地记录消耗：48,290 个 token", { exact: true })).toBeVisible();
   await assertLayout(page);
+});
+
+test("reset action is disabled when no reset applies and becomes management when applicability is unknown", async ({ page }) => {
+  const model = baseModel();
+  model.route = {
+    ...model.route,
+    quota: quota("available", 68, {
+      resetCredits: { availableCount: 3, applicableAvailableCount: 0 },
+    }),
+  };
+  await mount(page, model, { width: 960, theme: "dark" });
+  await expect(page.getByRole("button", { name: "Use one reset", exact: true })).toBeDisabled();
+  await expect(page.getByText("No reset can be used for the current limit.", { exact: true })).toBeVisible();
+
+  model.route.quota.resetCredits = { availableCount: 3, applicableAvailableCount: null };
+  await sendState(page, model, 2, localeEn);
+  await expect(page.getByRole("button", { name: "Manage resets", exact: true })).toBeEnabled();
+});
+
+test("token details show an accessible source doughnut, aggregate small sources, and localize the empty state", async ({ page }) => {
+  const model = baseModel();
+  model.usage.segments = Array.from({ length: 7 }, (_, index) => ({
+    id: `account:${index}`,
+    kind: index === 6 ? "provider" : "account",
+    label: `Source ${index + 1}`,
+    sessionCount: index + 1,
+    totalTokens: 7_000 - (index * 700),
+    percent: 0,
+    compactTokens: `${7_000 - (index * 700)}`,
+  }));
+  model.usage.unattributedTokens = 500;
+  model.usage.total = tokens(34_800);
+  model.usage.compactTotal = "34.8K";
+  await mount(page, model, { width: 960, theme: "light" });
+  await page.getByText("Token details", { exact: true }).click();
+
+  const chart = page.locator(".usage-doughnut");
+  await expect(chart).toHaveAttribute("role", "img");
+  await expect(chart).toHaveAttribute("aria-label", /Local token contributions/);
+  await expect(chart.locator(".usage-doughnut-center-value")).toHaveText("34.8K");
+  await expect(page.locator(".usage-pie-legend .legend-row")).toHaveCount(6);
+  await expect(page.locator(".usage-pie-legend .legend-label", { hasText: "Other" })).toBeVisible();
+
+  const empty = structuredClone(fixtures.unknown);
+  await sendState(page, empty, 2, localeZh);
+  await expect(page.locator(".token-details")).toHaveAttribute("open", "");
+  await expect(page.getByText("暂无可绘制的 token 用量。", { exact: true })).toBeVisible();
 });
 
 test("usage history groups by day, week, and month and filters by subject", async ({ page }) => {
@@ -664,6 +724,11 @@ test("usage history groups by day, week, and month and filters by subject", asyn
   await expect(chart).toBeVisible();
   await expect(page.getByRole("button", { name: "Day", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".usage-history-bar")).toHaveCount(30);
+  const bucketFills = await page.locator(".usage-history-item").evaluateAll((items) => items.map((item) => ({
+    tokens: Number(item.dataset.tokenCount),
+    fills: item.querySelectorAll(".usage-bar-fill").length,
+  })));
+  expect(bucketFills.every(({ tokens, fills }) => fills === (tokens > 0 ? 1 : 0))).toBe(true);
   await expect(page.locator("button.usage-history-bar")).toHaveCount(0);
   await expect(page.locator(".usage-history-item").first()).toHaveAttribute("role", "listitem");
   await expect(page.locator(".usage-history-item").first()).toHaveAttribute("aria-label", /All accounts and API providers/);
@@ -946,17 +1011,29 @@ test("unknown, indexing, keyboard focus, stale revisions, and reduced motion", a
 
 test("captures representative visual states", async ({ page }) => {
   fs.mkdirSync(screenshotRoot, { recursive: true });
+  const showcaseAccount = structuredClone(fixtures.accountReady);
+  showcaseAccount.route.quota.resetCredits = { availableCount: 4, applicableAvailableCount: 2 };
   const captures = [
-    ["account-240-dark.png", fixtures.accountReady, 240, "dark", localeEn],
-    ["account-360-light.png", fixtures.accountReady, 360, "light", localeEn],
-    ["provider-360-dark.png", fixtures.provider, 360, "dark", localeEn],
-    ["error-360-high-contrast.png", fixtures.failed, 360, "highContrast", localeEn],
-    ["reload-480-dark.png", fixtures.reload, 480, "dark", localeEn],
-    ["account-1200-dark-en.png", fixtures.accountReady, 1200, "dark", localeEn],
-    ["account-960-light-zh.png", fixtures.accountReady, 960, "light", localeZh],
+    ["account-240-dark.png", fixtures.accountReady, 240, "dark", localeEn, false],
+    ["account-360-light.png", fixtures.accountReady, 360, "light", localeEn, false],
+    ["provider-360-dark.png", fixtures.provider, 360, "dark", localeEn, false],
+    ["error-360-high-contrast.png", fixtures.failed, 360, "highContrast", localeEn, false],
+    ["reload-480-dark.png", fixtures.reload, 480, "dark", localeEn, false],
+    ["account-1200-dark-en.png", showcaseAccount, 1200, "dark", localeEn, true],
+    ["account-960-light-zh.png", showcaseAccount, 960, "light", localeZh, true],
   ];
-  for (const [name, fixture, width, theme, captureLocale] of captures) {
+  for (const [name, fixture, width, theme, captureLocale, expandTokenDetails] of captures) {
     await mount(page, fixture, { width, theme, locale: captureLocale, now: "2026-08-12T10:00:00.000Z" });
+    if (expandTokenDetails) {
+      const details = page.locator(".token-details");
+      await details.locator("summary").click();
+      await expect(details).toHaveAttribute("open", "");
+      await expect(details.locator(".usage-doughnut")).toBeVisible();
+    }
+    await page.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      window.scrollTo(0, 0);
+    });
     await assertLayout(page);
     await page.screenshot({ path: path.join(screenshotRoot, name), fullPage: true });
   }

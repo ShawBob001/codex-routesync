@@ -113,11 +113,11 @@ test("VS Code-owned user-visible contributions use complete English and Chinese 
   );
 });
 
-test("extension identity is Codex SwitchBridge 0.6.1", () => {
+test("extension identity is Codex SwitchBridge 0.7.0", () => {
   assert.equal(manifest.name, "codex-switchbridge");
   assert.equal(manifest.displayName, "Codex SwitchBridge");
   assert.equal(manifest.publisher, "baoshichao001-dev");
-  assert.equal(manifest.version, "0.6.1");
+  assert.equal(manifest.version, "0.7.0");
   assert.match(manifest.description, /accounts and API providers/i);
   assert.match(manifest.description, /shared local conversation history/i);
   assert.match(manifest.description, /token usage/i);
@@ -592,7 +592,7 @@ test("recoverable cloud account context menu exposes explicit restore", () => {
   assert.equal(remove?.group, "context@3");
 });
 
-test("account group context menu exposes refresh quota for local and cloud groups", () => {
+test("flat routes tree does not contribute unreachable account group actions", () => {
   const contextMenus = manifest.contributes.menus["view/item/context"] ?? [];
   const localGroupRefresh = contextMenus.find(
     (item) =>
@@ -607,8 +607,8 @@ test("account group context menu exposes refresh quota for local and cloud group
         "view == codexSwitchBridgeRoutes && viewItem == accountGroupCloud"
   );
 
-  assert.equal(localGroupRefresh?.group, "refresh@1");
-  assert.equal(cloudGroupRefresh?.group, "refresh@1");
+  assert.equal(localGroupRefresh, undefined);
+  assert.equal(cloudGroupRefresh, undefined);
 });
 
 test("provider context menu exposes remove for local and cloud providers", () => {
