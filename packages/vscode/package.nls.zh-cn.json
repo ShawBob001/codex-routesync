@@ -2,6 +2,7 @@
   "extension.displayName": "Codex SwitchBridge",
   "extension.description": "在 Codex 账号与 API 提供商之间切换，共享本地对话历史，并分别统计本地令牌用量",
   "viewContainer.title": "Codex SwitchBridge",
+  "view.routes.name": "账号与 API 路由",
   "view.dashboard.name": "仪表板",
   "view.accounts.name": "账号",
   "view.providers.name": "API 提供商",

@@ -14,7 +14,7 @@ import {
   switchMode,
   validateSavedEntryName,
 } from "@codex-switchbridge/core";
-import { AccountDetailItem, AccountGroupItem, AccountTreeProvider, AccountTreeItem, AccountTreeNode } from "./accountTree";
+import { AccountDetailItem, AccountGroupItem, AccountTreeProvider, AccountTreeItem } from "./accountTree";
 import { getRemainingQuotaPercent, isFiveHourQuotaExhausted, rankAutoSwitchCandidates } from "./autoSwitch";
 import { ProviderDetailItem, ProviderTreeItem, ProviderTreeProvider } from "./providerTree";
 import { QuotaStore } from "./quotaStore";
@@ -65,6 +65,7 @@ import {
 import { stableSubjectId, UsageService, UsageSubjectKind } from "./tokenUsage";
 import { savedEntryUsageSubject } from "./usageSubjects";
 import { createQuotaQueryContext, resolveQuotaProxy, ResolvedQuotaProxy } from "./quotaProxy";
+import { RoutesTreeNode } from "./routesTree";
 const LOG_PREFIX = "[codex-switchbridge:vscode:commands]";
 const AUTO_SWITCH_ENABLED_CONTEXT_KEY = "codexSwitchBridge.autoSwitchEnabled";
 
@@ -1146,7 +1147,7 @@ export function registerCommands(
   quotaStore: QuotaStore,
   providerTree: ProviderTreeProvider,
   statusBar: StatusBarManager,
-  accountTreeView: vscode.TreeView<AccountTreeNode>,
+  accountTreeView: vscode.TreeView<RoutesTreeNode>,
   refreshCoordinator: RefreshCoordinator,
   usageService: UsageService,
   openDashboard: () => void,

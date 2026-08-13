@@ -113,7 +113,14 @@ function createVscodeMock() {
         assert.fail("activation must not create the dashboard panel");
       },
       createTreeView() {
-        return createDisposable();
+        return {
+          ...createDisposable(),
+          visible: false,
+          onDidChangeVisibility() {
+            return createDisposable();
+          },
+          reveal: async () => {},
+        };
       },
       createStatusBarItem() {
         return {

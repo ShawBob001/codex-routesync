@@ -2,6 +2,7 @@
   "extension.displayName": "Codex SwitchBridge",
   "extension.description": "Switch Codex accounts and API providers with shared local conversation history and per-selection local token usage",
   "viewContainer.title": "Codex SwitchBridge",
+  "view.routes.name": "Accounts & API Routes",
   "view.dashboard.name": "Dashboard",
   "view.accounts.name": "Accounts",
   "view.providers.name": "API Providers",

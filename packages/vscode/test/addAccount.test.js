@@ -365,6 +365,49 @@ function getAccountTreeRootItems(treeDataProvider) {
   return treeDataProvider.getChildren();
 }
 
+function getRoutesTree(mocked) {
+  return mocked.treeViews.get("codexSwitchBridgeRoutes").treeDataProvider;
+}
+
+function getRouteGroup(mocked, kind) {
+  return getRoutesTree(mocked).getChildren().find((item) => item.kind === kind);
+}
+
+function getAccountRoots(mocked) {
+  return getRoutesTree(mocked).getChildren(getRouteGroup(mocked, "accounts"));
+}
+
+function getProviderRoots(mocked) {
+  return getRoutesTree(mocked).getChildren(getRouteGroup(mocked, "providers"));
+}
+
+function getRouteBranchTree(mocked, kind) {
+  const routes = getRoutesTree(mocked);
+  const routeGroup = getRouteGroup(mocked, kind);
+  return {
+    getChildren(element) {
+      return element === undefined
+        ? (kind === "accounts" ? getAccountRoots(mocked) : getProviderRoots(mocked))
+        : routes.getChildren(element);
+    },
+    getTreeItem(element) {
+      return routes.getTreeItem(element);
+    },
+    getParent(element) {
+      const parent = routes.getParent(element);
+      return parent === routeGroup ? undefined : parent;
+    },
+  };
+}
+
+function getAccountTreeView(mocked) {
+  return { treeDataProvider: getRouteBranchTree(mocked, "accounts") };
+}
+
+function getProviderTreeView(mocked) {
+  return { treeDataProvider: getRouteBranchTree(mocked, "providers") };
+}
+
 function getAccountTreeItems(treeDataProvider) {
   const items = [];
   const visit = (node) => {
@@ -447,6 +490,7 @@ function createVscodeMock(options) {
   const configurationUpdates = [];
   const configurationListeners = new Set();
   const treeViews = new Map();
+  const treeRevealCalls = [];
   const webviewPanels = [];
   const createdChannels = [];
   const createdStatusBarItems = [];
@@ -653,10 +697,22 @@ function createVscodeMock(options) {
         return panel;
       },
       createTreeView(id, viewOptions) {
-        const treeView = createDisposable();
+        const visibilityEmitter = new EventEmitter();
+        const baseDisposable = createDisposable(() => visibilityEmitter.dispose());
+        const treeView = {
+          ...baseDisposable,
+          visible: options.visibleTreeViewIds?.includes(id) ?? false,
+          onDidChangeVisibility: visibilityEmitter.event,
+          setVisible(visible) {
+            this.visible = visible;
+            visibilityEmitter.fire({ visible });
+          },
+        };
         treeView.id = id;
         treeView.treeDataProvider = viewOptions.treeDataProvider;
-        treeView.reveal = async () => {};
+        treeView.reveal = async (element, revealOptions) => {
+          treeRevealCalls.push({ id, element, options: revealOptions });
+        };
         treeViews.set(id, treeView);
         return treeView;
       },
@@ -837,6 +893,7 @@ function createVscodeMock(options) {
     errorMessages,
     inputBoxCalls,
     treeViews,
+    treeRevealCalls,
     webviewPanels,
     async readyDashboard() {
       await registeredCommands.get("codex-switchbridge.openDashboard")();
@@ -2063,7 +2120,7 @@ test("delayed synced cloud account payload becomes available after refresh", asy
       const context = createExtensionContext(mocked);
       await extension.activate(context);
 
-      const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+      const accountTreeView = getAccountTreeView(mocked);
       let [appleItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
         .filter((item) => item.account.name === "apple1" && item.account.source === "cloud");
 
@@ -2137,7 +2194,7 @@ test("delayed synced cloud provider payload is pending until it becomes availabl
       const context = createExtensionContext(mocked);
       await extension.activate(context);
 
-      const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+      const providerTreeView = getProviderTreeView(mocked);
       assert.equal(
         providerTreeView.treeDataProvider
           .getChildren()
@@ -2221,7 +2278,7 @@ test("remove account deletes a names-only cloud account index entry", async () =
       const context = createExtensionContext(mocked);
       await extension.activate(context);
 
-      const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+      const accountTreeView = getAccountTreeView(mocked);
       const [appleItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
         .filter((item) => item.account.name === "apple1" && item.account.source === "cloud");
 
@@ -2505,7 +2562,7 @@ test("locked cloud account uses public email from the account entry", async () =
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
         const emailItem = getAccountDetailItems(accountTreeView.treeDataProvider, cloudItem)
@@ -2611,7 +2668,7 @@ test("unlock command restores access to locked cloud accounts", async () => {
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [lockedItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user");
 
@@ -2689,7 +2746,7 @@ test("useAccount prompts again to unlock locked cloud auth after activation was 
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [lockedItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user");
 
@@ -2933,7 +2990,7 @@ test("reloginAccount updates an active local account and marks reload recommende
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "active" && item.account.source === "local");
         await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
@@ -3011,7 +3068,7 @@ test("reloginAccount removes its transient home when startup logging fails", asy
       const extension = loadExtensionWithMockedVscode(mocked.vscode);
       const context = createExtensionContext(mocked);
       await extension.activate(context);
-      const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+      const accountTreeView = getAccountTreeView(mocked);
       const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
         .filter((item) => item.account.name === "active" && item.account.source === "local");
       const previousTmpdir = os.tmpdir;
@@ -3087,7 +3144,7 @@ test("reloginAccount activation does not asynchronously rewrite the current sele
         const extension = loadExtensionWithMockedVscode(mocked.vscode);
         const context = createExtensionContext(mocked);
         await extension.activate(context);
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [accountAItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "a" && item.account.source === "local");
 
@@ -3179,7 +3236,7 @@ test("reloginAccount does not activate or reload when selection changes while lo
         const extension = loadExtensionWithMockedVscode(mocked.vscode);
         const context = createExtensionContext(mocked);
         await extension.activate(context);
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [accountAItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "a" && item.account.source === "local");
 
@@ -3268,7 +3325,7 @@ test("reloginAccount activates cloud auth, safely defers marker reconciliation, 
         const extension = loadExtensionWithMockedVscode(mocked.vscode);
         const context = createExtensionContext(mocked);
         await extension.activate(context);
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "cloud" && item.account.source === "cloud");
 
@@ -3355,7 +3412,7 @@ test("reloginAccount rejects a different identity without changing saved or runt
         const liveBefore = fs.readFileSync(path.join(codexHome, "auth.json"));
         const markerBefore = structuredClone(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"));
         const routeBefore = structuredClone(core.getSharedHistoryRouteState());
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "active" && item.account.source === "local");
 
@@ -3431,7 +3488,7 @@ test("reloginAccount rejects a cloud login result without a stable identity", as
         await extension.activate(context);
         const savedBefore = structuredClone(getCloudEnvelope(mocked.config, "account", "cloud"));
         const liveBefore = fs.readFileSync(path.join(codexHome, "auth.json"));
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "cloud" && item.account.source === "cloud");
 
@@ -3504,7 +3561,7 @@ test("reloginAccount reports an activation failure after saving refreshed auth",
         const extension = loadExtensionWithMockedVscode(mocked.vscode);
         const context = createExtensionContext(mocked);
         await extension.activate(context);
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "active" && item.account.source === "local");
 
@@ -3568,7 +3625,7 @@ test("reloginAccount leaves state unchanged when Done has no transient auth", as
         const markerBefore = structuredClone(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"));
         const routeBefore = structuredClone(core.getSharedHistoryRouteState());
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "active" && item.account.source === "local");
         await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
@@ -3675,7 +3732,7 @@ test("reloginAccount updates an inactive cloud account without changing the acti
         const extension = loadExtensionWithMockedVscode(mocked.vscode);
         const context = createExtensionContext(mocked);
         await extension.activate(context);
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "cloud" && item.account.source === "cloud");
 
@@ -3776,7 +3833,7 @@ test("legacy cloud account upgrades with visible sync metadata on manual refresh
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
@@ -3869,7 +3926,7 @@ test("a delayed cloud-account refresh cannot overwrite a committed provider swit
       const extension = loadExtensionWithMockedVscode(mocked.vscode);
       const context = createExtensionContext(mocked);
       await extension.activate(context);
-      const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+      const accountTreeView = getAccountTreeView(mocked);
       const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
         .filter((item) => item.account.name === "work" && item.account.source === "cloud");
       assert.ok(cloudItem);
@@ -4036,7 +4093,7 @@ test("manual cloud refresh increments visible sync version metadata", async (t) 
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
@@ -4131,7 +4188,7 @@ test("switching identical account auth from local to cloud updates selection wit
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "same" && item.account.source === "cloud");
         await mocked.registeredCommands.get("codex-switchbridge.useAccount")(cloudItem);
@@ -4239,7 +4296,7 @@ test("switching identical provider profile from local to cloud updates selection
       const context = createExtensionContext(mocked);
       await extension.activate(context);
 
-      const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+      const providerTreeView = getProviderTreeView(mocked);
       const [cloudItem] = providerTreeView.treeDataProvider
         .getChildren()
         .filter((item) => item.provider?.name === "same-proxy" && item.provider?.source === "cloud");
@@ -4328,7 +4385,7 @@ test("shared history local provider syncs current auth before switching accounts
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const providerTreeView = getProviderTreeView(mocked);
         const [providerItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider?.name === "proxy" && item.provider?.source === "local");
@@ -4371,7 +4428,7 @@ test("shared history local provider syncs current auth before switching accounts
         );
         const reloadShowCount = reloadItem.showCount;
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "alpha" && item.account.source === "local");
         assert.ok(accountItem);
@@ -4505,7 +4562,7 @@ test("shared history cloud provider syncs its current auth before switching to a
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const providerTreeView = getProviderTreeView(mocked);
         const [providerItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider?.name === "cloud-proxy" && item.provider?.source === "cloud");
@@ -4544,7 +4601,7 @@ test("shared history cloud provider syncs its current auth before switching to a
         );
         assert.equal(providerAfterReselect.auth.OPENAI_API_KEY, "sk-cloud-proxy-refreshed");
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "alpha" && item.account.source === "local");
 
@@ -4652,7 +4709,7 @@ test("Switch Mode Account Mode prompts for and activates a saved account", async
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const providerTreeView = getProviderTreeView(mocked);
         const [providerItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider?.name === "proxy" && item.provider?.source === "local");
@@ -4746,7 +4803,7 @@ test("provider switches keep model_provider when shared history setting is disab
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const providerTreeView = getProviderTreeView(mocked);
         const [providerItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider?.name === "proxy" && item.provider?.source === "local");
@@ -4828,7 +4885,7 @@ test("cancelled relogin leaves an active local provider byte-for-byte unchanged"
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const providerTreeView = getProviderTreeView(mocked);
         const [providerItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider?.name === "proxy" && item.provider?.source === "local");
@@ -4842,7 +4899,7 @@ test("cancelled relogin leaves an active local provider byte-for-byte unchanged"
         const savedProviderBefore = structuredClone(core.readProviderProfileResult("proxy"));
         core.setNamedAuthDir(undefined);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "alpha" && item.account.source === "local");
         await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
@@ -4959,7 +5016,7 @@ test("cancelled relogin leaves an active cloud provider and same-name local prov
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const providerTreeView = getProviderTreeView(mocked);
         const [cloudProviderItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider?.name === "proxy" && item.provider?.source === "cloud");
@@ -4980,7 +5037,7 @@ test("cancelled relogin leaves an active cloud provider and same-name local prov
         const localProviderBefore = structuredClone(core.readProviderProfileResult("proxy"));
         core.setNamedAuthDir(undefined);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "alpha" && item.account.source === "local");
         await mocked.registeredCommands.get("codex-switchbridge.reloginAccount")(accountItem);
@@ -5103,7 +5160,7 @@ test("syncing stale active cloud auth does not overwrite newer cloud auth", asyn
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local" && item.account.source === "local");
 
@@ -5212,7 +5269,7 @@ test("aggregate globalState cloud accounts materialize before single-account ref
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
@@ -5299,7 +5356,7 @@ test("cloud account tooltip keeps sync metadata while hiding redundant detail fi
           const context = createExtensionContext(mocked);
           await extension.activate(context);
 
-          const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+          const accountTreeView = getAccountTreeView(mocked);
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider);
           const details = getAccountDetailItems(accountTreeView.treeDataProvider, cloudItem);
 
@@ -5376,7 +5433,7 @@ test("account details hide last refresh and support copying email", async (t) =>
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "ryanwalker" && item.account.source === "local");
         const details = getAccountDetailItems(accountTreeView.treeDataProvider, accountItem);
@@ -6112,7 +6169,7 @@ test("refreshQuota command on Local Accounts group refreshes all local account q
         await waitForRefreshCoordinatorIdle(context);
 
         requestLog.length = 0;
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const localGroup = getAccountTreeRootItems(accountTreeView.treeDataProvider)
           .find((item) => item.contextValue === "accountGroupLocal");
         assert.ok(localGroup);
@@ -6205,7 +6262,7 @@ test("second VS Code window reuses cached quota data and skips a fresh network r
         const context = createExtensionContext(secondWindow);
         await extension.activate(context);
 
-        const accountTreeView = secondWindow.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(secondWindow);
         const cacheItem = getAccountTreeItems(accountTreeView.treeDataProvider)
           .find((item) => item.account.name === "cache-user");
         assert.ok(cacheItem);
@@ -6306,7 +6363,7 @@ test("current account uses yellow icon when quota refresh falls back to cache", 
         const context = createExtensionContext(secondWindow);
         await extension.activate(context);
 
-        const accountTreeView = secondWindow.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(secondWindow);
         const provider = accountTreeView.treeDataProvider;
         await refreshQuotaThroughStore(context, provider, ["local:apple1"], {
           reason: "manual",
@@ -6473,7 +6530,7 @@ test("account and provider name prompts reject unsafe cross-platform filenames w
       await mocked.registeredCommands.get("codex-switchbridge.addAccount")();
       await mocked.registeredCommands.get("codex-switchbridge.addProvider")();
 
-      const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+      const accountTreeView = getAccountTreeView(mocked);
       const [workItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
         .filter((item) => item.account.name === "work" && item.account.source === "local");
       await mocked.registeredCommands.get("codex-switchbridge.renameAccount")(workItem);
@@ -6637,7 +6694,7 @@ test("refresh quota command reuses one saved entries snapshot for tree and statu
         await mocked.registeredCommands.get("codex-switchbridge.refreshQuota")();
         await waitForRefreshCoordinatorIdle(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         assert.equal(
           getAccountTreeItems(accountTreeView.treeDataProvider)
             .some((item) => item.account.name === "beta"),
@@ -6722,7 +6779,7 @@ test("account tree keeps quota failures inside their source group", async (t) =>
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const provider = accountTreeView.treeDataProvider;
         await withFailingHttps(() => refreshQuotaThroughStore(
           context,
@@ -6808,7 +6865,7 @@ test("account tree shows relogin required only after manual token refresh fails"
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const provider = accountTreeView.treeDataProvider;
         await refreshQuotaThroughStore(context, provider, ["cloud:google1"], {
           reason: "timer",
@@ -6900,7 +6957,7 @@ test("account tree resolves stale source group children from latest root state",
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const provider = accountTreeView.treeDataProvider;
         const quotaStore = getQuotaStore(context);
         quotaStore.reconcileAccounts(createAccountTreeSnapshot(provider).accounts);
@@ -6986,7 +7043,7 @@ test("stale cloud account mutations are blocked and can open settings json", asy
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "stale" && item.account.source === "cloud");
 
@@ -7076,7 +7133,7 @@ test("versioned cloud account snapshots do not recreate missing synced payloads 
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "stale" && item.account.source === "cloud");
 
@@ -7170,7 +7227,7 @@ test("stale cloud provider mutations are blocked and keep the latest synced entr
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const providerTreeView = getProviderTreeView(mocked);
         const [providerItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider.name === "proxy" && item.provider.source === "cloud");
@@ -7293,7 +7350,7 @@ test("move account to local rejects an existing local account before cloud remov
           const context = createExtensionContext(mocked);
           await extension.activate(context);
 
-          const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+          const accountTreeView = getAccountTreeView(mocked);
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "work" && item.account.source === "cloud");
 
@@ -7419,7 +7476,7 @@ test("move provider to local rejects an existing local provider before cloud rem
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const providerTreeView = getProviderTreeView(mocked);
         const [providerItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider.name === localProviderName && item.provider.source === "cloud");
@@ -7542,7 +7599,7 @@ test("moving one local provider to cloud does not rewrite sibling cloud provider
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const providerTreeView = getProviderTreeView(mocked);
         const [localItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider.name === "local-proxy" && item.provider.source === "local");
@@ -7625,7 +7682,7 @@ test("moving a provider to cloud keeps the local profile when payload verificati
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
 
-      const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+      const providerTreeView = getProviderTreeView(mocked);
       const [localItem] = providerTreeView.treeDataProvider
         .getChildren()
         .filter((item) => item.provider.name === "qingteng" && item.provider.source === "local");
@@ -7715,7 +7772,7 @@ test("addProvider saves a new local provider without switching mode", async (t) 
       });
       assert.equal(core.getActiveModelProvider(), null);
 
-      const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+      const providerTreeView = getProviderTreeView(mocked);
       const providerItems = providerTreeView.treeDataProvider.getChildren();
       assert.equal(providerItems.some((item) => item.provider?.name === "proxy"), true);
       core.setNamedAuthDir(undefined);
@@ -7788,7 +7845,7 @@ test("addProvider saves and verifies a new cloud provider payload", async (t) =>
       assert.deepEqual(mocked.globalStateValues.get(SYNCED_CLOUD_STATE_KEY).providerNames, ["qingteng"]);
       assert.equal(typeof mocked.syncedGlobalStateValues.get(getSyncedCloudProviderKey("qingteng"))?.ciphertext, "string");
 
-      const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+      const providerTreeView = getProviderTreeView(mocked);
       const [providerItem] = providerTreeView.treeDataProvider
         .getChildren()
         .filter((item) => item.provider.name === "qingteng" && item.provider.source === "cloud");
@@ -7920,7 +7977,7 @@ test("manual token refresh marks invalidated refresh token as relogin required",
           const context = createExtensionContext(mocked);
           await extension.activate(context);
 
-          const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+          const accountTreeView = getAccountTreeView(mocked);
           const provider = accountTreeView.treeDataProvider;
           const [accountItem] = getAccountTreeItems(provider)
             .filter((item) => item.account.name === "microsoft1" && item.account.source === "cloud");
@@ -8001,7 +8058,7 @@ test("remove provider asks for confirmation before deleting a local provider", a
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const providerTreeView = getProviderTreeView(mocked);
         const [providerItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider.name === "proxy" && item.provider.source === "local");
@@ -8082,7 +8139,7 @@ test("removing a cloud account writes a tombstone that blocks stale payload revi
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "cloud-old" && item.account.source === "cloud");
 
@@ -8177,7 +8234,7 @@ test("removing a cloud provider writes a tombstone that blocks stale payload rev
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const providerTreeView = getProviderTreeView(mocked);
         const [providerItem] = providerTreeView.treeDataProvider
           .getChildren()
           .filter((item) => item.provider.name === "proxy" && item.provider.source === "cloud");
@@ -8277,7 +8334,7 @@ test("cloud provider tooltip shows visible sync revision metadata", async (t) =>
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const providerTreeView = getProviderTreeView(mocked);
         const [providerItem] = providerTreeView.treeDataProvider.getChildren();
         const details = providerTreeView.treeDataProvider.getChildren(providerItem);
 
@@ -8356,7 +8413,7 @@ test("moving a local provider to cloud records provider audit metadata", async (
           const context = createExtensionContext(mocked);
           await extension.activate(context);
 
-          const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+          const providerTreeView = getProviderTreeView(mocked);
           const [providerItem] = providerTreeView.treeDataProvider
             .getChildren()
             .filter((item) => item.provider.name === "proxy" && item.provider.source === "local");
@@ -8437,7 +8494,7 @@ test("account tree shows duplicate local and cloud accounts with source labels",
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const items = getAccountTreeItems(accountTreeView.treeDataProvider);
         const groupLabels = getAccountTreeRootItems(accountTreeView.treeDataProvider).map((item) => item.label);
         const matching = items.filter((item) => item.account.name === "work");
@@ -8519,7 +8576,7 @@ test("account migration moves saved auth between local and cloud storage", async
           const context = createExtensionContext(mocked);
           await extension.activate(context);
 
-          const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+          const accountTreeView = getAccountTreeView(mocked);
           const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "work" && item.account.source === "local");
 
@@ -8609,7 +8666,7 @@ test("renaming a cloud account moves its protected backup", async (t) => {
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "work" && item.account.source === "local");
 
@@ -8703,7 +8760,7 @@ test("moveAccountToCloud syncs the payload together with the cloud index for ano
         const context = createExtensionContext(source);
         await extension.activate(context);
 
-        const accountTreeView = source.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(source);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "apple1" && item.account.source === "local");
 
@@ -8730,7 +8787,7 @@ test("moveAccountToCloud syncs the payload together with the cloud index for ano
         const context = createExtensionContext(target);
         await extension.activate(context);
 
-        const accountTreeView = target.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(target);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "apple1" && item.account.source === "cloud");
 
@@ -8802,7 +8859,7 @@ test("restoreCloudAccountPayload restores an index-only cloud account from prote
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "bob1990" && item.account.source === "local");
 
@@ -8894,7 +8951,7 @@ test("restoreCloudAccountPayload lists orphan protected backup when cloud index 
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "fanfan" && item.account.source === "local");
 
@@ -8996,7 +9053,7 @@ test("moveAccountToCloud keeps local auth when cloud payload cannot be read back
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "apple1" && item.account.source === "local");
 
@@ -9069,7 +9126,7 @@ test("useAccount shares one cloud quota request between tree and status bar", as
         await waitForRefreshCoordinatorIdle(context);
         requestLog.length = 0;
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync" && item.account.source === "cloud");
 
@@ -9143,7 +9200,7 @@ test("moveAccountToCloud avoids duplicate quota refresh after synced storage upd
         await waitForRefreshCoordinatorIdle(context);
         requestLog.length = 0;
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "work" && item.account.source === "local");
 
@@ -9228,7 +9285,7 @@ test("hidden status bar also hides reload recommendations without extra quota re
         assert.equal(reloadItem.visible, false);
 
         requestLog.length = 0;
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "hidden" && item.account.source === "cloud");
 
@@ -9313,7 +9370,7 @@ test("moveAccountToLocal refreshes only the affected account quota", async (t) =
           await waitForRefreshCoordinatorIdle(context);
           requestLog.length = 0;
 
-          const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+          const accountTreeView = getAccountTreeView(mocked);
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "work" && item.account.source === "cloud");
 
@@ -9426,7 +9483,7 @@ test("current cloud account reselect preserves rotated auth without reload befor
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
@@ -9564,7 +9621,7 @@ test("switching away from a cloud account ignores legacy device authority and up
           const context = createExtensionContext(mocked);
           await extension.activate(context);
 
-          const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+          const accountTreeView = getAccountTreeView(mocked);
           const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
@@ -9677,7 +9734,7 @@ test("stale cloud provider marker self-heals without overwriting newer cloud cre
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
@@ -9929,7 +9986,7 @@ test("missing provider marker does not write active cloud credentials into a sam
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
@@ -10055,7 +10112,7 @@ test("missing provider marker adopts a uniquely matching same-name local provide
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
@@ -10178,7 +10235,7 @@ test("stale local provider marker resolves the only cloud entry without overwrit
         await extension.activate(context);
         await waitForRefreshCoordinatorIdle(context);
 
-        const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+        const providerTreeView = getProviderTreeView(mocked);
         const cloudItem = providerTreeView.treeDataProvider
           .getChildren()
           .find((item) => item.provider?.name === "proxy" && item.provider?.source === "cloud");
@@ -10188,7 +10245,7 @@ test("stale local provider marker resolves the only cloud entry without overwrit
         const dashboard = await mocked.readyDashboard();
         const routeBeforeSwitch = dashboard.latestState()?.route;
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const targetItem = getAccountTreeItems(accountTreeView.treeDataProvider)
           .find((item) => item.account.name === "target" && item.account.source === "local");
         assert.ok(targetItem);
@@ -10325,7 +10382,7 @@ test("stale cloud account marker self-heals without overwriting newer cloud cred
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
@@ -10429,7 +10486,7 @@ test("versioned cloud account marker does not recreate missing synced payload be
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
@@ -10543,7 +10600,7 @@ test("current cloud marker does not prompt when already up to date", async (t) =
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
@@ -10656,7 +10713,7 @@ test("stale cloud account marker does not overwrite a different current account"
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [targetItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "target-user" && item.account.source === "local");
 
@@ -10749,7 +10806,7 @@ test("moving the current local account to cloud updates the current marker", asy
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [movingItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "moving-user" && item.account.source === "local");
 
@@ -10836,7 +10893,7 @@ test("manual refresh still updates cloud tokens when automatic sync is disabled"
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
@@ -10986,7 +11043,7 @@ test("manual cloud token refresh reloads newer synced tokens before consuming re
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [staleCloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
@@ -11171,7 +11228,7 @@ test("manual cloud token refresh persists rotated tokens after metadata conflict
         const context = createExtensionContext(mocked);
         await extension.activate(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
@@ -11632,7 +11689,7 @@ test("timer quota refresh leaves local tokens unchanged when the refresh token e
         await waitForRefreshCoordinatorIdle(context);
         requestLog.length = 0;
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
@@ -11716,7 +11773,7 @@ test("timer quota refresh leaves local tokens unchanged when the access token ex
         await waitForRefreshCoordinatorIdle(context);
         requestLog.length = 0;
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
@@ -11800,7 +11857,7 @@ test("timer quota refresh leaves local tokens unchanged when the access token is
         await waitForRefreshCoordinatorIdle(context);
         requestLog.length = 0;
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
@@ -11885,7 +11942,7 @@ test("timer quota refresh keeps the local account unchanged", async (t) => {
         await waitForRefreshCoordinatorIdle(context);
         requestLog.length = 0;
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [localItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "local-user" && item.account.source === "local");
 
@@ -11983,7 +12040,7 @@ test("timer quota refresh leaves cloud tokens unchanged when the refresh token e
           await waitForRefreshCoordinatorIdle(context);
           requestLog.length = 0;
 
-          const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+          const accountTreeView = getAccountTreeView(mocked);
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
@@ -12084,7 +12141,7 @@ test("timer quota refresh leaves cloud tokens unchanged when the access token ex
           await waitForRefreshCoordinatorIdle(context);
           requestLog.length = 0;
 
-          const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+          const accountTreeView = getAccountTreeView(mocked);
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
@@ -12185,7 +12242,7 @@ test("timer quota refresh leaves cloud tokens unchanged when the access token is
           await waitForRefreshCoordinatorIdle(context);
           requestLog.length = 0;
 
-          const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+          const accountTreeView = getAccountTreeView(mocked);
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
@@ -12285,7 +12342,7 @@ test("quota refresh does not refresh expired cloud access tokens", async (t) => 
           await extension.activate(context);
           await waitForRefreshCoordinatorIdle(context);
 
-          const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+          const accountTreeView = getAccountTreeView(mocked);
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
@@ -12381,7 +12438,7 @@ test("quota refresh does not update cloud auth even when sync metadata already e
         await extension.activate(context);
         await waitForRefreshCoordinatorIdle(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
@@ -12708,7 +12765,7 @@ test("quota refresh preserves cloud auth while ignoring legacy selected device",
           await extension.activate(context);
           await waitForRefreshCoordinatorIdle(context);
 
-          const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+          const accountTreeView = getAccountTreeView(mocked);
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
@@ -12820,7 +12877,7 @@ test("manual cloud token refresh ignores legacy selected device", async (t) => {
           assert.equal(cloudAuth.tokens.access_token, savedCloudAccessToken);
           assert.equal(cloudAuth.tokens.refresh_token, "refresh-cloud-old");
 
-          const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+          const accountTreeView = getAccountTreeView(mocked);
           const [cloudItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
             .filter((item) => item.account.name === "sync-user" && item.account.source === "cloud");
 
@@ -13104,7 +13161,7 @@ test("missing account marker keeps duplicate local and cloud identities unattrib
         const dashboardState = dashboard.latestState();
         assert.equal(dashboardState?.usage.unattributedTokens, 40);
         assert.equal(dashboardState?.route.kind, "unknown");
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const duplicateItems = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "duplicate");
         assert.equal(duplicateItems.length, 2);
@@ -13211,7 +13268,7 @@ test("missing account marker skips outgoing sync for ambiguous local and cloud i
         await extension.activate(context);
         await waitForRefreshCoordinatorIdle(context);
 
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const [targetItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "target" && item.account.source === "local");
         assert.ok(targetItem);
@@ -13265,7 +13322,7 @@ test("missing account marker skips outgoing sync for ambiguous local and cloud i
   });
 });
 
-test("activation registers three native trees and opens one lazy dashboard panel", async (t) => {
+test("activation registers one unified route tree and focuses one dashboard panel when visible", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-usage-overview-"));
   const codexHome = path.join(tempRoot, ".codex");
   const authDir = path.join(tempRoot, "saved-auth");
@@ -13289,19 +13346,14 @@ test("activation registers three native trees and opens one lazy dashboard panel
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
 
-      assert.deepEqual([...mocked.treeViews.keys()], [
-        "codexSwitchBridgeOverview",
-        "codexSwitchBridgeAccounts",
-        "codexSwitchBridgeProviders",
-      ]);
+      assert.deepEqual([...mocked.treeViews.keys()], ["codexSwitchBridgeRoutes"]);
       assert.equal(mocked.webviewPanels.length, 0);
-      const launcher = mocked.treeViews.get("codexSwitchBridgeOverview").treeDataProvider;
-      const launcherItems = launcher.getChildren();
-      assert.equal(launcherItems.length, 1);
-      assert.equal(launcherItems[0].label, "Open Dashboard");
-      assert.equal(launcherItems[0].collapsibleState, mocked.vscode.TreeItemCollapsibleState.None);
-      assert.equal(launcherItems[0].iconPath.id, "open-preview");
-      assert.equal(launcherItems[0].command.command, "codex-switchbridge.openDashboard");
+      const routesView = mocked.treeViews.get("codexSwitchBridgeRoutes");
+      routesView.setVisible(true);
+      assert.equal(mocked.webviewPanels.length, 1);
+      routesView.setVisible(false);
+      routesView.setVisible(true);
+      assert.equal(mocked.webviewPanels.length, 1);
 
       const dashboard = await mocked.readyDashboard();
       assert.equal(mocked.webviewPanels.length, 1);
@@ -13316,7 +13368,7 @@ test("activation registers three native trees and opens one lazy dashboard panel
 
       await mocked.registeredCommands.get("codex-switchbridge.openDashboard")();
       assert.equal(mocked.webviewPanels.length, 1);
-      assert.deepEqual(dashboard.panel.revealCalls, [undefined]);
+      assert.deepEqual(dashboard.panel.revealCalls, [undefined, undefined, undefined]);
 
       assert.equal(
         extensionManifest.contributes.configuration.properties[
@@ -13370,6 +13422,82 @@ test("activation registers three native trees and opens one lazy dashboard panel
   await t.test("cleanup", () => {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
+});
+
+test("an initially visible unified route tree opens one dashboard during activation", async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-visible-routes-"));
+  const codexHome = path.join(tempRoot, ".codex");
+  const authDir = path.join(tempRoot, "saved-auth");
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
+  const previousCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = codexHome;
+
+  try {
+    const mocked = createVscodeMock({
+      authDirectory: authDir,
+      visibleTreeViewIds: ["codexSwitchBridgeRoutes"],
+    });
+    await withDisabledIntervals(async () => {
+      const extension = loadExtensionWithMockedVscode(mocked.vscode);
+      const context = createExtensionContext(mocked);
+      await extension.activate(context);
+      await waitForRefreshCoordinatorIdle(context);
+      assert.deepEqual([...mocked.treeViews.keys()], ["codexSwitchBridgeRoutes"]);
+      assert.equal(mocked.webviewPanels.length, 1);
+      mocked.treeViews.get("codexSwitchBridgeRoutes").setVisible(true);
+      assert.equal(mocked.webviewPanels.length, 1);
+      for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+    });
+  } finally {
+    core.setNamedAuthDir(undefined);
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("expand all accounts reveals account source groups through the unified tree", async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-expand-routes-"));
+  const codexHome = path.join(tempRoot, ".codex");
+  const authDir = path.join(tempRoot, "saved-auth");
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
+  core.setNamedAuthDir(authDir);
+  core.writeSavedAuthFile(
+    path.join(authDir, "auth_saved.json"),
+    makeAuthFile("acct-expand-routes"),
+  );
+  core.setNamedAuthDir(undefined);
+  const previousCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = codexHome;
+
+  try {
+    const mocked = createVscodeMock({ authDirectory: authDir });
+    await withDisabledIntervals(async () => {
+      const extension = loadExtensionWithMockedVscode(mocked.vscode);
+      const context = createExtensionContext(mocked);
+      await extension.activate(context);
+      await waitForRefreshCoordinatorIdle(context);
+
+      await mocked.registeredCommands.get("codex-switchbridge.expandAllAccounts")();
+      assert.ok(mocked.treeRevealCalls.length > 0);
+      assert.ok(mocked.treeRevealCalls.every((call) => call.id === "codexSwitchBridgeRoutes"));
+      assert.ok(mocked.treeRevealCalls.every((call) => call.options.expand === true));
+      const routes = getRoutesTree(mocked);
+      const accountsGroup = getRouteGroup(mocked, "accounts");
+      for (const { element } of mocked.treeRevealCalls) {
+        assert.equal(routes.getParent(element), accountsGroup);
+      }
+
+      for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+    });
+  } finally {
+    core.setNamedAuthDir(undefined);
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("refreshUsage reindexes rollout files and posts a newer dashboard state", async (t) => {
@@ -13570,7 +13698,7 @@ test("provider tree masks API keys while the explicit copy command retains the v
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
 
-      const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+      const providerTreeView = getProviderTreeView(mocked);
       const providerItem = providerTreeView.treeDataProvider
         .getChildren()
         .find((item) => item.provider?.name === "proxy");
@@ -13686,7 +13814,7 @@ test("regression: switching records the new usage selection before quota resolve
       try {
         await extension.activate(context);
         await waitForRefreshCoordinatorIdle(context);
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const betaItem = getAccountTreeItems(accountTreeView.treeDataProvider)
           .find((item) => item.account.name === "beta" && item.account.source === "local");
         assert.ok(betaItem);
@@ -13769,7 +13897,7 @@ test("regression: provider switching persists usage selection before an automati
     try {
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
-      const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+      const providerTreeView = getProviderTreeView(mocked);
       const providerItem = providerTreeView.treeDataProvider
         .getChildren()
         .find((item) => item.provider?.name === "proxy" && item.provider?.source === "local");
@@ -13829,7 +13957,7 @@ test("regression: a stale quota response cannot overwrite a newer selection", as
       try {
         await extension.activate(context);
         await waitForRefreshCoordinatorIdle(context);
-        const accountTreeView = mocked.treeViews.get("codexSwitchBridgeAccounts");
+        const accountTreeView = getAccountTreeView(mocked);
         const accounts = getAccountTreeItems(accountTreeView.treeDataProvider);
         const alphaItem = accounts.find(
           (item) => item.account.name === "alpha" && item.account.source === "local",
@@ -13900,7 +14028,7 @@ test("regression: provider details keep unique IDs for same-label built-in and a
     try {
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
-      const providerTreeView = mocked.treeViews.get("codexSwitchBridgeProviders");
+      const providerTreeView = getProviderTreeView(mocked);
       const providerItem = providerTreeView.treeDataProvider
         .getChildren()
         .find((item) => item.provider?.name === "proxy");
@@ -14066,8 +14194,8 @@ test("storage moves reject same-name destinations without changing credentials o
     try {
       await extension.activate(context);
       await waitForRefreshCoordinatorIdle(context);
-      const accountTree = mocked.treeViews.get("codexSwitchBridgeAccounts").treeDataProvider;
-      const providerTree = mocked.treeViews.get("codexSwitchBridgeProviders").treeDataProvider;
+      const accountTree = getAccountTreeView(mocked).treeDataProvider;
+      const providerTree = getProviderTreeView(mocked).treeDataProvider;
       const accounts = getAccountTreeItems(accountTree);
       const providers = providerTree.getChildren();
       const accountToCloud = accounts.find((item) =>
