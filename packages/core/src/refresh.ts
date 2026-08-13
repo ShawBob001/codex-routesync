@@ -8,11 +8,23 @@ import { requestHttpsText } from "./httpTransport";
 const TOKEN_URL = "https://auth.openai.com/oauth/token";
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const LOG_PREFIX = "[codex-switchbridge:core:refresh]";
+const MAX_OAUTH_ERROR_BODY_BYTES = 16 * 1024;
+const MAX_OAUTH_SUCCESS_BODY_BYTES = 64 * 1024;
+const OAUTH_ERROR_CODES = new Set([
+  "invalid_request",
+  "invalid_client",
+  "invalid_grant",
+  "unauthorized_client",
+  "unsupported_grant_type",
+  "invalid_scope",
+  "refresh_token_reused",
+  "refresh_token_invalidated",
+]);
 export const RELOGIN_REQUIRED_MESSAGE = "Relogin required";
 
 interface RefreshResponse {
   id_token?: string;
-  access_token?: string;
+  access_token: string;
   refresh_token?: string;
 }
 
@@ -49,6 +61,82 @@ export function applyRefreshResponse(auth: AuthFile, result: RefreshResponse, no
   }
 
   auth.last_refresh = new Date(now).toISOString();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function safeOAuthErrorCode(body: string): string | null {
+  if (Buffer.byteLength(body, "utf8") > MAX_OAUTH_ERROR_BODY_BYTES) {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed)) {
+    return null;
+  }
+
+  const error = parsed.error;
+  const detail = parsed.detail;
+  const candidates = [
+    typeof error === "string" ? error : null,
+    isRecord(error) ? error.code : null,
+    parsed.code,
+    isRecord(detail) ? detail.code : null,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && OAUTH_ERROR_CODES.has(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function createOAuthHttpError(statusCode: number | null, body: string): Error {
+  const status = statusCode === null ? "unknown" : String(statusCode);
+  const code = safeOAuthErrorCode(body);
+  return new Error(`OAuth token refresh failed (HTTP ${status}${code ? `, ${code}` : ""})`);
+}
+
+function parseRefreshResponse(raw: string): RefreshResponse {
+  if (Buffer.byteLength(raw, "utf8") > MAX_OAUTH_SUCCESS_BODY_BYTES) {
+    throw new Error("Invalid OAuth token response");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Invalid OAuth token response");
+  }
+
+  if (
+    !isRecord(parsed)
+    || typeof parsed.access_token !== "string"
+    || parsed.access_token.trim().length === 0
+  ) {
+    throw new Error("Invalid OAuth token response");
+  }
+  for (const field of ["refresh_token", "id_token"] as const) {
+    if (
+      field in parsed
+      && (typeof parsed[field] !== "string" || parsed[field].trim().length === 0)
+    ) {
+      throw new Error("Invalid OAuth token response");
+    }
+  }
+
+  return {
+    access_token: parsed.access_token,
+    ...(typeof parsed.refresh_token === "string" ? { refresh_token: parsed.refresh_token } : {}),
+    ...(typeof parsed.id_token === "string" ? { id_token: parsed.id_token } : {}),
+  };
 }
 
 async function postForm(
@@ -92,7 +180,7 @@ async function postForm(
     return response.body;
   }
 
-  const error = new Error(`HTTP ${response.statusCode ?? undefined}: ${response.body}`);
+  const error = createOAuthHttpError(response.statusCode, response.body);
   perf.fail(new Error("Refresh HTTP request failed"), {
     failureKind: "http_status",
     statusCode: response.statusCode,
@@ -126,7 +214,7 @@ export async function refreshAccessToken(
     const raw = await postForm(TOKEN_URL, body, options);
     perf.mark("post-form");
 
-    const parsed = JSON.parse(raw) as RefreshResponse;
+    const parsed = parseRefreshResponse(raw);
     perf.mark("parse-response", {
       hasAccessToken: Boolean(parsed.access_token),
       hasRefreshToken: Boolean(parsed.refresh_token),

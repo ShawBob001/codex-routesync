@@ -200,9 +200,10 @@ test("refresh diagnostics redact raw proxy errors while preserving the thrown er
   }
 });
 
-test("refresh diagnostics redact non-2xx response bodies while preserving HTTP errors", async () => {
+test("refresh non-2xx errors use a fixed message for unrecognized response bodies", async () => {
   const responseBody = JSON.stringify({
-    error: "refresh denied",
+    error: "private_server_failure",
+    error_description: "refresh denied for bearer-secret",
     credential: "response-body-secret",
   });
   const lines = captureDiagnosticLogs();
@@ -216,17 +217,152 @@ test("refresh diagnostics redact non-2xx response bodies while preserving HTTP e
         () => core.refreshAccessToken(makeAuth(), { proxyUrl: null }),
       ),
       (error) => {
-        assert.equal(error.message, `HTTP 400: ${responseBody}`);
+        assert.equal(error.message, "OAuth token refresh failed (HTTP 400)");
+        assert.doesNotMatch(error.message, /response-body-secret|bearer-secret|refresh denied/);
         return true;
       },
     );
 
     const output = lines.map((entry) => entry.line).join("\n");
-    assert.doesNotMatch(output, /response-body-secret|refresh denied/);
+    assert.doesNotMatch(output, /response-body-secret|bearer-secret|refresh denied/);
     assert.match(output, /"failureKind":"http_status"/);
     assert.match(output, /"statusCode":400/);
   } finally {
     core.setDiagnosticLogger(null);
     core.setDiagnosticLogOptions({ detailedPerformanceLogging: false });
+  }
+});
+
+test("refresh non-2xx errors preserve safe relogin codes without exposing response details", async () => {
+  for (const code of ["refresh_token_reused", "refresh_token_invalidated"]) {
+    const responseBody = JSON.stringify({
+      error: {
+        code,
+        message: "token rt-super-secret has already been used",
+      },
+    });
+
+    await assert.rejects(
+      withHttpsImplementations(
+        throwingPatchedRequest,
+        createResponseRequest(401, responseBody),
+        () => core.refreshAccessToken(makeAuth(), { proxyUrl: null }),
+      ),
+      (error) => {
+        assert.equal(error.message, `OAuth token refresh failed (HTTP 401, ${code})`);
+        assert.equal(core.isReloginRequiredRefreshError(error), true);
+        assert.doesNotMatch(error.message, /rt-super-secret|already been used/);
+        return true;
+      },
+    );
+  }
+});
+
+test("refresh non-2xx errors do not parse oversized response bodies", async () => {
+  const responseBody = JSON.stringify({
+    error: "refresh_token_invalidated",
+    secret: "x".repeat(20_000),
+  });
+
+  await assert.rejects(
+    withHttpsImplementations(
+      throwingPatchedRequest,
+      createResponseRequest(400, responseBody),
+      () => core.refreshAccessToken(makeAuth(), { proxyUrl: null }),
+    ),
+    (error) => {
+      assert.equal(error.message, "OAuth token refresh failed (HTTP 400)");
+      assert.doesNotMatch(error.message, /refresh_token_invalidated|xxxxx/);
+      return true;
+    },
+  );
+});
+
+test("refreshAccessToken rejects malformed successful OAuth responses with a fixed protocol error", async () => {
+  const invalidResponses = [
+    ["empty object", "{}"],
+    ["non-JSON", "not-json access-token-secret"],
+    ["numeric access token", JSON.stringify({ access_token: 123 })],
+    ["blank access token", JSON.stringify({ access_token: "   " })],
+    ["blank refresh token", JSON.stringify({ access_token: "access-new", refresh_token: "" })],
+    ["invalid id token type", JSON.stringify({ access_token: "access-new", id_token: { secret: true } })],
+  ];
+
+  for (const [label, responseBody] of invalidResponses) {
+    const auth = makeAuth();
+    const before = structuredClone(auth);
+    await assert.rejects(
+      withHttpsImplementations(
+        throwingPatchedRequest,
+        createResponseRequest(200, responseBody),
+        () => core.refreshAccessToken(auth, { proxyUrl: null }),
+      ),
+      (error) => {
+        assert.equal(error.message, "Invalid OAuth token response", label);
+        assert.doesNotMatch(error.message, /access-token-secret|access-new/, label);
+        return true;
+      },
+      label,
+    );
+    assert.deepEqual(auth, before, `${label} must not mutate auth`);
+  }
+});
+
+test("refreshAndSave leaves the auth file unchanged after an invalid successful response", async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-refresh-invalid-save-"));
+  const authPath = path.join(tempRoot, "auth.json");
+  const original = `${JSON.stringify(makeAuth(), null, 2)}\n`;
+  fs.writeFileSync(authPath, original, "utf-8");
+
+  try {
+    await assert.rejects(
+      withHttpsImplementations(
+        throwingPatchedRequest,
+        createResponseRequest(200, "{}"),
+        () => core.refreshAndSave(authPath, { proxyUrl: null }),
+      ),
+      /Invalid OAuth token response/,
+    );
+    assert.equal(fs.readFileSync(authPath, "utf-8"), original);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("refreshAccount does not persist or mutate auth after an invalid successful response", async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-account-invalid-refresh-"));
+  const previousCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = tempRoot;
+  const authPath = path.join(tempRoot, "auth_work.json");
+  const original = `${JSON.stringify(makeAuth(), null, 2)}\n`;
+  fs.writeFileSync(authPath, original, "utf-8");
+  let persistCalls = 0;
+
+  try {
+    const result = await withHttpsImplementations(
+      throwingPatchedRequest,
+      createResponseRequest(200, JSON.stringify({
+        access_token: false,
+        secret: "invalid-response-secret",
+      })),
+      () => core.refreshAccount("work", {
+        proxyUrl: null,
+        syncCurrentAuthBeforeRead: false,
+        persistUpdatedAuth: async () => {
+          persistCalls += 1;
+        },
+      }),
+    );
+
+    assert.equal(result.success, false);
+    assert.match(result.message, /Invalid OAuth token response/);
+    assert.doesNotMatch(result.message, /invalid-response-secret/);
+    assert.equal(persistCalls, 0);
+    assert.equal(fs.readFileSync(authPath, "utf-8"), original);
+  } finally {
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    core.setNamedAuthDir(undefined);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
