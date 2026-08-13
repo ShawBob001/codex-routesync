@@ -4,7 +4,7 @@
 
 **Goal:** Add repository-specific community guidance and verify GitHub's Community Profile health score.
 
-**Architecture:** Keep community files under `.github/`, route sensitive reports privately, and use structured forms for public participation. Add CI and dependency automation, plus a factual maintenance statement for open-source program applications.
+**Architecture:** Keep community files under `.github/`, route sensitive reports privately, and use structured forms for public participation. Add CI and dependency automation, plus a factual long-term maintenance statement.
 
 **Tech Stack:** Markdown, GitHub Issue Forms YAML, GitHub Actions, Dependabot, npm workspaces, GitHub APIs.
 
@@ -23,7 +23,7 @@
 ### Task 3: Add maintenance automation and positioning
 
 - [ ] Add CI and weekly dependency update configuration.
-- [ ] Add a factual student-maintainer commitment and OpenAI support use case.
+- [ ] Add a factual long-term maintenance commitment and roadmap.
 
 ### Task 4: Verify and publish
 

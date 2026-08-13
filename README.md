@@ -240,9 +240,9 @@ Release procedures are documented in [Deployment](./docs/deployment.md).
 
 ## Maintenance and contributing
 
-Codex SwitchBridge is actively maintained by a student developer as a long-term
-open-source project. The project accepts focused bug reports, feature proposals,
-documentation improvements, and tested pull requests. Read the
+Codex SwitchBridge is maintained as a long-term open-source project. The project
+accepts focused bug reports, feature proposals, documentation improvements, and
+tested pull requests. Read the
 [contribution guide](./.github/CONTRIBUTING.md), [security policy](./.github/SECURITY.md),
 and [open-source maintenance statement](./docs/OPEN_SOURCE_MAINTENANCE.md) before
 participating.

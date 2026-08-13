@@ -31,10 +31,10 @@ security work will continue as Codex changes and users report concrete needs.
 
 ## Maintainer commitment
 
-The primary maintainer, `ShawBob001`, is a current student developer and intends
-to maintain Codex SwitchBridge as a long-term open-source project. Maintenance
-includes issue triage, review of focused contributions, compatibility testing,
-security response, documentation, and release management.
+Codex SwitchBridge is intended to remain an actively maintained, long-term
+open-source project. Maintenance includes issue triage, review of focused
+contributions, compatibility testing, security response, documentation, and
+release management.
 
 Project decisions are made in public issues and pull requests whenever possible.
 Changes are evaluated against three priorities: preserving credentials and local
@@ -54,16 +54,6 @@ presented as project usage or user adoption.
 The roadmap follows confirmed maintenance needs rather than a fixed feature
 count. Requests that weaken credential safety, depend on undocumented remote
 data, or misrepresent local usage as billing data will not be accepted.
-
-## How OpenAI support would be used
-
-The maintainer plans to apply to Codex for Open Source and, as a current student,
-would value OpenAI's support in sustaining this long-term maintenance commitment.
-If selected, that support would be used for repository maintenance rather than
-redistributed to extension users: pull request review, issue triage, security
-analysis, release checks, compatibility-test generation, and maintenance
-documentation. This statement records the intended use of support and does not
-imply OpenAI endorsement or selection.
 
 ## Participate
 
