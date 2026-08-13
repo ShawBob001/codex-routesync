@@ -6,12 +6,12 @@
   "publisher": "baoshichao001-dev",
   "repository": {
     "type": "git",
-    "url": "https://github.com/baoshichao001-dev/codex-switchbridge",
+    "url": "https://github.com/ShawBob001/codex-switchbridge",
     "directory": "packages/vscode"
   },
-  "homepage": "https://github.com/baoshichao001-dev/codex-switchbridge",
+  "homepage": "https://github.com/ShawBob001/codex-switchbridge",
   "bugs": {
-    "url": "https://github.com/baoshichao001-dev/codex-switchbridge/issues"
+    "url": "https://github.com/ShawBob001/codex-switchbridge/issues"
   },
   "engines": {
     "vscode": "^1.85.0"

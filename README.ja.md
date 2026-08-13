@@ -20,7 +20,7 @@ VS Code 拡張機能は、現在のモード、共有履歴の状態、アカウ
 
 Codex SwitchBridge は Windows、macOS、Linux で動作します。VS Code またはコマンドラインから利用できます。
 
-[![GitHub リリース](https://img.shields.io/github/v/release/baoshichao001-dev/codex-switchbridge)](https://github.com/baoshichao001-dev/codex-switchbridge/releases)
+[![GitHub リリース](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
 [![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/baoshichao001-dev.codex-switchbridge?label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge)
 [![ライセンス: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
@@ -49,7 +49,7 @@ Codex アカウントモード  <->  Codex SwitchBridge  <->  Responses API プ�
 
 [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge) から拡張機能をインストールします。VS Code の拡張機能ビューを開き、`Codex SwitchBridge` または `@id:baoshichao001-dev.codex-switchbridge` を検索することもできます。
 
-オフラインでインストールする場合は、[GitHub Releases](https://github.com/baoshichao001-dev/codex-switchbridge/releases) から最新の `.vsix` をダウンロードし、**Extensions: Install from VSIX...** を実行します。ターミナルでは次のコマンドを使えます。VERSION はダウンロードしたファイル名のバージョンに置き換えてください。
+オフラインでインストールする場合は、[GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases) から最新の `.vsix` をダウンロードし、**Extensions: Install from VSIX...** を実行します。ターミナルでは次のコマンドを使えます。VERSION はダウンロードしたファイル名のバージョンに置き換えてください。
 
 ```bash
 code --install-extension codex-switchbridge-VERSION.vsix
@@ -240,6 +240,6 @@ docs/       アーキテクチャ、動作、デプロイに関する文書
 
 ## 来歴とライセンス
 
-Codex SwitchBridge は [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch) から派生した独立オープンソースプロジェクトで、`baoshichao001-dev` による大幅な変更が加えられています。
+Codex SwitchBridge は [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch) から派生した独立オープンソースプロジェクトで、`ShawBob001` による大幅な変更が加えられています。
 
 [MIT License](./LICENSE) の下で公開されています。上流の著作権表示とライセンス本文は保持されています。

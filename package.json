@@ -5,11 +5,11 @@
   "description": "Seamless Codex account and API-provider switching with shared local history and per-selection token usage",
   "repository": {
     "type": "git",
-    "url": "https://github.com/baoshichao001-dev/codex-switchbridge"
+    "url": "https://github.com/ShawBob001/codex-switchbridge"
   },
-  "homepage": "https://github.com/baoshichao001-dev/codex-switchbridge",
+  "homepage": "https://github.com/ShawBob001/codex-switchbridge",
   "bugs": {
-    "url": "https://github.com/baoshichao001-dev/codex-switchbridge/issues"
+    "url": "https://github.com/ShawBob001/codex-switchbridge/issues"
   },
   "workspaces": [
     "packages/*"

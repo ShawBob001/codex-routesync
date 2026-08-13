@@ -8,17 +8,17 @@ Codex SwitchBridge manages the active credentials, provider route, and saved sel
 
 Open **Codex SwitchBridge** from the Activity Bar. Saved accounts and API providers appear together in one flat **Accounts & API Routes** list, while the central Dashboard opens or focuses automatically.
 
-![Codex SwitchBridge Dashboard in English dark mode](https://raw.githubusercontent.com/baoshichao001-dev/codex-switchbridge/main/packages/vscode/images/dashboard-en-dark.png)
+![Codex SwitchBridge Dashboard in English dark mode](https://raw.githubusercontent.com/ShawBob001/codex-switchbridge/main/packages/vscode/images/dashboard-en-dark.png)
 
 Switch the Dashboard language to **简体中文** at any time:
 
-![Codex SwitchBridge Dashboard in Simplified Chinese light mode](https://raw.githubusercontent.com/baoshichao001-dev/codex-switchbridge/main/packages/vscode/images/dashboard-zh-light.png)
+![Codex SwitchBridge Dashboard in Simplified Chinese light mode](https://raw.githubusercontent.com/ShawBob001/codex-switchbridge/main/packages/vscode/images/dashboard-zh-light.png)
 
 ## Install
 
 Install the extension from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge). You can also open Extensions in VS Code and search for `Codex SwitchBridge` or `@id:baoshichao001-dev.codex-switchbridge`.
 
-For offline installation, download the latest `.vsix` from [GitHub Releases](https://github.com/baoshichao001-dev/codex-switchbridge/releases), then run **Extensions: Install from VSIX...**. To use the terminal instead, run the command below. Replace VERSION with the version in the downloaded filename.
+For offline installation, download the latest `.vsix` from [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases), then run **Extensions: Install from VSIX...**. To use the terminal instead, run the command below. Replace VERSION with the version in the downloaded filename.
 
 ```bash
 code --install-extension codex-switchbridge-VERSION.vsix
@@ -70,7 +70,7 @@ Older threads may carry a provider-specific history ID. Stop active Codex output
 
 The repair process creates backups, updates only provider identity fields, validates rollout JSONL and SQLite records, and stops if a rollout changes while it is being checked. Activation never rewrites history. Python 3 is required only for this maintenance command.
 
-See [Conversation history across modes](https://github.com/baoshichao001-dev/codex-switchbridge/blob/main/docs/shared-history.md) for details.
+See [Conversation history across modes](https://github.com/ShawBob001/codex-switchbridge/blob/main/docs/shared-history.md) for details.
 
 ## Features
 
@@ -126,10 +126,10 @@ See [Conversation history across modes](https://github.com/baoshichao001-dev/cod
 
 ## Project
 
-- [Repository](https://github.com/baoshichao001-dev/codex-switchbridge)
-- [Issues](https://github.com/baoshichao001-dev/codex-switchbridge/issues)
-- [Releases](https://github.com/baoshichao001-dev/codex-switchbridge/releases)
+- [Repository](https://github.com/ShawBob001/codex-switchbridge)
+- [Issues](https://github.com/ShawBob001/codex-switchbridge/issues)
+- [Releases](https://github.com/ShawBob001/codex-switchbridge/releases)
 
-Codex SwitchBridge is an independent open-source project derived from [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), with substantial modifications by `baoshichao001-dev`.
+Codex SwitchBridge is an independent open-source project derived from [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), with substantial modifications by `ShawBob001`.
 
 Released under the MIT License.

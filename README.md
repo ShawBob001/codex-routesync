@@ -20,7 +20,7 @@ The same Dashboard can switch immediately to Simplified Chinese:
 
 Codex SwitchBridge runs on Windows, macOS, and Linux. Use it from VS Code or from the command line.
 
-[![GitHub release](https://img.shields.io/github/v/release/baoshichao001-dev/codex-switchbridge)](https://github.com/baoshichao001-dev/codex-switchbridge/releases)
+[![GitHub release](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
 [![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/baoshichao001-dev.codex-switchbridge?label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
@@ -49,7 +49,7 @@ Codex account mode  <->  Codex SwitchBridge  <->  Responses API-provider mode
 
 Install the extension from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge). You can also open Extensions in VS Code and search for `Codex SwitchBridge` or `@id:baoshichao001-dev.codex-switchbridge`.
 
-For offline installation, download the latest `.vsix` from [GitHub Releases](https://github.com/baoshichao001-dev/codex-switchbridge/releases), then run **Extensions: Install from VSIX...**. To use the terminal instead, run the command below. Replace VERSION with the version in the downloaded filename.
+For offline installation, download the latest `.vsix` from [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases), then run **Extensions: Install from VSIX...**. To use the terminal instead, run the command below. Replace VERSION with the version in the downloaded filename.
 
 ```bash
 code --install-extension codex-switchbridge-VERSION.vsix
@@ -238,8 +238,17 @@ docs/       Architecture, behavior, and deployment notes
 
 Release procedures are documented in [Deployment](./docs/deployment.md).
 
+## Maintenance and contributing
+
+Codex SwitchBridge is actively maintained by a student developer as a long-term
+open-source project. The project accepts focused bug reports, feature proposals,
+documentation improvements, and tested pull requests. Read the
+[contribution guide](./.github/CONTRIBUTING.md), [security policy](./.github/SECURITY.md),
+and [open-source maintenance statement](./docs/OPEN_SOURCE_MAINTENANCE.md) before
+participating.
+
 ## Provenance and license
 
-Codex SwitchBridge is an independent open-source project derived from [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), with substantial modifications by `baoshichao001-dev`.
+Codex SwitchBridge is an independent open-source project derived from [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), with substantial modifications by `ShawBob001`.
 
 Released under the [MIT License](./LICENSE). The upstream copyright notice and license text are preserved.

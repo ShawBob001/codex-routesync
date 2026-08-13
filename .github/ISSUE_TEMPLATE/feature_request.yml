@@ -1,0 +1,56 @@
+name: Feature request
+description: Propose an improvement to Codex SwitchBridge
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: Explain the user problem before the proposed interface. This helps evaluate whether the change belongs in SwitchBridge and whether it can preserve credentials and local history safely.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What workflow is difficult today, and who encounters it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the result and interaction rather than only implementation details.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include current workarounds when available.
+  - type: checkboxes
+    id: areas
+    attributes:
+      label: Affected areas
+      options:
+        - label: Core switching or storage
+        - label: CLI
+        - label: VS Code dashboard or commands
+        - label: Shared conversation history
+        - label: Authentication, proxy, or security
+        - label: Usage or quota reporting
+        - label: Documentation or localization
+  - type: textarea
+    id: data_impact
+    attributes:
+      label: Data and compatibility impact
+      description: Explain whether this changes credentials, saved profiles, sync, history files, providers, or older installations.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Submission checks
+      options:
+        - label: I did not include credentials, account labels, private paths, or conversation content.
+          required: true
+        - label: I searched existing issues for a similar request.
+          required: true
+        - label: I agree to follow this project's Code of Conduct.
+          required: true

@@ -20,7 +20,7 @@ VS Code 확장은 편집기 영역에 그래픽 대시보드를 열어 현재 �
 
 Codex SwitchBridge는 Windows, macOS, Linux에서 실행되며 VS Code 또는 명령줄에서 사용할 수 있습니다.
 
-[![GitHub 릴리스](https://img.shields.io/github/v/release/baoshichao001-dev/codex-switchbridge)](https://github.com/baoshichao001-dev/codex-switchbridge/releases)
+[![GitHub 릴리스](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
 [![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/baoshichao001-dev.codex-switchbridge?label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge)
 [![라이선스: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
@@ -49,7 +49,7 @@ Codex 계정 모드  <->  Codex SwitchBridge  <->  Responses API 제공자 모�
 
 [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge)에서 확장을 설치합니다. VS Code의 확장 보기에서 `Codex SwitchBridge` 또는 `@id:baoshichao001-dev.codex-switchbridge`를 검색해도 됩니다.
 
-오프라인으로 설치하려면 [GitHub Releases](https://github.com/baoshichao001-dev/codex-switchbridge/releases)에서 최신 `.vsix`를 내려받은 다음 **Extensions: Install from VSIX...**를 실행합니다. 터미널에서는 아래 명령을 사용할 수 있습니다. VERSION을 내려받은 파일 이름의 버전으로 바꾸세요.
+오프라인으로 설치하려면 [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases)에서 최신 `.vsix`를 내려받은 다음 **Extensions: Install from VSIX...**를 실행합니다. 터미널에서는 아래 명령을 사용할 수 있습니다. VERSION을 내려받은 파일 이름의 버전으로 바꾸세요.
 
 ```bash
 code --install-extension codex-switchbridge-VERSION.vsix
@@ -240,6 +240,6 @@ docs/       아키텍처, 동작, 배포 문서
 
 ## 출처 및 라이선스
 
-Codex SwitchBridge는 [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch)에서 파생된 독립 오픈 소스 프로젝트이며 `baoshichao001-dev`가 상당 부분을 수정했습니다.
+Codex SwitchBridge는 [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch)에서 파생된 독립 오픈 소스 프로젝트이며 `ShawBob001`가 상당 부분을 수정했습니다.
 
 [MIT License](./LICENSE)에 따라 배포됩니다. 원본 프로젝트의 저작권 고지와 라이선스 본문은 유지됩니다.

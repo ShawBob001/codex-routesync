@@ -1,0 +1,116 @@
+name: Bug report
+description: Report a reproducible problem in Codex SwitchBridge
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. For credential exposure, unsafe file access, or another security concern, stop here and use private vulnerability reporting. Never paste tokens, API keys, proxy credentials, account names, conversation text, or unredacted logs into this form.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight checks
+      options:
+        - label: I reproduced this with the latest stable Codex SwitchBridge release.
+          required: true
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: I removed credentials, private paths, account labels, and conversation content.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: SwitchBridge version
+      placeholder: 0.7.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install_source
+    attributes:
+      label: Installation source
+      options:
+        - Visual Studio Marketplace
+        - GitHub Release VSIX
+        - Source checkout
+        - CLI package
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - VS Code extension
+        - CLI
+        - Both
+    validations:
+      required: true
+  - type: dropdown
+    id: route_type
+    attributes:
+      label: Active route type
+      description: Do not enter the real account or provider name.
+      options:
+        - Codex account
+        - Responses-compatible API provider
+        - Switching between both
+        - Not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, VS Code or Node.js version, Codex version, remote/local context, and whether a proxy is enabled. Do not include the proxy URL.
+      placeholder: Ubuntu 24.04; VS Code 1.xx Remote SSH; Codex x.y; proxy enabled
+    validations:
+      required: true
+  - type: dropdown
+    id: conflicting_extension
+    attributes:
+      label: Is Codex Account Switch installed and enabled?
+      options:
+        - "No"
+        - "Yes"
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Add only the smallest useful log excerpt or screenshot after removing all sensitive data.
+      render: text
+  - type: checkboxes
+    id: conduct
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow this project's Code of Conduct.
+          required: true

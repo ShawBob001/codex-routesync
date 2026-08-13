@@ -6,7 +6,7 @@ The npm package is `codex-switchbridge-cli`. It installs the `codex-switchbridge
 
 ## Install
 
-Install a tarball from [GitHub Releases](https://github.com/baoshichao001-dev/codex-switchbridge/releases):
+Install a tarball from [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases):
 
 ```bash
 npm install --global ./codex-switchbridge-cli-0.3.0.tgz
@@ -73,12 +73,12 @@ Use `--auth-dir <path>` or `CODEX_SWITCHBRIDGE_AUTH_DIR` to select a separate sa
 
 ## Project
 
-- [Documentation](https://github.com/baoshichao001-dev/codex-switchbridge#readme)
-- [Releases](https://github.com/baoshichao001-dev/codex-switchbridge/releases)
-- [Issues](https://github.com/baoshichao001-dev/codex-switchbridge/issues)
+- [Documentation](https://github.com/ShawBob001/codex-switchbridge#readme)
+- [Releases](https://github.com/ShawBob001/codex-switchbridge/releases)
+- [Issues](https://github.com/ShawBob001/codex-switchbridge/issues)
 
 ## Provenance and license
 
-Codex SwitchBridge is an independent open-source project derived from [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), with substantial modifications by `baoshichao001-dev`.
+Codex SwitchBridge is an independent open-source project derived from [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), with substantial modifications by `ShawBob001`.
 
 Released under the MIT License.

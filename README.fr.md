@@ -20,7 +20,7 @@ Le même tableau de bord peut passer immédiatement au chinois simplifié :
 
 Codex SwitchBridge fonctionne sous Windows, macOS et Linux. Vous pouvez l'utiliser depuis VS Code ou en ligne de commande.
 
-[![Version GitHub](https://img.shields.io/github/v/release/baoshichao001-dev/codex-switchbridge)](https://github.com/baoshichao001-dev/codex-switchbridge/releases)
+[![Version GitHub](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
 [![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/baoshichao001-dev.codex-switchbridge?label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge)
 [![Licence : MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
@@ -49,7 +49,7 @@ Mode compte Codex  <->  Codex SwitchBridge  <->  Mode fournisseur d'API Response
 
 Installez l'extension depuis le [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge). Vous pouvez aussi ouvrir la vue Extensions de VS Code et rechercher `Codex SwitchBridge` ou `@id:baoshichao001-dev.codex-switchbridge`.
 
-Pour une installation hors ligne, téléchargez le dernier fichier `.vsix` depuis les [versions GitHub](https://github.com/baoshichao001-dev/codex-switchbridge/releases), puis lancez **Extensions: Install from VSIX...**. Vous pouvez aussi utiliser la commande ci-dessous dans un terminal. Remplacez VERSION par la version présente dans le nom du fichier téléchargé.
+Pour une installation hors ligne, téléchargez le dernier fichier `.vsix` depuis les [versions GitHub](https://github.com/ShawBob001/codex-switchbridge/releases), puis lancez **Extensions: Install from VSIX...**. Vous pouvez aussi utiliser la commande ci-dessous dans un terminal. Remplacez VERSION par la version présente dans le nom du fichier téléchargé.
 
 ```bash
 code --install-extension codex-switchbridge-VERSION.vsix
@@ -240,6 +240,6 @@ Les procédures de publication sont décrites dans [Déploiement](./docs/deploym
 
 ## Origine et licence
 
-Codex SwitchBridge est un projet open source indépendant dérivé de [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), avec des modifications importantes apportées par `baoshichao001-dev`.
+Codex SwitchBridge est un projet open source indépendant dérivé de [jqknono/codex-account-switch](https://github.com/jqknono/codex-account-switch), avec des modifications importantes apportées par `ShawBob001`.
 
 Le projet est distribué sous [licence MIT](./LICENSE). L'avis de droit d'auteur et le texte de licence du projet d'origine sont conservés.
