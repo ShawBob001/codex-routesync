@@ -191,8 +191,9 @@ function selectionSwitchLabel(selection: SavedSelection): string {
   return `${selection.kind}:${selection.source}:${selection.name}`;
 }
 
-interface RefreshSavedAccountOptions {
+export interface RefreshSavedAccountOptions {
   shouldRefreshLatest?: (account: SavedAccountInfo) => boolean;
+  proxyUrl?: string | null;
 }
 
 interface SavedAccountQuotaQueryOptions {
@@ -2744,6 +2745,7 @@ export async function refreshSavedAccountEntry(account: SavedAccountInfo, option
 }> {
   if (account.source === "local") {
     return refreshAccount(account.name, {
+      proxyUrl: options.proxyUrl,
       persistUpdatedAuth: ({ auth }) => {
         persistLocalAccountAuth(account.name, auth);
       },
@@ -2774,7 +2776,10 @@ export async function refreshSavedAccountEntry(account: SavedAccountInfo, option
       };
     }
 
-    return refreshCloudSavedAccountEntry({ ...accountToRefresh, auth: latestAuth });
+    return refreshCloudSavedAccountEntry(
+      { ...accountToRefresh, auth: latestAuth },
+      options.proxyUrl,
+    );
   });
 }
 
@@ -2826,7 +2831,10 @@ async function retryPersistRotatedCloudAuthAfterConflict(
   );
 }
 
-async function refreshCloudSavedAccountEntry(account: SavedAccountInfo & { auth: AuthFile }): Promise<{
+async function refreshCloudSavedAccountEntry(
+  account: SavedAccountInfo & { auth: AuthFile },
+  proxyUrl?: string | null,
+): Promise<{
   success: boolean;
   message: string;
   meta?: AccountMeta;
@@ -2837,7 +2845,7 @@ async function refreshCloudSavedAccountEntry(account: SavedAccountInfo & { auth:
   const currentAuthWriteGuard = captureCurrentAuthWriteGuard(auth);
   const consumedRefreshToken = auth.tokens?.refresh_token ?? null;
   try {
-    const refreshed = await refreshAccessToken(auth);
+    const refreshed = await refreshAccessToken(auth, { proxyUrl });
     applyRefreshResponse(auth, refreshed);
     setAuthUpdatedAt(auth, new Date().toISOString());
     let persistResult = await persistCloudAccountAuth(

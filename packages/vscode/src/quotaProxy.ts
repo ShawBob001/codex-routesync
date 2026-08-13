@@ -106,10 +106,11 @@ export function resolveQuotaProxy(): ResolvedQuotaProxy {
 
 export function createQuotaQueryContext(
   snapshot?: SavedEntriesSnapshot,
+  resolvedProxy: ResolvedQuotaProxy = resolveQuotaProxy(),
 ): SavedAccountQuotaQueryContext {
   return {
     ...(snapshot ? { snapshot } : {}),
     sharedQueries: new Map(),
-    proxyUrl: resolveQuotaProxy().proxyUrl,
+    proxyUrl: resolvedProxy.proxyUrl,
   };
 }

@@ -15,7 +15,7 @@ import {
 import { StatusBarManager } from "./statusBar";
 import { UsageService } from "./tokenUsage";
 import { selectionUsageSubject } from "./usageSubjects";
-import { createQuotaQueryContext } from "./quotaProxy";
+import { createQuotaQueryContext, resolveQuotaProxy } from "./quotaProxy";
 
 const LOG_PREFIX = "[codex-switchbridge:vscode:refreshCoordinator]";
 const TOKEN_REFRESH_THRESHOLD_MS = 120 * 60 * 60 * 1000;
@@ -339,6 +339,7 @@ export class RefreshCoordinator implements vscode.Disposable {
     });
 
     const refreshId = `refresh-${++refreshSequence}`;
+    const resolvedProxy = resolveQuotaProxy();
     let snapshot = createSavedEntriesSnapshot();
     let currentSelectionAccountId = this.getCurrentSelectionAccountId(snapshot);
     let autoTargetAccount: SavedAccountInfo | null = null;
@@ -366,7 +367,11 @@ export class RefreshCoordinator implements vscode.Disposable {
     }
 
     if (pendingReason === "timer" && autoTargetAccount && this.isTokenAutoUpdateEnabled()) {
-      const tokenRefreshResult = await this.maybeRefreshExpiringToken(autoTargetAccount, refreshId);
+      const tokenRefreshResult = await this.maybeRefreshExpiringToken(
+        autoTargetAccount,
+        refreshId,
+        resolvedProxy.proxyUrl,
+      );
       if (tokenRefreshResult.skipQuota) {
         targetIds = [];
       }
@@ -374,7 +379,7 @@ export class RefreshCoordinator implements vscode.Disposable {
       currentSelectionAccountId = this.getCurrentSelectionAccountId(snapshot);
     }
 
-    const queryContext: SavedAccountQuotaQueryContext = createQuotaQueryContext(snapshot);
+    const queryContext: SavedAccountQuotaQueryContext = createQuotaQueryContext(snapshot, resolvedProxy);
     const shouldEvaluateAutoSwitch =
       this.isAutoSwitchEnabled()
       && currentSelectionAccountId != null
@@ -581,7 +586,11 @@ export class RefreshCoordinator implements vscode.Disposable {
     );
   }
 
-  private async maybeRefreshExpiringToken(account: SavedAccountInfo, refreshId: string): Promise<{ skipQuota: boolean }> {
+  private async maybeRefreshExpiringToken(
+    account: SavedAccountInfo,
+    refreshId: string,
+    proxyUrl?: string | null,
+  ): Promise<{ skipQuota: boolean }> {
     const perf = startPerformanceLog(LOG_PREFIX, "refreshCoordinator.maybeRefreshExpiringToken", {
       account: account.name,
       source: account.source,
@@ -598,6 +607,7 @@ export class RefreshCoordinator implements vscode.Disposable {
 
       const result = await refreshSavedAccountEntry(account, {
         shouldRefreshLatest: (latestAccount) => this.shouldRefreshToken(latestAccount),
+        proxyUrl,
       });
       if (result.success && result.skipped) {
         perf.finish({

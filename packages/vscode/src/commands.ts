@@ -64,7 +64,7 @@ import {
 } from "./savedEntries";
 import { stableSubjectId, UsageService, UsageSubjectKind } from "./tokenUsage";
 import { savedEntryUsageSubject } from "./usageSubjects";
-import { createQuotaQueryContext } from "./quotaProxy";
+import { createQuotaQueryContext, resolveQuotaProxy, ResolvedQuotaProxy } from "./quotaProxy";
 const LOG_PREFIX = "[codex-switchbridge:vscode:commands]";
 const AUTO_SWITCH_ENABLED_CONTEXT_KEY = "codexSwitchBridge.autoSwitchEnabled";
 
@@ -227,6 +227,7 @@ async function refreshTokenAndQuota(
   quotaStore: QuotaStore,
   statusBar: StatusBarManager,
   accountIds?: Iterable<string>,
+  resolvedProxy: ResolvedQuotaProxy = resolveQuotaProxy(),
 ) {
   const normalizedAccountIds = accountIds ? [...accountIds] : undefined;
   const perf = startPerformanceLog(LOG_PREFIX, "command-support:refreshTokenAndQuota", {
@@ -235,7 +236,7 @@ async function refreshTokenAndQuota(
   const snapshot = createSavedEntriesSnapshot();
   accountTree.refresh(snapshot);
   perf.mark("account-tree-refresh");
-  const queryContext = createQuotaQueryContext(snapshot);
+  const queryContext = createQuotaQueryContext(snapshot, resolvedProxy);
   await Promise.all([
     quotaStore.refreshQuota(normalizedAccountIds, {
       snapshot,
@@ -1358,9 +1359,12 @@ export function registerCommands(
             return;
           }
 
+          const resolvedProxy = resolveQuotaProxy();
           const refreshResult = await vscode.window.withProgress(
             { location: vscode.ProgressLocation.Notification, title: `Refreshing token for "${trimmedName}"...` },
-            async () => refreshSavedAccountEntry(existing),
+            async () => refreshSavedAccountEntry(existing, {
+              proxyUrl: resolvedProxy.proxyUrl,
+            }),
           );
           perf.mark("refresh-existing-account", {
             success: refreshResult.success,
@@ -1370,7 +1374,7 @@ export function registerCommands(
               account: trimmedName,
               target,
             });
-            await refreshTokenAndQuota(accountTree, quotaStore, statusBar, existing.id);
+            await refreshTokenAndQuota(accountTree, quotaStore, statusBar, existing.id, resolvedProxy);
             vscode.window.showInformationMessage(`Account "${trimmedName}" already exists in ${getSourceLabel(target)} storage. Token refreshed.`);
             refreshAll(refreshCoordinator);
             return;
@@ -1935,6 +1939,7 @@ export function registerCommands(
             accountCount: selection.accounts.length,
             accounts: selection.accounts.map((account) => `${account.source}:${account.name}`),
           });
+          const resolvedProxy = resolveQuotaProxy();
 
           const refreshAccountToken = async (candidate: SavedAccountInfo): Promise<RefreshTokenOperationOutcome> => {
             const available = await ensureAccountAvailable(context, refreshCoordinator, candidate, {
@@ -1949,7 +1954,9 @@ export function registerCommands(
             }
 
             try {
-              const result = await refreshSavedAccountEntry(available);
+              const result = await refreshSavedAccountEntry(available, {
+                proxyUrl: resolvedProxy.proxyUrl,
+              });
               if (result.success) {
                 return {
                   account: available,
@@ -2013,7 +2020,13 @@ export function registerCommands(
                 }
                 if (outcome.status === "success") {
                   try {
-                    await refreshTokenAndQuota(accountTree, quotaStore, statusBar, [outcome.account.id]);
+                    await refreshTokenAndQuota(
+                      accountTree,
+                      quotaStore,
+                      statusBar,
+                      [outcome.account.id],
+                      resolvedProxy,
+                    );
                     perf.mark("refresh-token-and-quota");
                   } catch (error) {
                     logWarn(LOG_PREFIX, "refresh-token-quota-followup-failed", {
@@ -2125,7 +2138,13 @@ export function registerCommands(
               let quotaRefreshError: string | null = null;
               if (successfulAccountIds.length > 0) {
                 try {
-                  await refreshTokenAndQuota(accountTree, quotaStore, statusBar, successfulAccountIds);
+                  await refreshTokenAndQuota(
+                    accountTree,
+                    quotaStore,
+                    statusBar,
+                    successfulAccountIds,
+                    resolvedProxy,
+                  );
                   perf.mark("refresh-token-and-quota");
                 } catch (error) {
                   quotaRefreshError = toErrorMessage(error);

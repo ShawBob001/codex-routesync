@@ -478,6 +478,7 @@ function createVscodeMock(options) {
 
   const config = {
     authDirectory: options.authDirectory,
+    proxy: options.proxy ?? "",
     reloadWindowAfterSwitch: options.reloadWindowAfterSwitch ?? "never",
     useDeviceAuthForLogin: options.useDeviceAuthForLogin ?? false,
     quotaRefreshInterval: 30,
@@ -760,7 +761,9 @@ function createVscodeMock(options) {
         assert.ok(section === "codex-switchbridge" || section === "http");
         return {
           get(key, defaultValue) {
-            if (section === "http") return defaultValue;
+            if (section === "http") {
+              return key === "proxy" ? options.httpProxy ?? defaultValue : defaultValue;
+            }
             if (key === "syncedStorage" && options.legacyConfigurationSyncedStorage) {
               return legacySyncedStorage;
             }
@@ -1090,6 +1093,7 @@ async function withSuccessfulHttps(fn, mockOptions = {}) {
       hostname,
       path: requestOptions?.path ?? "",
       method: requestOptions?.method ?? "GET",
+      proxyUrl: requestOptions?.agent?.proxy?.href ?? null,
       authorization:
         requestOptions?.headers?.Authorization
         ?? requestOptions?.headers?.authorization
@@ -5621,6 +5625,7 @@ test("refreshToken command offers All and refreshes every saved account", async 
 
     const mocked = createVscodeMock({
       authDirectory: authDir,
+      proxy: "http://127.0.0.1:5128",
       showStatusBar: true,
       cloudTokenAutoUpdate: false,
       quickPickResponses: [
@@ -5647,6 +5652,13 @@ test("refreshToken command offers All and refreshes every saved account", async 
 
         assert.equal(countAuthRefreshRequests(requestLog), 2);
         assert.equal(countUsageRequests(requestLog), 2);
+
+        assert.deepEqual(
+          requestLog
+            .filter((request) => request.hostname === "auth.openai.com")
+            .map((request) => request.proxyUrl),
+          ["http://127.0.0.1:5128/", "http://127.0.0.1:5128/"],
+        );
 
         const alphaAuth = JSON.parse(fs.readFileSync(path.join(authDir, "auth_alpha.json"), "utf-8"));
         const betaAuth = JSON.parse(fs.readFileSync(path.join(authDir, "auth_beta.json"), "utf-8"));
@@ -11410,6 +11422,7 @@ test("timer maintenance refreshes cloud tokens while ignoring legacy auto-refres
     const requestLog = [];
     const mocked = createVscodeMock({
       authDirectory: authDir,
+      proxy: "http://127.0.0.1:6128",
       syncedStorage,
       secretValues: {
         [STORAGE_SECRET_KEY]: "maintenance-passphrase",
@@ -11435,6 +11448,10 @@ test("timer maintenance refreshes cloud tokens while ignoring legacy auto-refres
           await waitForRefreshCoordinatorIdle(context);
 
           assert.equal(countAuthRefreshRequests(requestLog), 1);
+          assert.equal(
+            requestLog.find((request) => request.hostname === "auth.openai.com")?.proxyUrl,
+            "http://127.0.0.1:6128/",
+          );
 
           const cloudAuth = readCloudAccount(
             mocked.config,
@@ -12777,6 +12794,7 @@ test("manual cloud token refresh ignores legacy selected device", async (t) => {
 
     const mocked = createVscodeMock({
       authDirectory: authDir,
+      httpProxy: "http://127.0.0.1:4128",
       syncedStorage,
       secretValues: {
         [STORAGE_SECRET_KEY]: "manual-override-passphrase",
@@ -12785,6 +12803,7 @@ test("manual cloud token refresh ignores legacy selected device", async (t) => {
       cloudTokenAutoUpdateIntervalHours: 1,
     });
 
+    const requestLog = [];
     await withMockedHostname(currentDeviceName, async () => {
       await withDisabledIntervals(() =>
         withSuccessfulHttps(async () => {
@@ -12819,6 +12838,10 @@ test("manual cloud token refresh ignores legacy selected device", async (t) => {
             errors: mocked.errorMessages,
           }));
           assert.equal(cloudAuth.tokens.refresh_token, "refresh-rotated");
+          assert.equal(
+            requestLog.find((request) => request.hostname === "auth.openai.com")?.proxyUrl,
+            "http://127.0.0.1:4128/",
+          );
           assert.equal(mocked.warningMessages.length, 0);
           assert.equal(mocked.errorMessages.length, 0);
 
@@ -12826,7 +12849,7 @@ test("manual cloud token refresh ignores legacy selected device", async (t) => {
             subscription?.dispose?.();
           }
           await waitForRefreshCoordinatorIdle(context);
-        })
+        }, { requestLog })
       );
     });
   } finally {
