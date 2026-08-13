@@ -21,7 +21,7 @@ VS Code 확장은 편집기 영역에 그래픽 대시보드를 열어 현재 �
 Codex SwitchBridge는 Windows, macOS, Linux에서 실행되며 VS Code 또는 명령줄에서 사용할 수 있습니다.
 
 [![GitHub 릴리스](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
-[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode)
+[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode)
 [![라이선스: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 ## 두 가지 모드, 하나의 로컬 대화 기록
@@ -47,13 +47,19 @@ Codex 계정 모드  <->  Codex SwitchBridge  <->  Responses API 제공자 모�
 
 ### VS Code 확장
 
-[Visual Studio Marketplace](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode)에서 확장을 찾거나 VS Code의 확장 보기에서 `Codex SwitchBridge`를 검색하세요.
+[Visual Studio Marketplace 페이지](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode)에서 확장을 설치하거나 VS Code의 확장 보기에서 `Codex SwitchBridge for VS Code`를 검색하세요.
 
 오프라인으로 설치하려면 [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases)에서 최신 `.vsix`를 내려받은 다음 **Extensions: Install from VSIX...**를 실행합니다. 터미널에서는 아래 명령을 사용할 수 있습니다. VERSION을 내려받은 파일 이름의 버전으로 바꾸세요.
 
 ```bash
-code --install-extension codex-switchbridge-VERSION.vsix
+code --install-extension codex-switchbridge-vscode-VERSION.vsix
 ```
+
+#### 이전 Marketplace 버전에서 이전하기
+
+이전 Marketplace 버전에서 SwitchBridge를 설치했다면 먼저 이전 설치를 열고 동기화 또는 클라우드에 있는 모든 계정과 API 제공자를 **Local**로 이동하세요. 그런 다음 이전 설치를 비활성화하거나 제거하고 **Developer: Reload Window**를 실행한 뒤 위 링크에서 대체 버전을 설치하고 저장소 암호를 다시 입력하세요.
+
+설정된 `CODEX_HOME`의 계정, API 제공자, 구성 파일, 백업, 공유 기록은 그대로 사용할 수 있고 기존 `codex-switchbridge.*` 설정도 계속 적용됩니다. 두 버전은 확장 ID가 다르므로 이전 설치의 `globalState`, `SecretStorage`, 저장된 라우트별 사용량 귀속 정보는 자동으로 이전되지 않습니다.
 
 활동 표시줄에서 **Codex SwitchBridge** 보기를 엽니다. 평면 **Accounts & API Routes** 목록은 저장된 계정과 API 제공자를 사이드바의 같은 디렉터리에 배치합니다. 대시보드는 중앙 편집기 영역에서 자동으로 열리거나 다시 앞으로 이동합니다. 제목 표시줄의 **Open Dashboard** 동작도 예비 진입점으로 남아 있습니다.
 

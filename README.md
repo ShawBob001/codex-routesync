@@ -21,7 +21,7 @@ The same Dashboard can switch immediately to Simplified Chinese:
 Codex SwitchBridge runs on Windows, macOS, and Linux. Use it from VS Code or from the command line.
 
 [![GitHub release](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
-[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode)
+[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 ## Two modes, one local conversation history
@@ -47,13 +47,23 @@ Codex account mode  <->  Codex SwitchBridge  <->  Responses API-provider mode
 
 ### VS Code extension
 
-Find the extension in the [Visual Studio Marketplace](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode), or open Extensions in VS Code and search for `Codex SwitchBridge`.
+Install the extension from its [Visual Studio Marketplace page](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode), or open Extensions in VS Code and search for `Codex SwitchBridge for VS Code`.
 
 For offline installation, download the latest `.vsix` from [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases), then run **Extensions: Install from VSIX...**. To use the terminal instead, run the command below. Replace VERSION with the version in the downloaded filename.
 
 ```bash
-code --install-extension codex-switchbridge-VERSION.vsix
+code --install-extension codex-switchbridge-vscode-VERSION.vsix
 ```
+
+#### Move from the previous Marketplace listing
+
+If you installed SwitchBridge from the previous Marketplace listing, complete these steps before enabling the replacement:
+
+1. Open the previous installation and move every synced or cloud account and API provider to **Local**.
+2. Disable or uninstall the previous installation, then run **Developer: Reload Window**.
+3. Install the replacement from the link above and re-enter your storage password.
+
+Accounts, API providers, configuration files, backups, and shared history under the configured `CODEX_HOME` remain available. Existing `codex-switchbridge.*` settings also remain in effect. The listings have different extension identities, so the previous installation's `globalState`, `SecretStorage`, and stored per-route usage attribution do not migrate automatically.
 
 Open the **Codex SwitchBridge** Activity Bar view. Its flat **Accounts & API Routes** list puts saved accounts and API providers in the same sidebar directory, and the Dashboard automatically opens or returns to the foreground in the central editor area. The title-bar **Open Dashboard** action remains available as a fallback.
 

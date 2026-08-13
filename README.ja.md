@@ -21,7 +21,7 @@ VS Code 拡張機能は、現在のモード、共有履歴の状態、アカウ
 Codex SwitchBridge は Windows、macOS、Linux で動作します。VS Code またはコマンドラインから利用できます。
 
 [![GitHub リリース](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
-[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode)
+[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode)
 [![ライセンス: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 ## 2 つのモード、1 つのローカル会話履歴
@@ -47,13 +47,19 @@ Codex アカウントモード  <->  Codex SwitchBridge  <->  Responses API プ�
 
 ### VS Code 拡張機能
 
-[Visual Studio Marketplace](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode) で拡張機能を探すか、VS Code の拡張機能ビューで `Codex SwitchBridge` を検索してください。
+[Visual Studio Marketplace のページ](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode)から拡張機能をインストールするか、VS Code の拡張機能ビューで `Codex SwitchBridge for VS Code` を検索してください。
 
 オフラインでインストールする場合は、[GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases) から最新の `.vsix` をダウンロードし、**Extensions: Install from VSIX...** を実行します。ターミナルでは次のコマンドを使えます。VERSION はダウンロードしたファイル名のバージョンに置き換えてください。
 
 ```bash
-code --install-extension codex-switchbridge-VERSION.vsix
+code --install-extension codex-switchbridge-vscode-VERSION.vsix
 ```
+
+#### 以前の Marketplace 版から移行する
+
+以前の Marketplace 版から SwitchBridge をインストールした場合は、まず以前のインストールを開き、同期またはクラウドにあるすべてのアカウントと API プロバイダーを **Local** に移動します。次に、以前のインストールを無効化またはアンインストールし、**Developer: Reload Window** を実行してから、上記のリンクで置き換え版をインストールし、ストレージパスワードを再入力します。
+
+設定済みの `CODEX_HOME` にあるアカウント、API プロバイダー、設定ファイル、バックアップ、共有履歴は引き続き利用でき、既存の `codex-switchbridge.*` 設定もそのまま有効です。2 つの版は拡張機能 ID が異なるため、以前のインストールの `globalState`、`SecretStorage`、保存済みのルート別使用量割り当ては自動的に移行されません。
 
 アクティビティバーの **Codex SwitchBridge** ビューを開きます。フラットな **Accounts & API Routes** 一覧では、保存済みアカウントと API プロバイダーがサイドバーの同じディレクトリに並びます。ダッシュボードは中央のエディター領域で自動的に開くか前面に戻ります。タイトルバーの **Open Dashboard** アクションも予備の入口として利用できます。
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0 - 2026-08-13
+
+- Moved the VS Code distribution to the new `ShawBob001.codex-switchbridge-vscode` Marketplace identity and renamed the offline package to `codex-switchbridge-vscode-0.8.0.vsix`.
+- Added an activation guard that asks users to disable or uninstall the previous Marketplace installation and reload VS Code before the replacement can manage Codex files.
+- Preserved local accounts, API providers, configuration, backups, shared history under `CODEX_HOME`, and existing `codex-switchbridge.*` settings across the move.
+- Documented the required migration of synced or cloud entries to Local storage. Extension-scoped `globalState`, `SecretStorage`, and previously stored per-route usage attribution do not transfer automatically between Marketplace identities.
+
 ## 0.7.0 - 2026-08-13
 
 - Placed saved Codex accounts and API providers in one flat route list, removing the remaining account/provider directory split from the sidebar.

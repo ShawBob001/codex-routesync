@@ -21,7 +21,7 @@ El mismo panel puede cambiar inmediatamente a chino simplificado:
 Codex SwitchBridge funciona en Windows, macOS y Linux. Puedes usarlo desde VS Code o desde la línea de comandos.
 
 [![Versión de GitHub](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
-[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode)
+[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode)
 [![Licencia: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 ## Dos modos, un solo historial local de conversaciones
@@ -47,13 +47,19 @@ Modo de cuenta Codex  <->  Codex SwitchBridge  <->  Modo de proveedor API Respon
 
 ### Extensión de VS Code
 
-Busca la extensión en [Visual Studio Marketplace](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode), o abre la vista Extensiones de VS Code y busca `Codex SwitchBridge`.
+Instala la extensión desde su [página de Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode), o abre la vista Extensiones de VS Code y busca `Codex SwitchBridge for VS Code`.
 
 Para una instalación sin conexión, descarga el archivo `.vsix` más reciente desde [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases) y ejecuta **Extensions: Install from VSIX...**. También puedes usar el siguiente comando en una terminal. Sustituye VERSION por la versión incluida en el nombre del archivo descargado.
 
 ```bash
-code --install-extension codex-switchbridge-VERSION.vsix
+code --install-extension codex-switchbridge-vscode-VERSION.vsix
 ```
+
+#### Migrar desde la publicación anterior de Marketplace
+
+Si instalaste SwitchBridge desde la publicación anterior de Marketplace, abre primero la instalación anterior y mueve a **Local** todas las cuentas y proveedores de API sincronizados o guardados en la nube. Después, desactiva o desinstala esa instalación, ejecuta **Developer: Reload Window**, instala la versión de reemplazo desde el enlace anterior y vuelve a introducir la contraseña de almacenamiento.
+
+Las cuentas, los proveedores de API, los archivos de configuración, las copias de seguridad y el historial compartido del `CODEX_HOME` configurado siguen disponibles. Los ajustes `codex-switchbridge.*` existentes también siguen vigentes. Las dos publicaciones usan identidades de extensión distintas, por lo que `globalState`, `SecretStorage` y la atribución por ruta guardada por la instalación anterior no se migran automáticamente.
 
 Abre la vista **Codex SwitchBridge** de la barra de actividad. La lista plana **Accounts & API Routes** coloca las cuentas guardadas y los proveedores de API en el mismo directorio de la barra lateral. El panel se abrirá automáticamente o volverá al primer plano en el editor central. La acción **Open Dashboard** de la barra de título sigue disponible como alternativa.
 

@@ -16,13 +16,23 @@ Switch the Dashboard language to **简体中文** at any time:
 
 ## Install
 
-Find the extension in the [Visual Studio Marketplace](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode), or open Extensions in VS Code and search for `Codex SwitchBridge`.
+Install the extension from its [Visual Studio Marketplace page](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode), or open Extensions in VS Code and search for `Codex SwitchBridge for VS Code`.
 
 For offline installation, download the latest `.vsix` from [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases), then run **Extensions: Install from VSIX...**. To use the terminal instead, run the command below. Replace VERSION with the version in the downloaded filename.
 
 ```bash
-code --install-extension codex-switchbridge-VERSION.vsix
+code --install-extension codex-switchbridge-vscode-VERSION.vsix
 ```
+
+#### Move from the previous Marketplace listing
+
+If you installed SwitchBridge from the previous Marketplace listing, complete these steps before enabling the replacement:
+
+1. Open the previous installation and move every synced or cloud account and API provider to **Local**.
+2. Disable or uninstall the previous installation, then run **Developer: Reload Window**.
+3. Install the replacement from the link above and re-enter your storage password.
+
+Accounts, API providers, configuration files, backups, and shared history under the configured `CODEX_HOME` remain available. Existing `codex-switchbridge.*` settings also remain in effect. The listings have different extension identities, so the previous installation's `globalState`, `SecretStorage`, and stored per-route usage attribution do not migrate automatically.
 
 Disable or uninstall **Codex Account Switch** before enabling Codex SwitchBridge. Both extensions write the same local Codex files.
 

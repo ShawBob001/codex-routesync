@@ -21,7 +21,7 @@ Dasselbe Dashboard kann sofort auf vereinfachtes Chinesisch umgestellt werden:
 Codex SwitchBridge läuft unter Windows, macOS und Linux. Du kannst es in VS Code oder über die Befehlszeile verwenden.
 
 [![GitHub-Release](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
-[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode)
+[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode)
 [![Lizenz: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 ## Zwei Modi, ein lokaler Gesprächsverlauf
@@ -47,13 +47,19 @@ Codex-Kontomodus  <->  Codex SwitchBridge  <->  Responses-API-Anbietermodus
 
 ### VS Code-Erweiterung
 
-Suche die Erweiterung im [Visual Studio Marketplace](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode), oder öffne die Erweiterungsansicht in VS Code und suche nach `Codex SwitchBridge`.
+Installiere die Erweiterung über ihre [Visual Studio Marketplace-Seite](https://marketplace.visualstudio.com/items?itemName=ShawBob001.codex-switchbridge-vscode), oder öffne die Erweiterungsansicht in VS Code und suche nach `Codex SwitchBridge for VS Code`.
 
 Für eine Offline-Installation lädst du die neueste `.vsix`-Datei von den [GitHub-Releases](https://github.com/ShawBob001/codex-switchbridge/releases) herunter und führst anschließend **Extensions: Install from VSIX...** aus. Alternativ kannst du den folgenden Befehl im Terminal verwenden. Ersetze VERSION durch die Version im Namen der heruntergeladenen Datei.
 
 ```bash
-code --install-extension codex-switchbridge-VERSION.vsix
+code --install-extension codex-switchbridge-vscode-VERSION.vsix
 ```
+
+#### Von der vorherigen Marketplace-Version migrieren
+
+Wenn du SwitchBridge über die vorherige Marketplace-Version installiert hast, öffne zuerst die vorherige Installation und verschiebe alle synchronisierten oder in der Cloud gespeicherten Konten und API-Anbieter nach **Local**. Deaktiviere oder deinstalliere danach diese Installation, führe **Developer: Reload Window** aus, installiere die Ersatzversion über den obigen Link und gib das Speicherpasswort erneut ein.
+
+Konten, API-Anbieter, Konfigurationsdateien, Sicherungen und der gemeinsame Verlauf im konfigurierten `CODEX_HOME` bleiben verfügbar. Vorhandene `codex-switchbridge.*`-Einstellungen gelten ebenfalls weiterhin. Die beiden Marketplace-Versionen verwenden unterschiedliche Erweiterungs-IDs. Deshalb werden `globalState`, `SecretStorage` und die gespeicherte Nutzungszuordnung pro Route aus der vorherigen Installation nicht automatisch migriert.
 
 Öffne die Aktivitätsleistenansicht **Codex SwitchBridge**. Die flache Liste **Accounts & API Routes** zeigt gespeicherte Konten und API-Anbieter im selben Verzeichnis der Seitenleiste. Das Dashboard wird automatisch im zentralen Editorbereich geöffnet oder wieder in den Vordergrund gebracht. Die Aktion **Open Dashboard** in der Titelleiste bleibt als Ausweichmöglichkeit verfügbar.
 
