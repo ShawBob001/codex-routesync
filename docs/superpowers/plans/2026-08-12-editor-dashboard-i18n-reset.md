@@ -66,4 +66,4 @@
 - [ ] Run `npm audit --workspaces --include-workspace-root` and record the result.
 - [ ] Request an independent code review, fix every Critical/Important issue, and rerun affected plus full tests.
 - [ ] Package `codex-switchbridge-0.5.0.vsix`, validate the ZIP, inspect its contents for required NLS/Webview assets and excluded secrets/tests, and calculate SHA-256.
-- [ ] Install the VSIX into the current remote VS Code server, verify `baoshichao001-dev.codex-switchbridge@0.5.0` is the only SwitchBridge/conflicting switch extension, and provide the exact reload/open instructions.
+- [ ] Install the VSIX into the current remote VS Code server, verify the manifest publisher's `codex-switchbridge@0.5.0` is the only SwitchBridge/conflicting switch extension, and provide the exact reload/open instructions.

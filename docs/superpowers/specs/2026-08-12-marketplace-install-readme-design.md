@@ -12,12 +12,12 @@ Make it obvious from the GitHub repository that Codex SwitchBridge can be instal
 
 The root README will add a Visual Studio Marketplace version badge beside the existing GitHub release and license badges. The badge and a short **Install from Visual Studio Marketplace** link will point to:
 
-`https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge`
+`https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode`
 
 The VS Code quick-start section in both `README.md` and `packages/vscode/README.md` will use this order:
 
 1. Install from the Marketplace link.
-2. In VS Code, open Extensions and search for `Codex SwitchBridge` or `@id:baoshichao001-dev.codex-switchbridge`.
+2. In VS Code, open Extensions and search for `Codex SwitchBridge`.
 3. Use the latest VSIX from GitHub Releases only for offline or manual installation.
 
 The instructions will not hard-code a VSIX version in prose or commands. The shell example will use `codex-switchbridge-VERSION.vsix`, and the text will tell readers to replace `VERSION` with the version in the downloaded filename. The placeholder must not use angle brackets because an unquoted `<` is shell redirection.

@@ -637,7 +637,7 @@ Expected: archive integrity passes; both browser assets are present; raw `src`, 
 
 - [ ] **Step 5: Install and smoke-check locally**
 
-Install the exact VSIX with `code --install-extension ... --force`, confirm `baoshichao001-dev.codex-switchbridge@0.4.0`, reload the Extension Host, and manually verify account mode, Provider mode, toggle, switch menu, token expansion, and one-shot reload strip.
+Install the exact VSIX with `code --install-extension ... --force`, confirm the manifest publisher's `codex-switchbridge@0.4.0`, reload the Extension Host, and manually verify account mode, Provider mode, toggle, switch menu, token expansion, and one-shot reload strip.
 
 - [ ] **Step 6: Request code review and commit the release metadata**
 

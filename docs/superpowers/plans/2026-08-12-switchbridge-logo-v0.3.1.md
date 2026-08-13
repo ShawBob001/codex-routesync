@@ -23,7 +23,8 @@ Change the test title and expected version:
 test("extension identity is Codex SwitchBridge 0.3.1", () => {
   assert.equal(manifest.name, "codex-switchbridge");
   assert.equal(manifest.displayName, "Codex SwitchBridge");
-  assert.equal(manifest.publisher, "baoshichao001-dev");
+  assert.equal(typeof manifest.publisher, "string");
+  assert.ok(manifest.publisher.length > 0);
   assert.equal(manifest.version, "0.3.1");
 ```
 
@@ -196,12 +197,12 @@ Calculate the VSIX digest and create `codex-switchbridge-v0.3.1-SHA256SUMS` with
 
 ```bash
 code --install-extension \
-  /mnt/pfs/pynr16/Shichao_Bao/codex-switchbridge/packages/vscode/codex-switchbridge-0.3.1.vsix \
+  /path/to/codex-switchbridge/packages/vscode/codex-switchbridge-0.3.1.vsix \
   --force
 code --list-extensions --show-versions
 ```
 
-Expected: installation succeeds and the list contains `baoshichao001-dev.codex-switchbridge@0.3.1`.
+Expected: installation succeeds and the list contains the manifest publisher's `codex-switchbridge@0.3.1`.
 
 ### Task 5: Publish GitHub Release
 
@@ -238,7 +239,7 @@ Run `umask 077; mktemp -d /tmp/codex-switchbridge.XXXXXX` through SSH and valida
 
 - [ ] **Step 3: Upload and install the exact verified VSIX**
 
-Use `scp` to upload `packages/vscode/codex-switchbridge-0.3.1.vsix` into the validated directory. Run the remote VS Code CLI with `--install-extension <exact-path> --force`, then confirm `baoshichao001-dev.codex-switchbridge@0.3.1` through `--list-extensions --show-versions`.
+Use `scp` to upload `packages/vscode/codex-switchbridge-0.3.1.vsix` into the validated directory. Run the remote VS Code CLI with `--install-extension EXACT_VSIX_PATH --force`, then confirm the manifest publisher's `codex-switchbridge@0.3.1` through `--list-extensions --show-versions`.
 
 - [ ] **Step 4: Clean remote staging after successful installation**
 
@@ -250,7 +251,7 @@ Delete only the validated versioned VSIX and its validated random staging direct
 
 - [ ] **Step 1: Supply the exact GitHub VSIX for manual Marketplace update**
 
-Marketplace credentials are intentionally absent. Give the user the GitHub release download link and direct them to upload the VSIX as a new version under the existing `baoshichao001-dev.codex-switchbridge` entry.
+Marketplace credentials are intentionally absent. Give the user the GitHub release download link and direct them to upload the VSIX as a new version under the existing Marketplace entry.
 
 - [ ] **Step 2: Verify public propagation after upload**
 
@@ -258,7 +259,7 @@ Run:
 
 ```bash
 PATH=/tmp/csb-node.cfY4xx/bin:$PATH npx --yes @vscode/vsce@3.9.2 \
-  show baoshichao001-dev.codex-switchbridge --json
+  show "$(node -p "require('./packages/vscode/package.json').publisher").codex-switchbridge" --json
 ```
 
 Expected: public metadata reports 0.3.1 and `Microsoft.VisualStudio.Services.VsixSha256` matches the GitHub release asset.

@@ -21,7 +21,7 @@ El mismo panel puede cambiar inmediatamente a chino simplificado:
 Codex SwitchBridge funciona en Windows, macOS y Linux. Puedes usarlo desde VS Code o desde la línea de comandos.
 
 [![Versión de GitHub](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
-[![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/baoshichao001-dev.codex-switchbridge?label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge)
+[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode)
 [![Licencia: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 ## Dos modos, un solo historial local de conversaciones
@@ -47,7 +47,7 @@ Modo de cuenta Codex  <->  Codex SwitchBridge  <->  Modo de proveedor API Respon
 
 ### Extensión de VS Code
 
-Instala la extensión desde [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge). También puedes abrir la vista Extensiones de VS Code y buscar `Codex SwitchBridge` o `@id:baoshichao001-dev.codex-switchbridge`.
+Busca la extensión en [Visual Studio Marketplace](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode), o abre la vista Extensiones de VS Code y busca `Codex SwitchBridge`.
 
 Para una instalación sin conexión, descarga el archivo `.vsix` más reciente desde [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases) y ejecuta **Extensions: Install from VSIX...**. También puedes usar el siguiente comando en una terminal. Sustituye VERSION por la versión incluida en el nombre del archivo descargado.
 

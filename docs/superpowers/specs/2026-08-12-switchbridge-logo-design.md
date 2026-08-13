@@ -54,6 +54,6 @@ Implementation is complete only when all of the following hold:
 
 ## Release
 
-Publish a GitHub `v0.3.1` release containing the verified VSIX and checksum file. Marketplace credentials are not stored in this environment, so the exact VSIX will be supplied for manual upload through the existing `baoshichao001-dev` publisher dashboard. After upload, verify that the public Marketplace record reports version 0.3.1 and the same VSIX digest.
+Publish a GitHub `v0.3.1` release containing the verified VSIX and checksum file. Marketplace credentials are not stored in this environment, so the exact VSIX will be supplied for manual upload through the existing publisher dashboard. After upload, verify that the public Marketplace record reports version 0.3.1 and the same VSIX digest.
 
 No npm CLI release is part of this logo-only update.

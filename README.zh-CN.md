@@ -21,7 +21,7 @@ VS Code 扩展会在编辑器区域打开图形化仪表盘，用于展示当前
 Codex SwitchBridge 支持 Windows、macOS 和 Linux，可以在 VS Code 中使用，也可以通过命令行使用。
 
 [![GitHub 版本](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
-[![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/baoshichao001-dev.codex-switchbridge?label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge)
+[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode)
 [![许可证：MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 ## 两种模式，一份本地对话历史
@@ -47,7 +47,7 @@ Codex 账号模式  <->  Codex SwitchBridge  <->  Responses API 提供商模式
 
 ### VS Code 扩展
 
-从 [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge) 安装扩展。你也可以打开 VS Code 的扩展视图，搜索 `Codex SwitchBridge` 或 `@id:baoshichao001-dev.codex-switchbridge`。
+在 [Visual Studio Marketplace](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode) 查找扩展，或打开 VS Code 的扩展视图并搜索 `Codex SwitchBridge`。
 
 如需离线安装，请从 [GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases) 下载最新的 `.vsix` 文件，然后运行 **Extensions: Install from VSIX...**。也可以在终端中执行下面的命令。请将 VERSION 替换为下载文件名中的版本号。
 

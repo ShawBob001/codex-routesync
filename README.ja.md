@@ -21,7 +21,7 @@ VS Code 拡張機能は、現在のモード、共有履歴の状態、アカウ
 Codex SwitchBridge は Windows、macOS、Linux で動作します。VS Code またはコマンドラインから利用できます。
 
 [![GitHub リリース](https://img.shields.io/github/v/release/ShawBob001/codex-switchbridge)](https://github.com/ShawBob001/codex-switchbridge/releases)
-[![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/baoshichao001-dev.codex-switchbridge?label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge)
+[![Visual Studio Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-install-007ACC)](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode)
 [![ライセンス: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 ## 2 つのモード、1 つのローカル会話履歴
@@ -47,7 +47,7 @@ Codex アカウントモード  <->  Codex SwitchBridge  <->  Responses API プ�
 
 ### VS Code 拡張機能
 
-[Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=baoshichao001-dev.codex-switchbridge) から拡張機能をインストールします。VS Code の拡張機能ビューを開き、`Codex SwitchBridge` または `@id:baoshichao001-dev.codex-switchbridge` を検索することもできます。
+[Visual Studio Marketplace](https://marketplace.visualstudio.com/search?sortBy=Relevance&term=Codex%20SwitchBridge&target=VSCode) で拡張機能を探すか、VS Code の拡張機能ビューで `Codex SwitchBridge` を検索してください。
 
 オフラインでインストールする場合は、[GitHub Releases](https://github.com/ShawBob001/codex-switchbridge/releases) から最新の `.vsix` をダウンロードし、**Extensions: Install from VSIX...** を実行します。ターミナルでは次のコマンドを使えます。VERSION はダウンロードしたファイル名のバージョンに置き換えてください。
 
