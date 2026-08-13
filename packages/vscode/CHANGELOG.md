@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0 - 2026-08-13
+
+- Placed saved Codex accounts and API providers in one flat route list, removing the remaining account/provider directory split from the sidebar.
+- Added an account reset action that can consume one earned rate-limit reset through the official Codex App Server protocol, with account revalidation, confirmation, idempotency, and an immediate quota refresh.
+- Added an accessible Token details doughnut chart that compares mutually exclusive usage attributed to each account, API provider, and earlier or unattributed activity.
+- Added full English, Simplified Chinese, Japanese, Korean, Spanish, French, and German README editions with a language navigation bar on every edition.
+- Added regression coverage that verifies every non-zero usage-history bucket renders exactly one bar fill.
+
 ## 0.6.1 - 2026-08-13
 
 - Fixed account quota and OAuth token-refresh requests behind explicit, VS Code, and extension-host proxies, including remote extension hosts that override Node's HTTPS transport.

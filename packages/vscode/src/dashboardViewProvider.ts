@@ -17,6 +17,7 @@ export interface DashboardActionHandlers {
   configureAutoSwitch(): MaybePromise;
   addAccount(): MaybePromise;
   addProvider(): MaybePromise;
+  useRateLimitReset(): MaybePromise;
   reloginAccount(targetId: string): MaybePromise;
   unlockStorage(targetId: string): MaybePromise;
   reloadWindow(): MaybePromise;
@@ -172,6 +173,7 @@ implements vscode.Disposable {
         case "configureAutoSwitch": result = handlers.configureAutoSwitch(); break;
         case "addAccount": result = handlers.addAccount(); break;
         case "addProvider": result = handlers.addProvider(); break;
+        case "useRateLimitReset": result = handlers.useRateLimitReset(); break;
         case "reloadWindow": result = handlers.reloadWindow(); break;
       }
       Promise.resolve(result).catch(() => this.handleActionFailure(message.action));

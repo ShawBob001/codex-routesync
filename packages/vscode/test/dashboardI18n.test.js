@@ -19,6 +19,10 @@ test("required dashboard message contract exactly covers both catalogs", () => {
     "reload.afterHistoryRepair",
     "quota.windowLeft",
     "quota.resetCredits.applicableWithTotal",
+    "quota.resetCredits.use",
+    "quota.resetCredits.manage",
+    "usage.chart.other",
+    "usage.chart.empty",
   ];
 
   for (const key of newlyReviewedKeys) assert.ok(required.includes(key), `missing required key: ${key}`);
@@ -58,6 +62,12 @@ test("dashboard catalogs expose editor header, language, and precise reset copy"
     "quota.resetCredits.available",
     "quota.resetCredits.applicable",
     "quota.resetCredits.applicableWithTotal",
+    "quota.resetCredits.use",
+    "quota.resetCredits.manage",
+    "quota.resetCredits.noneApplicable",
+    "usage.chart.aria",
+    "usage.chart.empty",
+    "usage.chart.other",
   ]) {
     assert.ok(required.has(key), `missing editor dashboard key: ${key}`);
   }

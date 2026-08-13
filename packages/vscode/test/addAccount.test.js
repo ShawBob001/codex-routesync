@@ -369,33 +369,38 @@ function getRoutesTree(mocked) {
   return mocked.treeViews.get("codexSwitchBridgeRoutes").treeDataProvider;
 }
 
-function getRouteGroup(mocked, kind) {
-  return getRoutesTree(mocked).getChildren().find((item) => item.kind === kind);
-}
-
 function getAccountRoots(mocked) {
-  return getRoutesTree(mocked).getChildren(getRouteGroup(mocked, "accounts"));
+  const groups = new Map();
+  for (const item of getRoutesTree(mocked).getChildren()) {
+    if (item?.account && item.groupParent) {
+      groups.set(item.groupParent.groupKind, item.groupParent);
+    }
+  }
+  return [...groups.values()];
 }
 
 function getProviderRoots(mocked) {
-  return getRoutesTree(mocked).getChildren(getRouteGroup(mocked, "providers"));
+  return getRoutesTree(mocked).getChildren().filter((item) => item?.provider);
 }
 
 function getRouteBranchTree(mocked, kind) {
   const routes = getRoutesTree(mocked);
-  const routeGroup = getRouteGroup(mocked, kind);
   return {
     getChildren(element) {
-      return element === undefined
-        ? (kind === "accounts" ? getAccountRoots(mocked) : getProviderRoots(mocked))
-        : routes.getChildren(element);
+      if (element === undefined) {
+        return kind === "accounts" ? getAccountRoots(mocked) : getProviderRoots(mocked);
+      }
+      if (kind === "accounts" && Array.isArray(element.children)) {
+        return element.children;
+      }
+      return routes.getChildren(element);
     },
     getTreeItem(element) {
-      return routes.getTreeItem(element);
+      return element;
     },
     getParent(element) {
-      const parent = routes.getParent(element);
-      return parent === routeGroup ? undefined : parent;
+      if (kind === "accounts" && element?.account) return element.groupParent;
+      return routes.getParent(element);
     },
   };
 }
@@ -13424,6 +13429,52 @@ test("activation registers one unified route tree and focuses one dashboard pane
   });
 });
 
+test("unified route root lists accounts and API providers as sibling rows", async (t) => {
+  const { codexHome, authDir } = createTempExtensionEnvironment(
+    t,
+    "csb-vscode-flat-routes-",
+  );
+  const accountAuth = makeAuthFile("acct-flat-route");
+  core.setNamedAuthDir(authDir);
+  core.writeSavedAuthFile(path.join(authDir, "auth_account-route.json"), accountAuth);
+  core.writeProviderProfile({
+    kind: "provider",
+    name: "api-route",
+    auth: { OPENAI_API_KEY: "sk-flat-route" },
+    config: {
+      name: "api-route",
+      base_url: "https://route.example.com/v1",
+      wire_api: "responses",
+    },
+  });
+  core.setNamedAuthDir(undefined);
+  fs.writeFileSync(path.join(codexHome, "auth.json"), JSON.stringify(accountAuth, null, 2), "utf-8");
+
+  const mocked = createVscodeMock({ authDirectory: authDir });
+  await withDisabledIntervals(() =>
+    withSuccessfulHttps(async () => {
+      const extension = loadExtensionWithMockedVscode(mocked.vscode);
+      const context = createExtensionContext(mocked);
+      await extension.activate(context);
+      await waitForRefreshCoordinatorIdle(context);
+
+      const routes = getRoutesTree(mocked);
+      const roots = routes.getChildren();
+      const account = roots.find((item) => item.account?.name === "account-route");
+      const provider = roots.find((item) => item.provider?.name === "api-route");
+      assert.ok(account);
+      assert.ok(provider);
+      assert.equal(routes.getParent(account), undefined);
+      assert.equal(routes.getParent(provider), undefined);
+      assert.equal(roots.some((item) => item.kind === "accounts" || item.kind === "providers"), false);
+      assert.ok(routes.getChildren(account).some((item) => item.label === "Email"));
+      assert.ok(routes.getChildren(provider).some((item) => item.label === "Status"));
+
+      for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();
+    }),
+  );
+});
+
 test("an initially visible unified route tree opens one dashboard during activation", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-visible-routes-"));
   const codexHome = path.join(tempRoot, ".codex");
@@ -13457,7 +13508,7 @@ test("an initially visible unified route tree opens one dashboard during activat
   }
 });
 
-test("expand all accounts reveals account source groups through the unified tree", async () => {
+test("expand all accounts reveals flat account rows through the unified tree", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-expand-routes-"));
   const codexHome = path.join(tempRoot, ".codex");
   const authDir = path.join(tempRoot, "saved-auth");
@@ -13485,9 +13536,9 @@ test("expand all accounts reveals account source groups through the unified tree
       assert.ok(mocked.treeRevealCalls.every((call) => call.id === "codexSwitchBridgeRoutes"));
       assert.ok(mocked.treeRevealCalls.every((call) => call.options.expand === true));
       const routes = getRoutesTree(mocked);
-      const accountsGroup = getRouteGroup(mocked, "accounts");
       for (const { element } of mocked.treeRevealCalls) {
-        assert.equal(routes.getParent(element), accountsGroup);
+        assert.ok(element.account);
+        assert.equal(routes.getParent(element), undefined);
       }
 
       for (const subscription of context.subscriptions.reverse()) subscription?.dispose?.();

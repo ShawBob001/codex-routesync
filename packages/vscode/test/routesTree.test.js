@@ -95,6 +95,9 @@ function createDelegate(roots, childByParent = new Map()) {
   }
   return {
     onDidChangeTreeData: emitter.event,
+    getRootItems() {
+      return roots;
+    },
     getChildren(element) {
       return element ? childByParent.get(element) ?? [] : roots;
     },
@@ -114,22 +117,27 @@ test("unified routes tree delegates both account and provider branches", (t) => 
   const { RoutesTreeProvider } = loadRoutesTree(t);
   const accountRoot = new AccountGroupItem();
   const account = new AccountTreeItem();
+  accountRoot.children = [account];
+  const accountDetail = new AccountDetailItem();
   const providerRoot = new ProviderTreeItem();
   const providerDetail = new ProviderDetailItem();
-  const accounts = createDelegate([accountRoot], new Map([[accountRoot, [account]]]));
+  const accounts = createDelegate(
+    [accountRoot],
+    new Map([
+      [accountRoot, [account]],
+      [account, [accountDetail]],
+    ]),
+  );
   const providers = createDelegate([providerRoot], new Map([[providerRoot, [providerDetail]]]));
   const routes = new RoutesTreeProvider(accounts, providers, () => "en");
 
   const roots = routes.getChildren();
-  assert.deepEqual(roots.map((item) => item.kind), ["accounts", "providers"]);
-  assert.deepEqual(roots.map((item) => item.label), ["Accounts", "API Providers"]);
-  assert.deepEqual(routes.getChildren(roots[0]), [accountRoot]);
-  assert.deepEqual(routes.getChildren(roots[1]), [providerRoot]);
-  assert.deepEqual(routes.getChildren(accountRoot), [account]);
+  assert.deepEqual(roots, [account, providerRoot]);
+  assert.deepEqual(routes.getChildren(account), [accountDetail]);
   assert.deepEqual(routes.getChildren(providerRoot), [providerDetail]);
-  assert.equal(routes.getParent(accountRoot), roots[0]);
-  assert.equal(routes.getParent(account), accountRoot);
-  assert.equal(routes.getParent(providerRoot), roots[1]);
+  assert.equal(routes.getParent(account), undefined);
+  assert.equal(routes.getParent(accountDetail), account);
+  assert.equal(routes.getParent(providerRoot), undefined);
   assert.equal(routes.getParent(providerDetail), providerRoot);
   assert.equal(routes.getTreeItem(account), account);
   assert.equal(routes.getTreeItem(providerRoot), providerRoot);
@@ -137,7 +145,7 @@ test("unified routes tree delegates both account and provider branches", (t) => 
   routes.dispose();
 });
 
-test("delegate and locale changes refresh the unified root", (t) => {
+test("delegate and locale changes refresh the flat unified root", (t) => {
   const { RoutesTreeProvider } = loadRoutesTree(t);
   const accounts = createDelegate([]);
   const providers = createDelegate([]);
@@ -152,7 +160,7 @@ test("delegate and locale changes refresh the unified root", (t) => {
 
   locale = "zh-cn";
   routes.refreshLocale();
-  assert.deepEqual(routes.getChildren().map((item) => item.label), ["账号", "API 提供商"]);
+  assert.deepEqual(routes.getChildren(), []);
   assert.equal(changes.length, 3);
   assert.equal(changes[2], undefined);
 

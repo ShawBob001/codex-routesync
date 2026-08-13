@@ -2743,8 +2743,10 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand("codex-switchbridge.expandAllAccounts", async () => {
-      for (const item of accountTree.getRootItems()) {
-        await accountTreeView.reveal(item, { expand: true, focus: false, select: false });
+      for (const group of accountTree.getRootItems()) {
+        for (const item of group.children) {
+          await accountTreeView.reveal(item, { expand: true, focus: false, select: false });
+        }
       }
     }),
 

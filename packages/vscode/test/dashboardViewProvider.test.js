@@ -141,6 +141,7 @@ function createHarness(options = {}) {
     "configureAutoSwitch",
     "addAccount",
     "addProvider",
+    "useRateLimitReset",
     "reloadWindow",
   ].map((name) => [name, () => calls.push([name])]));
   handlers.setAutoSwitch = (enabled) => calls.push(["setAutoSwitch", enabled]);
@@ -334,6 +335,11 @@ test("routes only fixed actions and allows current fresh target IDs", async () =
   created.deliver({
     type: "dashboard.action",
     requestId: "2",
+    action: "useRateLimitReset",
+  });
+  created.deliver({
+    type: "dashboard.action",
+    requestId: "2b",
     action: "reloginAccount",
     targetId: "local:a",
   });
@@ -352,6 +358,7 @@ test("routes only fixed actions and allows current fresh target IDs", async () =
 
   assert.deepEqual(harness.calls, [
     ["setAutoSwitch", true],
+    ["useRateLimitReset"],
     ["reloginAccount", "local:a"],
   ]);
 
@@ -371,7 +378,7 @@ test("routes only fixed actions and allows current fresh target IDs", async () =
     targetId: "local:a",
   });
   await flushMicrotasks();
-  assert.equal(harness.calls.length, 2);
+  assert.equal(harness.calls.length, 3);
   harness.provider.dispose();
 });
 

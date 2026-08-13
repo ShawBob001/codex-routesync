@@ -1,14 +1,16 @@
+[English](./README.md) | [简体中文](./README.zh-CN.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [Español](./README.es.md) | [Français](./README.fr.md) | [Deutsch](./README.de.md)
+
 # Codex SwitchBridge
 
 **Seamlessly switch between saved Codex accounts and Responses-compatible API providers, keep local conversation history available in both modes, and see local token usage by selection.**
 
 Codex SwitchBridge updates credentials and provider routing as one guarded switch. Account mode and compatible API-provider mode use the same local history bucket, so changing how Codex authenticates does not split new conversations into separate timelines.
 
-The VS Code extension opens a graphical Dashboard in the editor area for the active mode, shared-history state, account quota reset clocks, and total local token usage. Its orange history chart groups local observations by day, week, or month and filters them by saved account, API provider, and date range. The Dashboard can follow VS Code's display language or switch immediately between English and Simplified Chinese.
+The VS Code extension opens a graphical Dashboard in the editor area for the active mode, shared-history state, account quota reset clocks, and total local token usage. Saved accounts and API providers appear together in one flat route list. Token details include a source doughnut chart, while the orange history chart groups local observations by day, week, or month. The Dashboard can follow VS Code's display language or switch immediately between English and Simplified Chinese.
 
 ## Usage preview
 
-Opening the **Codex SwitchBridge** Activity Bar now shows one unified **Accounts & API Routes** tree and automatically opens or focuses the Dashboard. Use the route tree for account/API management and the wide Dashboard for quota, reset time, automatic switching, and local token history.
+Opening the **Codex SwitchBridge** Activity Bar shows saved accounts and API providers as peers in one flat **Accounts & API Routes** list, then automatically opens or focuses the Dashboard. Use the route list for account/API management and the wide Dashboard for quota, reset time, automatic switching, and local token history.
 
 ![Codex SwitchBridge Dashboard in English dark mode](./assets/screenshots/dashboard-en-dark.png)
 
@@ -53,7 +55,7 @@ For offline installation, download the latest `.vsix` from [GitHub Releases](htt
 code --install-extension codex-switchbridge-VERSION.vsix
 ```
 
-Open the **Codex SwitchBridge** Activity Bar view. Its unified **Accounts & API Routes** tree appears in the sidebar, and the Dashboard automatically opens or returns to the foreground in the central editor area. The title-bar **Open Dashboard** action remains available as a fallback.
+Open the **Codex SwitchBridge** Activity Bar view. Its flat **Accounts & API Routes** list puts saved accounts and API providers in the same sidebar directory, and the Dashboard automatically opens or returns to the foreground in the central editor area. The title-bar **Open Dashboard** action remains available as a fallback.
 
 ### CLI
 
@@ -101,9 +103,11 @@ The VS Code Dashboard reads account quota metadata and cumulative `token_count` 
 - the same reset as local time with seconds and time-zone offset;
 - the exact upstream UTC timestamp, including milliseconds when present;
 - the available earned rate-limit reset count when the account service provides it;
+- a confirmed **Use one reset** action for the current account when an earned reset applies;
 - recorded total, input, output, cached input, and reasoning output tokens;
 - attributed and unattributed totals;
 - per-account and per-API-provider usage and session counts;
+- a source doughnut chart that compares mutually exclusive account, API-provider, and unattributed totals;
 - an orange daily, weekly, or monthly usage chart with source and date filters;
 - selected-range total, average, peak, and estimated usage;
 - index coverage, session count, tracking start, and last refresh time.
@@ -112,7 +116,9 @@ Reset clocks prefer the absolute timestamp returned by the quota service. If onl
 
 Use the language selector in the Dashboard header to choose **Auto**, **English**, or **简体中文**. Auto follows the VS Code display language, while either explicit choice is saved as a window setting and takes effect without reloading VS Code.
 
-Input and output make up the recorded total. Cached input is already part of input, and reasoning output is already part of output, so those two values are not added again.
+The reset action uses the official Codex App Server method, verifies that the same saved account is still active, asks for confirmation, consumes at most one earned reset with an idempotency key, and refreshes quota afterward. If the installed Codex version does not support reset consumption, SwitchBridge opens the official Usage page instead.
+
+Input and output make up the recorded total. Cached input is already part of input, and reasoning output is already part of output, so those two values are not added again. The doughnut chart uses only mutually exclusive attributed source totals, so it does not count cached input or reasoning output twice.
 
 Per-selection attribution starts when SwitchBridge begins local tracking. The index assigns each subsequent token increment to the account or API provider active when Codex recorded it, including when one conversation continues across a mode switch. Older shared `openai` sessions cannot be assigned to a specific saved entry safely and remain under **Earlier or unattributed**. Older provider-tagged sessions are attributed only when their provider ID maps to exactly one saved profile.
 
@@ -147,9 +153,10 @@ See [Conversation history across modes](./docs/shared-history.md) for the exact 
 ## Features
 
 - One-click switching between local or synced Codex accounts and API providers in VS Code
+- One flat sidebar route list for saved accounts and API providers
 - One-command account and API-provider switching from the CLI
 - Shared local conversation history for Responses-compatible provider routes
-- Wide editor Dashboard with graphical quota, precise reset clocks, and filterable daily/weekly/monthly local token history
+- Wide editor Dashboard with graphical quota, precise reset clocks, earned reset redemption, a source doughnut chart, and filterable daily/weekly/monthly local token history
 - Runtime English/Simplified Chinese Dashboard switching, plus localized VS Code commands and settings
 - Account quota display, token refresh, and rotating background maintenance
 - Local or VS Code Settings Sync storage for saved accounts and providers

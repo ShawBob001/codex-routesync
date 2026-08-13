@@ -175,6 +175,7 @@ function renderRoute(model: DashboardModel): HTMLElement {
       metadata([localizeSource(route.source), route.plan, localTokens(route.localTokens)]),
       renderQuotaSummary(route.quota),
     );
+    if (route.quota.resetCredits) identity.append(renderResetAction(route.quota.resetCredits));
     appendQuotaAction(identity, route.accountId, route.quota.status, "route-account");
     body.append(identity);
   } else if (route.kind === "provider") {
@@ -287,6 +288,32 @@ function renderResetCredits(credits: DashboardResetCredits): HTMLElement {
         });
   row.append(element("span", "reset-credits-glyph", "↻"), element("span", "reset-credits-label", label));
   return row;
+}
+
+function renderResetAction(credits: DashboardResetCredits): HTMLElement {
+  const wrapper = element("div", "reset-action");
+  const applicable = credits.applicableAvailableCount;
+  const managesUnknownApplicability = applicable == null && credits.availableCount > 0;
+  const button = commandButton(
+    managesUnknownApplicability ? tr("quota.resetCredits.manage") : tr("quota.resetCredits.use"),
+    "useRateLimitReset",
+    "secondary compact",
+    {},
+    "route-account:rate-limit-reset",
+  );
+  const disabled = credits.availableCount === 0 || applicable === 0;
+  button.disabled = disabled;
+  wrapper.append(button);
+  if (disabled) {
+    wrapper.append(element(
+      "span",
+      "reset-action-hint",
+      credits.availableCount === 0
+        ? tr("quota.resetCredits.noneAvailable")
+        : tr("quota.resetCredits.noneApplicable"),
+    ));
+  }
+  return wrapper;
 }
 
 function renderResetClock(
@@ -452,7 +479,7 @@ function renderUsage(model: DashboardModel): HTMLElement {
   const details = document.createElement("details"); details.className = "token-details"; details.open = tokenDetailsExpanded;
   details.addEventListener("toggle", () => { tokenDetailsExpanded = details.open; persistUiState(); });
   const detailsSummary = document.createElement("summary"); detailsSummary.textContent = tr("usage.details"); detailsSummary.dataset.focusKey = "usage-details";
-  details.append(detailsSummary, renderTokenMetrics(model), renderUsageLegend(model.usage.segments)); section.append(details);
+  details.append(detailsSummary, renderUsageDoughnut(model), renderTokenMetrics(model)); section.append(details);
   return section;
 }
 
@@ -607,6 +634,7 @@ function renderUsageChart(buckets: UsageChartBucket[], sourceName: string): HTML
   for (const [index, bucket] of buckets.entries()) {
     const item = element("div", "usage-history-item");
     item.setAttribute("role", "listitem");
+    item.dataset.tokenCount = String(bucket.tokens);
     const bar = element("span", "usage-history-bar");
     bar.style.setProperty("--usage-height", `${bucket.tokens > 0 ? Math.max(2, (bucket.tokens / peak) * 100) : 0}%`);
     const estimatedSuffix = bucket.estimatedTokens > 0
@@ -805,6 +833,122 @@ function renderTokenMetrics(model: DashboardModel): HTMLElement {
   return metrics;
 }
 
+interface UsagePieSlice {
+  label: string;
+  totalTokens: number;
+  sessionCount: number;
+  colorIndex: number | "unattributed" | "other";
+}
+
+function renderUsageDoughnut(model: DashboardModel): HTMLElement {
+  const totalTokens = model.usage.total.totalTokens;
+  if (totalTokens <= 0) {
+    const empty = element("div", "usage-doughnut-empty", tr("usage.chart.empty"));
+    empty.setAttribute("role", "status");
+    return empty;
+  }
+
+  const slices = usagePieSlices(model.usage.segments, model.usage.unattributedTokens);
+  const layout = element("div", "usage-pie-layout");
+  const doughnut = element("div", "usage-doughnut");
+  const gradient: string[] = [];
+  let offset = 0;
+  for (const slice of slices) {
+    const percent = (slice.totalTokens / totalTokens) * 100;
+    const next = Math.min(100, offset + percent);
+    gradient.push(`${pieColor(slice.colorIndex)} ${offset}% ${next}%`);
+    offset = next;
+  }
+  if (offset < 100) gradient.push(`transparent ${offset}% 100%`);
+  doughnut.style.background = `conic-gradient(${gradient.join(", ")})`;
+  doughnut.setAttribute("role", "img");
+  doughnut.setAttribute("aria-label", tr("usage.chart.aria", {
+    parts: slices.map((slice) => tr("usage.contributionPart", {
+      label: slice.label,
+      tokens: formatNumber(slice.totalTokens),
+    })).join(", "),
+  }));
+  const center = element("div", "usage-doughnut-center");
+  center.append(
+    element("strong", "usage-doughnut-center-value", model.usage.compactTotal),
+    element("span", "usage-doughnut-center-label", tr("usage.chart.total")),
+  );
+  doughnut.append(center);
+  layout.append(doughnut, renderPieLegend(slices, totalTokens));
+  return layout;
+}
+
+function usagePieSlices(
+  segments: DashboardUsageSegment[],
+  unattributedTokens: number,
+): UsagePieSlice[] {
+  const sorted: UsagePieSlice[] = segments
+    .filter((segment) => segment.totalTokens > 0)
+    .map((segment, index) => ({
+      label: segment.label,
+      totalTokens: segment.totalTokens,
+      sessionCount: segment.sessionCount,
+      colorIndex: index % 6,
+    }))
+    .sort((left, right) => right.totalTokens - left.totalTokens || left.label.localeCompare(right.label));
+  const hasUnattributed = unattributedTokens > 0 ? 1 : 0;
+  const visibleSourceCount = sorted.length + hasUnattributed > 6
+    ? 5 - hasUnattributed
+    : sorted.length;
+  const visible = sorted.slice(0, visibleSourceCount);
+  const remaining = sorted.slice(visibleSourceCount);
+  if (remaining.length > 0) {
+    visible.push({
+      label: tr("usage.chart.other"),
+      totalTokens: remaining.reduce((sum, slice) => safeAdd(sum, slice.totalTokens), 0),
+      sessionCount: remaining.reduce((sum, slice) => safeAdd(sum, slice.sessionCount), 0),
+      colorIndex: "other",
+    });
+  }
+  if (unattributedTokens > 0) {
+    visible.push({
+      label: tr("usage.history.unattributed"),
+      totalTokens: unattributedTokens,
+      sessionCount: 0,
+      colorIndex: "unattributed",
+    });
+  }
+  return visible;
+}
+
+function renderPieLegend(slices: UsagePieSlice[], totalTokens: number): HTMLElement {
+  const list = element("ul", "usage-legend usage-pie-legend");
+  for (const slice of slices) {
+    const item = element("li", "legend-row");
+    const swatch = element("span", "legend-swatch");
+    swatch.style.background = pieColor(slice.colorIndex);
+    const percent = totalTokens > 0 ? Math.round((slice.totalTokens / totalTokens) * 1000) / 10 : 0;
+    item.append(
+      swatch,
+      element("span", "legend-label", slice.label),
+      element("span", "legend-value", tr("usage.chart.legendValue", {
+        percent: formatNumber(percent),
+        tokens: formatNumber(slice.totalTokens),
+      })),
+    );
+    list.append(item);
+  }
+  return list;
+}
+
+function pieColor(index: UsagePieSlice["colorIndex"]): string {
+  if (index === "unattributed") return "var(--vscode-descriptionForeground)";
+  if (index === "other") return "var(--vscode-charts-red)";
+  return [
+    "var(--vscode-charts-blue)",
+    "var(--vscode-charts-green)",
+    "var(--vscode-charts-purple)",
+    "var(--vscode-charts-yellow)",
+    "var(--vscode-charts-orange)",
+    "var(--vscode-charts-red)",
+  ][index];
+}
+
 function renderUsageLegend(segments: DashboardUsageSegment[]): HTMLElement {
   const list = element("ul", "usage-legend");
   for (const [index, segment] of segments.entries()) {
@@ -917,7 +1061,8 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", 
 }
 function overline(text: string): HTMLElement { return element("span", "overline", text); }
 function namedValue(name: string, qualifier: string | null, className = "route-name"): HTMLElement {
-  const node = element(className === "route-name" ? "h3" : "span", className); node.append(document.createTextNode(name));
+  const node = element(className === "route-name" ? "h3" : "span", className);
+  node.append(element("span", "name-value", name));
   if (qualifier) node.append(element("span", "name-qualifier", qualifier)); return node;
 }
 function metadata(values: Array<string | null>): HTMLElement {
