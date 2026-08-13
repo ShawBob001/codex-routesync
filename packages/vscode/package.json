@@ -561,7 +561,7 @@
     "@playwright/test": "^1.62.1",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
-    "esbuild": "^0.25.12",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.3"
   },
   "license": "MIT"
