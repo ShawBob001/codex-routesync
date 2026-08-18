@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.2 - 2026-08-19
+
+- Waits up to 30 seconds for Codex to finish writing the transient `auth.json` after account login, preventing false failures when device authentication completes before the file appears.
+- Keeps cancellation and temporary credential cleanup unchanged, and reports an actionable timeout message when Codex does not produce readable authentication data.
+
 ## 0.8.1 - 2026-08-13
 
 - Renamed the project and VS Code extension to **Codex RouteSync**, with the new `ShawBob001.codex-routesync` Marketplace identity and `ShawBob001/codex-routesync` GitHub repository.

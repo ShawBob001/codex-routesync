@@ -1421,7 +1421,7 @@ function getRefreshCoordinator(context) {
   );
 }
 
-test("addAccount can use device auth for a new account", async (t) => {
+test("addAccount waits for delayed device auth after Done", async (t) => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "csb-vscode-add-account-"));
   const codexHome = path.join(tempRoot, ".codex");
   const authDir = path.join(tempRoot, "saved-auth");
@@ -1444,7 +1444,10 @@ test("addAccount can use device auth for a new account", async (t) => {
     warningResponses: ["Use Device Auth"],
     infoResponses: [
       () => {
-        writeLastTerminalAuth(mocked, makeAuthFile("acct-device"));
+        setTimeout(
+          () => writeLastTerminalAuth(mocked, makeAuthFile("acct-device")),
+          10,
+        );
         return "Done";
       },
       "Later",
@@ -3638,7 +3641,21 @@ test("reloginAccount leaves state unchanged when Done has no transient auth", as
         const accountTreeView = getAccountTreeView(mocked);
         const [accountItem] = getAccountTreeItems(accountTreeView.treeDataProvider)
           .filter((item) => item.account.name === "active" && item.account.source === "local");
-        await mocked.registeredCommands.get("codex-routesync.reloginAccount")(accountItem);
+        const originalSetTimeout = global.setTimeout;
+        const originalDateNow = Date.now;
+        let fakeNow = 0;
+        global.setTimeout = (callback, delay, ...args) => {
+          fakeNow += delay;
+          queueMicrotask(() => callback(...args));
+          return { __mockAuthWaitTimeout: true };
+        };
+        Date.now = () => fakeNow;
+        try {
+          await mocked.registeredCommands.get("codex-routesync.reloginAccount")(accountItem);
+        } finally {
+          global.setTimeout = originalSetTimeout;
+          Date.now = originalDateNow;
+        }
 
         const transientTerminal = mocked.createdTerminals.at(-1);
         assert.equal(transientTerminal?.disposed, true);
@@ -3647,7 +3664,10 @@ test("reloginAccount leaves state unchanged when Done has no transient auth", as
         assert.deepEqual(fs.readFileSync(path.join(codexHome, "auth.json")), liveBefore);
         assert.deepEqual(mocked.globalStateValues.get("codex-switchbridge.currentSavedSelection"), markerBefore);
         assert.deepEqual(core.getSharedHistoryRouteState(), routeBefore);
-        assert.match(mocked.errorMessages.at(-1)?.message ?? "", /auth\.json|login result/i);
+        assert.match(
+          mocked.errorMessages.at(-1)?.message ?? "",
+          /did not write auth\.json within 30 seconds/i,
+        );
         assert.equal(
           mocked.executedCommands.filter((entry) => entry.name === "workbench.action.reloadWindow").length,
           0,

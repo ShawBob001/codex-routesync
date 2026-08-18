@@ -9,7 +9,6 @@ import {
   ExportData,
   ProviderProfile,
   QuotaInfo,
-  readAuthFile,
   getModeDisplayName,
   switchMode,
   validateSavedEntryName,
@@ -66,8 +65,11 @@ import { stableSubjectId, UsageService, UsageSubjectKind } from "./tokenUsage";
 import { savedEntryUsageSubject } from "./usageSubjects";
 import { createQuotaQueryContext, resolveQuotaProxy, ResolvedQuotaProxy } from "./quotaProxy";
 import { RoutesTreeNode } from "./routesTree";
+import { waitForAuthFile } from "./loginAuthWait";
 const LOG_PREFIX = "[codex-switchbridge:vscode:commands]";
 const AUTO_SWITCH_ENABLED_CONTEXT_KEY = "codexRouteSync.autoSwitchEnabled";
+const TRANSIENT_AUTH_TIMEOUT_MESSAGE =
+  "Codex did not write auth.json within 30 seconds. Wait for the terminal to show a successful login, then try again.";
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -510,10 +512,8 @@ async function runTransientCodexLogin(options?: { useDeviceAuth?: boolean }) {
       return { completed: false, auth: null };
     }
 
-    return {
-      completed: true,
-      auth: readAuthFile(path.join(tempCodexHome, "auth.json")),
-    };
+    const auth = await waitForAuthFile(path.join(tempCodexHome, "auth.json"));
+    return { completed: true, auth };
   } finally {
     try {
       terminal?.dispose();
@@ -1411,7 +1411,7 @@ export function registerCommands(
           }
           if (!loginResult.auth) {
             await restoreSavedCurrentSelectionMarker(previousSelection);
-            vscode.window.showErrorMessage("auth.json was not found after login. Failed to add account.");
+            vscode.window.showErrorMessage(TRANSIENT_AUTH_TIMEOUT_MESSAGE);
             return;
           }
 
@@ -1473,7 +1473,7 @@ export function registerCommands(
         }
         if (!loginResult.auth) {
           await restoreSavedCurrentSelectionMarker(previousSelection);
-          vscode.window.showErrorMessage("auth.json was not found after login. Failed to add account.");
+          vscode.window.showErrorMessage(TRANSIENT_AUTH_TIMEOUT_MESSAGE);
           return;
         }
 
@@ -1613,7 +1613,7 @@ export function registerCommands(
             return;
           }
           if (!loginResult.auth) {
-            const message = "auth.json was not found in the transient login result. Complete `codex login` and try again.";
+            const message = TRANSIENT_AUTH_TIMEOUT_MESSAGE;
             logCommandWarn("relogin-account", "login-result-missing", {
               account: account.name,
               source: account.source,

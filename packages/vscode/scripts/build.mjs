@@ -18,6 +18,7 @@ const options = {
     dashboardResetTime: path.join(packageDir, "src", "dashboardResetTime.ts"),
     dashboardViewProvider: path.join(packageDir, "src", "dashboardViewProvider.ts"),
     historyReconciliation: path.join(packageDir, "src", "historyReconciliation.ts"),
+    loginAuthWait: path.join(packageDir, "src", "loginAuthWait.ts"),
     providerProfile: path.join(packageDir, "src", "providerProfile.ts"),
     quotaStore: path.join(packageDir, "src", "quotaStore.ts"),
     rateLimitReset: path.join(packageDir, "src", "rateLimitReset.ts"),
