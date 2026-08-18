@@ -257,7 +257,7 @@ Expected: `packages/vscode/codex-routesync-0.8.1.vsix` is created successfully.
 Run:
 
 ```bash
-/mnt/pfs/pynr16/Shichao_Bao/.vscode-server/cli/servers/Stable-e4c7e7b1d6d060162f4aa7f8225271b67ce1df75/server/bin/remote-cli/code \
+"$HOME/.vscode-server/cli/servers/Stable-e4c7e7b1d6d060162f4aa7f8225271b67ce1df75/server/bin/remote-cli/code" \
   --install-extension packages/vscode/codex-routesync-0.8.1.vsix --force
 ```
 
@@ -269,7 +269,7 @@ Run:
 
 ```bash
 rg -n "did not write auth.json within 30 seconds|function waitForAuthFile" \
-  /mnt/pfs/pynr16/Shichao_Bao/.vscode-server/extensions/shawbob001.codex-routesync-0.8.1/dist/extension.js
+  "$HOME/.vscode-server/extensions/shawbob001.codex-routesync-0.8.1/dist/extension.js"
 ```
 
 Expected: both the timeout message and bundled helper are present.
