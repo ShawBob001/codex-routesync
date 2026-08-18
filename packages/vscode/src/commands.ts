@@ -1613,7 +1613,7 @@ export function registerCommands(
             return;
           }
           if (!loginResult.auth) {
-          const message = TRANSIENT_AUTH_TIMEOUT_MESSAGE;
+            const message = TRANSIENT_AUTH_TIMEOUT_MESSAGE;
             logCommandWarn("relogin-account", "login-result-missing", {
               account: account.name,
               source: account.source,

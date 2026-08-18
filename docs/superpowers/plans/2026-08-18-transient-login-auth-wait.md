@@ -238,7 +238,7 @@ git commit -m "fix: tolerate delayed device auth writes"
 **Files:**
 - Generated: `packages/vscode/dist/loginAuthWait.js`
 - Generated: `packages/vscode/dist/extension.js`
-- Generated: `packages/vscode/codex-routesync-0.8.1.vsix`
+- Generated: `packages/vscode/codex-routesync-0.8.2.vsix`
 
 - [ ] **Step 1: Run the complete VS Code extension test suite**
 
@@ -250,7 +250,7 @@ Expected: all extension tests pass with 0 failures.
 
 Run: `npm run package:vscode`
 
-Expected: `packages/vscode/codex-routesync-0.8.1.vsix` is created successfully.
+Expected: `packages/vscode/codex-routesync-0.8.2.vsix` is created successfully.
 
 - [ ] **Step 3: Install the rebuilt extension**
 
@@ -258,7 +258,7 @@ Run:
 
 ```bash
 "$HOME/.vscode-server/cli/servers/Stable-e4c7e7b1d6d060162f4aa7f8225271b67ce1df75/server/bin/remote-cli/code" \
-  --install-extension packages/vscode/codex-routesync-0.8.1.vsix --force
+  --install-extension packages/vscode/codex-routesync-0.8.2.vsix --force
 ```
 
 Expected: VS Code reports successful installation of `codex-routesync`.
@@ -269,7 +269,7 @@ Run:
 
 ```bash
 rg -n "did not write auth.json within 30 seconds|function waitForAuthFile" \
-  "$HOME/.vscode-server/extensions/shawbob001.codex-routesync-0.8.1/dist/extension.js"
+  "$HOME/.vscode-server/extensions/shawbob001.codex-routesync-0.8.2/dist/extension.js"
 ```
 
 Expected: both the timeout message and bundled helper are present.
