@@ -19,7 +19,7 @@
     "test": "npm run build && node ../../scripts/run-node-tests.mjs test"
   },
   "dependencies": {
-    "https-proxy-agent": "^7.0.6",
+    "https-proxy-agent": "^9.1.0",
     "jwt-decode": "^4.0.0"
   },
   "devDependencies": {
