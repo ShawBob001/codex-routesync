@@ -106,7 +106,7 @@ An API-provider profile stores the authentication payload for `auth.json` and th
 
 ## Editor dashboard, quota reset time, and local token usage
 
-The VS Code Dashboard reads account quota metadata and cumulative `token_count` events from local Codex rollout files under the current `CODEX_HOME`. It shows:
+The VS Code Dashboard reads account quota metadata and per-request `token_count` usage from local Codex rollout files under the current `CODEX_HOME`. It shows:
 
 - the remaining percentage for every quota window returned by the account service, including 5-hour, 7-day, and named limits;
 - each available quota reset as a live seconds-level countdown;
@@ -114,7 +114,7 @@ The VS Code Dashboard reads account quota metadata and cumulative `token_count` 
 - the exact upstream UTC timestamp, including milliseconds when present;
 - the available earned rate-limit reset count when the account service provides it;
 - a confirmed **Use one reset** action for the current account when an earned reset applies;
-- recorded total, input, output, cached input, and reasoning output tokens;
+- counted total (non-cached input plus output), input, output, cached input, and reasoning output tokens;
 - attributed and unattributed totals;
 - per-account and per-API-provider usage and session counts;
 - a source doughnut chart that compares mutually exclusive account, API-provider, and unattributed totals;
@@ -128,7 +128,7 @@ Use the language selector in the Dashboard header to choose **Auto**, **English*
 
 The reset action uses the official Codex App Server method, verifies that the same saved account is still active, asks for confirmation, consumes at most one earned reset with an idempotency key, and refreshes quota afterward. If the installed Codex version does not support reset consumption, RouteSync opens the official Usage page instead.
 
-Input and output make up the recorded total. Cached input is already part of input, and reasoning output is already part of output, so those two values are not added again. The doughnut chart uses only mutually exclusive attributed source totals, so it does not count cached input or reasoning output twice.
+The counted total is non-cached input plus output. Cached input is reported separately and is not included in that headline count; reasoning output is already part of output. The doughnut chart uses only mutually exclusive attributed source totals, so it does not count cached input or reasoning output twice. The cumulative `total_token_usage` value is used as a continuity marker, not added as a new request.
 
 Per-selection attribution starts when RouteSync begins local tracking. The index assigns each subsequent token increment to the account or API provider active when Codex recorded it, including when one conversation continues across a mode switch. Older shared `openai` sessions cannot be assigned to a specific saved entry safely and remain under **Earlier or unattributed**. Older provider-tagged sessions are attributed only when their provider ID maps to exactly one saved profile.
 

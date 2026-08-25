@@ -2,7 +2,7 @@
   "name": "codex-routesync",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "publisher": "ShawBob001",
   "repository": {
     "type": "git",

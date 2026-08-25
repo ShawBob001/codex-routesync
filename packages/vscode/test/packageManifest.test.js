@@ -114,11 +114,11 @@ test("VS Code-owned user-visible contributions use complete English and Chinese 
   );
 });
 
-test("extension identity is Codex RouteSync 0.8.2", () => {
+test("extension identity is Codex RouteSync 0.8.3", () => {
   assert.equal(manifest.name, "codex-routesync");
   assert.equal(manifest.displayName, "Codex RouteSync");
   assert.equal(manifest.publisher, "ShawBob001");
-  assert.equal(manifest.version, "0.8.2");
+  assert.equal(manifest.version, "0.8.3");
   assert.match(manifest.description, /accounts and API providers/i);
   assert.match(manifest.description, /shared local conversation history/i);
   assert.match(manifest.description, /token usage/i);
@@ -127,7 +127,7 @@ test("extension identity is Codex RouteSync 0.8.2", () => {
   assert.ok(manifest.keywords.includes("responses-api"));
 });
 
-test("workspace release metadata bumps only the root and VS Code package to 0.8.2", () => {
+test("workspace release metadata bumps only the root and VS Code package to 0.8.3", () => {
   const rootManifest = JSON.parse(
     fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf-8"),
   );
@@ -142,7 +142,7 @@ test("workspace release metadata bumps only the root and VS Code package to 0.8.
   );
 
   assert.equal(rootManifest.name, "codex-routesync-monorepo");
-  assert.equal(rootManifest.version, "0.8.2");
+  assert.equal(rootManifest.version, "0.8.3");
   assert.equal(lock.name, rootManifest.name);
   assert.equal(lock.version, rootManifest.version);
   assert.equal(lock.packages[""].name, rootManifest.name);

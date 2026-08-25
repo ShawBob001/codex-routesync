@@ -13,7 +13,7 @@ import {
   SavedAccountQuotaQueryContext,
 } from "./savedEntries";
 import { StatusBarManager } from "./statusBar";
-import { UsageService } from "./tokenUsage";
+import { countedTokenTotal, UsageService } from "./tokenUsage";
 import { selectionUsageSubject } from "./usageSubjects";
 import { createQuotaQueryContext, resolveQuotaProxy } from "./quotaProxy";
 
@@ -505,7 +505,7 @@ export class RefreshCoordinator implements vscode.Disposable {
       const usage = await this.usageService.refresh();
       perf.mark("refresh-local-usage", {
         sessionCount: usage.sessionCount,
-        totalTokens: usage.total.totalTokens,
+        totalTokens: countedTokenTotal(usage.total),
         coverage: usage.coverage,
       });
       snapshot = createSavedEntriesSnapshot();
@@ -513,7 +513,7 @@ export class RefreshCoordinator implements vscode.Disposable {
       this.statusBar.refreshUsagePresentation(snapshot);
       perf.finish({
         sessionCount: usage.sessionCount,
-        totalTokens: usage.total.totalTokens,
+        totalTokens: countedTokenTotal(usage.total),
       });
     } catch (error) {
       logWarn(LOG_PREFIX, "usage-refresh-failed", {

@@ -6,7 +6,8 @@ import { constants as zlibConstants, gunzipSync, gzipSync } from "node:zlib";
 
 // Keep the persisted key stable across the public RouteSync rename.
 const STATE_KEY = "codexSwitchBridge.localTokenUsage.v2";
-const STATE_VERSION = 2;
+const STATE_VERSION = 3;
+const LEGACY_STATE_VERSION = 2;
 const READ_CHUNK_BYTES = 64 * 1024;
 const MAX_HEAD_BYTES = 4 * 1024 * 1024;
 const MAX_JSONL_LINE_BYTES = 4 * 1024 * 1024;
@@ -162,7 +163,7 @@ interface SubjectRemapDecision {
 }
 
 interface PersistedState {
-  version: 2;
+  version: 3;
   homeKey: string;
   initializedAt: number;
   files: Record<string, SessionUsageRecord>;
@@ -182,6 +183,7 @@ interface SessionMeta {
 interface ParsedTokenCount {
   observedAt: number | null;
   tokens: TokenTotals;
+  lastTokens: TokenTotals | null;
 }
 
 interface JsonRecord {
@@ -241,6 +243,12 @@ export function formatCompactTokens(value: number): string {
     }
   }
   return String(rounded);
+}
+
+/** Returns the user-facing count: non-cached input plus output tokens. */
+export function countedTokenTotal(tokens: Readonly<TokenTotals>): number {
+  const uncachedInput = Math.max(0, tokens.inputTokens - Math.max(0, tokens.cachedInputTokens));
+  return safeSum(uncachedInput, Math.max(0, tokens.outputTokens));
 }
 
 export class UsageService {
@@ -1359,7 +1367,8 @@ async function bootstrapSessionUsage(
   initializedAt: number,
   metrics: ReadMetrics,
 ): Promise<SessionUsageRecord | null> {
-  const headMeta = await readHeadSessionMeta(filePath, fingerprint, metrics);
+  const head = await readHeadSessionInfo(filePath, fingerprint, metrics);
+  const headMeta = head.meta;
   if (headMeta && (headMeta.startedAt >= initializedAt || cached?.timelineTracked)) {
     return preserveLegacyProviderAttribution(
       await forwardScanSession(filePath, fingerprint, initializedAt, metrics),
@@ -1375,8 +1384,10 @@ async function bootstrapSessionUsage(
   const historical = await reverseScanHistoricalSession(
     filePath,
     fingerprint,
+    initializedAt,
     metrics,
     normalRollout ? headMeta : null,
+    normalRollout ? head.firstToken : null,
   );
   if (historical && historical.observedAt >= initializedAt) {
     return preserveLegacyProviderAttribution(
@@ -1413,8 +1424,10 @@ function preserveLegacyProviderAttribution(
 async function reverseScanHistoricalSession(
   filePath: string,
   fingerprint: Fingerprint,
+  initializedAt: number,
   metrics: ReadMetrics,
   normalMeta: SessionMeta | null,
+  firstToken: ParsedTokenCount | null,
 ): Promise<SessionUsageRecord | null> {
   const handle = await fs.open(filePath, "r");
   let position = fingerprint.size;
@@ -1489,11 +1502,23 @@ async function reverseScanHistoricalSession(
   const finalToken = latestToken as ParsedTokenCount | null;
   const finalMeta = meta as SessionMeta | null;
   if (!finalToken || !finalMeta) return null;
+  let effectiveFirstToken = firstToken;
+  if (normalMeta && !effectiveFirstToken && finalToken.lastTokens) {
+    effectiveFirstToken = await readHeadToken(filePath, fingerprint, metrics);
+  }
   if (appendOffset && !appendGuardComplete) {
     appendGuard = await readAppendGuard(filePath, appendOffset, metrics);
   }
+  if (
+    normalMeta
+    && effectiveFirstToken?.lastTokens
+    && finalToken.lastTokens
+    && finalToken.tokens.totalTokens < effectiveFirstToken.tokens.totalTokens
+  ) {
+    return forwardScanSession(filePath, fingerprint, initializedAt, metrics);
+  }
   const inheritedBaseline = cloneTokens(baseline ?? EMPTY_TOKENS);
-  const tokens = subtractInherited(finalToken.tokens, inheritedBaseline);
+  const tokens = historicalTokenTotal(finalToken, effectiveFirstToken, inheritedBaseline);
   return {
     fingerprint,
     ...finalMeta,
@@ -1553,6 +1578,7 @@ async function forwardScanSession(
   let observedAt = 0;
   let sawToken = false;
   let timelineTracked = false;
+  let lastRequestCumulative: TokenTotals | null = null;
 
   const appendOffset = await readJsonLines(
     filePath,
@@ -1570,12 +1596,25 @@ async function forwardScanSession(
         observedAt = nextMeta.startedAt;
         sawToken = false;
         timelineTracked = nextMeta.startedAt >= initializedAt;
+        lastRequestCumulative = null;
         return;
       }
       const token = parseTokenCount(record);
       if (!token) return;
       if (!meta) {
         lastCumulative = cloneTokens(token.tokens);
+        return;
+      }
+      if (token.lastTokens) {
+        const duplicate = lastRequestCumulative
+          && token.tokens.totalTokens === lastRequestCumulative.totalTokens;
+        const delta = duplicate ? zeroTokens() : meaningfulRequestTokens(token.lastTokens);
+        lastRequestCumulative = cloneTokens(token.tokens);
+        lastCumulative = cloneTokens(token.tokens);
+        tokens = addTokenTotals(tokens, delta);
+        observedAt = token.observedAt ?? observedAt;
+        sawToken = true;
+        recordIncrement(delta, token.observedAt);
         return;
       }
       if (token.tokens.totalTokens < lastCumulative.totalTokens) {
@@ -1620,6 +1659,18 @@ async function forwardScanSession(
     timelineTracked,
     tokens,
   };
+
+  function recordIncrement(delta: TokenTotals, at: number | null): void {
+    if (!hasTokens(delta)) return;
+    if (at !== null && at < initializedAt) {
+      addTokens(historicalTokens, delta);
+    } else if (at === null && meta && meta.startedAt < initializedAt) {
+      addTokens(historicalTokens, delta);
+    } else {
+      increments.push({ at, tokens: delta });
+      timelineTracked = true;
+    }
+  }
 }
 
 async function appendSessionUsage(
@@ -1630,6 +1681,7 @@ async function appendSessionUsage(
   metrics: ReadMetrics,
 ): Promise<SessionUsageRecord> {
   const next = cloneSessionRecord(cached);
+  let forceNextRequest = false;
   const appendOffset = await readJsonLines(
     filePath,
     cached.appendOffset,
@@ -1650,10 +1702,30 @@ async function appendSessionUsage(
         next.tokens = zeroTokens();
         next.observedAt = meta.startedAt;
         next.timelineTracked = meta.startedAt >= initializedAt;
+        forceNextRequest = true;
         return;
       }
       const token = parseTokenCount(record);
       if (!token) return;
+      if (token.lastTokens) {
+        const duplicate = !forceNextRequest
+          && token.tokens.totalTokens === next.lastCumulative.totalTokens;
+        const delta = duplicate ? zeroTokens() : meaningfulRequestTokens(token.lastTokens);
+        next.lastCumulative = cloneTokens(token.tokens);
+        next.tokens = addTokenTotals(next.tokens, delta);
+        next.observedAt = token.observedAt ?? next.observedAt;
+        forceNextRequest = false;
+        if (!hasTokens(delta)) return;
+        if (token.observedAt !== null && token.observedAt < initializedAt) {
+          addTokens(next.historicalTokens, delta);
+        } else if (token.observedAt === null && next.startedAt < initializedAt) {
+          addTokens(next.historicalTokens, delta);
+        } else {
+          next.increments.push({ at: token.observedAt, tokens: delta });
+          next.timelineTracked = true;
+        }
+        return;
+      }
       if (token.tokens.totalTokens < next.lastCumulative.totalTokens) {
         next.historicalSubjectId = null;
         next.historicalAttributionLocked = false;
@@ -1802,14 +1874,21 @@ function cloneSessionRecord(record: SessionUsageRecord): SessionUsageRecord {
   };
 }
 
-async function readHeadSessionMeta(
+interface HeadSessionInfo {
+  meta: SessionMeta | null;
+  firstToken: ParsedTokenCount | null;
+}
+
+async function readHeadSessionInfo(
   filePath: string,
   fingerprint: Fingerprint,
   metrics: ReadMetrics,
-): Promise<SessionMeta | null> {
+): Promise<HeadSessionInfo> {
   const handle = await fs.open(filePath, "r");
   let position = 0;
   let carry = Buffer.alloc(0);
+  let meta: SessionMeta | null = null;
+  let firstToken: ParsedTokenCount | null = null;
   try {
     while (position < fingerprint.size && position < MAX_HEAD_BYTES) {
       const requested = Math.min(
@@ -1827,25 +1906,72 @@ async function readHeadSessionMeta(
       let lineStart = 0;
       for (let index = 0; index < combined.length; index += 1) {
         if (combined[index] !== 0x0a) continue;
-        const meta = parseMetaBytes(combined.subarray(lineStart, index));
-        if (meta) return meta;
+        const record = parseRelevantLine(combined.subarray(lineStart, index));
+        if (record) {
+          const parsedMeta = parseSessionMeta(record);
+          if (parsedMeta && !meta) meta = parsedMeta;
+          const parsedToken = parseTokenCount(record);
+          if (parsedToken && meta && !firstToken) firstToken = parsedToken;
+        }
         lineStart = index + 1;
       }
       carry = Buffer.from(combined.subarray(lineStart));
+      // Normal rollout files put session_meta and the first token_count in the
+      // first chunk. Do not scan megabytes of unrelated response data merely
+      // to find a token that is not needed for the head classification.
+      if (meta) return { meta, firstToken };
     }
-    return parseMetaBytes(carry);
+    const record = parseRelevantLine(carry);
+    if (record) {
+      const parsedMeta = parseSessionMeta(record);
+      if (parsedMeta && !meta) meta = parsedMeta;
+      const parsedToken = parseTokenCount(record);
+      if (parsedToken && meta && !firstToken) firstToken = parsedToken;
+    }
+    return { meta, firstToken };
   } finally {
     await handle.close();
   }
 }
 
-function parseMetaBytes(bytes: Buffer): SessionMeta | null {
-  if (!bytes.length) return null;
+async function readHeadToken(
+  filePath: string,
+  fingerprint: Fingerprint,
+  metrics: ReadMetrics,
+): Promise<ParsedTokenCount | null> {
+  const handle = await fs.open(filePath, "r");
+  let position = 0;
+  let carry = Buffer.alloc(0);
+  let metaSeen = false;
   try {
-    const parsed: unknown = JSON.parse(bytes.toString("utf8").replace(/\r$/, ""));
-    return isRecord(parsed) ? parseSessionMeta(parsed as JsonRecord) : null;
-  } catch {
-    return null;
+    while (position < fingerprint.size && position < MAX_HEAD_BYTES) {
+      const requested = Math.min(
+        READ_CHUNK_BYTES,
+        fingerprint.size - position,
+        MAX_HEAD_BYTES - position,
+      );
+      const chunk = Buffer.allocUnsafe(requested);
+      const { bytesRead } = await handle.read(chunk, 0, requested, position);
+      if (bytesRead === 0) break;
+      metrics.bytesRead += bytesRead;
+      metrics.chunksRead += 1;
+      const combined = Buffer.concat([carry, chunk.subarray(0, bytesRead)]);
+      let lineStart = 0;
+      for (let index = 0; index < combined.length; index += 1) {
+        if (combined[index] !== 0x0a) continue;
+        const record = parseRelevantLine(combined.subarray(lineStart, index));
+        if (record && parseSessionMeta(record)) metaSeen = true;
+        const token = record && metaSeen ? parseTokenCount(record) : null;
+        if (token) return token;
+        lineStart = index + 1;
+      }
+      carry = Buffer.from(combined.subarray(lineStart));
+      position += bytesRead;
+    }
+    const record = parseRelevantLine(carry);
+    return record && metaSeen ? parseTokenCount(record) : null;
+  } finally {
+    await handle.close();
   }
 }
 
@@ -1869,6 +1995,16 @@ function parseTokenCount(record: JsonRecord): ParsedTokenCount | null {
     usage.total_tokens,
   ];
   if (!fields.every(isTokenInteger)) return null;
+  const lastUsage = record.payload.info.last_token_usage;
+  const lastFields = isRecord(lastUsage)
+    ? [
+      lastUsage.input_tokens,
+      lastUsage.cached_input_tokens,
+      lastUsage.output_tokens,
+      lastUsage.reasoning_output_tokens,
+      lastUsage.total_tokens,
+    ]
+    : null;
   return {
     observedAt: parseTimestamp(record.timestamp),
     tokens: {
@@ -1878,6 +2014,15 @@ function parseTokenCount(record: JsonRecord): ParsedTokenCount | null {
       reasoningOutputTokens: fields[3] as number,
       totalTokens: fields[4] as number,
     },
+    lastTokens: lastFields && lastFields.every(isTokenInteger)
+      ? {
+        inputTokens: lastFields[0] as number,
+        cachedInputTokens: lastFields[1] as number,
+        outputTokens: lastFields[2] as number,
+        reasoningOutputTokens: lastFields[3] as number,
+        totalTokens: lastFields[4] as number,
+      }
+      : null,
   };
 }
 
@@ -1907,6 +2052,23 @@ function subtractInherited(current: TokenTotals, baseline: TokenTotals): TokenTo
     reasoningOutputTokens: Math.max(0, current.reasoningOutputTokens - baseline.reasoningOutputTokens),
     totalTokens: current.totalTokens - baseline.totalTokens,
   };
+}
+
+function historicalTokenTotal(
+  finalToken: ParsedTokenCount,
+  firstToken: ParsedTokenCount | null,
+  inheritedBaseline: TokenTotals,
+): TokenTotals {
+  if (
+    firstToken?.lastTokens
+    && finalToken.lastTokens
+    && finalToken.tokens.totalTokens >= firstToken.tokens.totalTokens
+  ) {
+    const tokens = subtractFloor(finalToken.tokens, firstToken.tokens);
+    addTokens(tokens, firstToken.lastTokens);
+    return tokens;
+  }
+  return subtractInherited(finalToken.tokens, inheritedBaseline);
 }
 
 function findSelectionInterval(
@@ -1976,11 +2138,16 @@ function readPersistedFiles(value: Record<string, any>): Record<string, unknown>
 }
 
 function parsePersistedState(value: unknown, homeKey: string): PersistedState | null {
-  if (!isRecord(value) || value.version !== STATE_VERSION || value.homeKey !== homeKey) return null;
+  if (
+    !isRecord(value)
+    || (value.version !== STATE_VERSION && value.version !== LEGACY_STATE_VERSION)
+    || value.homeKey !== homeKey
+  ) return null;
+  const migratingLegacyFiles = value.version === LEGACY_STATE_VERSION;
   if (!isTimestamp(value.initializedAt) || !Array.isArray(value.timeline)) {
     return null;
   }
-  const rawFiles = readPersistedFiles(value);
+  const rawFiles = migratingLegacyFiles ? {} : readPersistedFiles(value);
   if (!rawFiles) return null;
   const files: Record<string, SessionUsageRecord> = {};
   for (const [key, entry] of Object.entries(rawFiles)) {
@@ -2257,6 +2424,25 @@ function addTokens(target: TokenTotals, source: Readonly<TokenTotals>): void {
   target.outputTokens = safeSum(target.outputTokens, source.outputTokens);
   target.reasoningOutputTokens = safeSum(target.reasoningOutputTokens, source.reasoningOutputTokens);
   target.totalTokens = safeSum(target.totalTokens, source.totalTokens);
+}
+
+function addTokenTotals(
+  left: Readonly<TokenTotals>,
+  right: Readonly<TokenTotals>,
+): TokenTotals {
+  const result = cloneTokens(left);
+  addTokens(result, right);
+  return result;
+}
+
+function meaningfulRequestTokens(tokens: Readonly<TokenTotals>): TokenTotals {
+  if (
+    tokens.inputTokens === 0
+    && tokens.cachedInputTokens === 0
+    && tokens.outputTokens === 0
+    && tokens.reasoningOutputTokens === 0
+  ) return zeroTokens();
+  return cloneTokens(tokens);
 }
 
 function subtractFloor(current: TokenTotals, baseline: TokenTotals): TokenTotals {

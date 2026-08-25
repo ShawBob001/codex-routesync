@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { formatProviderFieldValue } from "./providerProfile";
 import { listSavedProviders, SavedProviderInfo } from "./savedEntries";
-import { formatCompactTokens, stableSubjectId, UsageService } from "./tokenUsage";
+import { countedTokenTotal, formatCompactTokens, stableSubjectId, UsageService } from "./tokenUsage";
 
 export type ProviderTreeNode = ProviderTreeItem | ProviderDetailItem;
 
@@ -174,7 +174,7 @@ export class ProviderTreeProvider implements vscode.TreeDataProvider<ProviderTre
     if (this.rootItems.length === 0) {
       const usageSnapshot = this.usageService?.getSnapshot();
       const usageBySubject = new Map(
-        usageSnapshot?.subjects.map((subject) => [subject.id, subject.tokens.totalTokens]) ?? [],
+        usageSnapshot?.subjects.map((subject) => [subject.id, countedTokenTotal(subject.tokens)]) ?? [],
       );
       const usageReady = usageSnapshot?.status === "ready";
       this.rootItems = listSavedProviders().map((provider) => {

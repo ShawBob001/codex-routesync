@@ -9,7 +9,7 @@ import {
   SavedAccountQuotaQueryContext,
   SavedEntriesSnapshot,
 } from "./savedEntries";
-import { formatCompactTokens, stableSubjectId, UsageService } from "./tokenUsage";
+import { countedTokenTotal, formatCompactTokens, stableSubjectId, UsageService } from "./tokenUsage";
 import { createQuotaQueryContext } from "./quotaProxy";
 const LOG_PREFIX = "[codex-switchbridge:vscode:statusBar]";
 
@@ -441,13 +441,14 @@ export class StatusBarManager implements vscode.Disposable {
     const snapshot = this.usageService?.getSnapshot();
     if (!snapshot || snapshot.status !== "ready") return null;
     const subjectId = stableSubjectId(kind, `${source}:${name}`);
-    return snapshot.subjects.find((subject) => subject.id === subjectId)?.tokens.totalTokens ?? 0;
+    const tokens = snapshot.subjects.find((subject) => subject.id === subjectId)?.tokens;
+    return tokens ? countedTokenTotal(tokens) : 0;
   }
 
   private getOverallUsageTooltip(): string {
     const snapshot = this.usageService?.getSnapshot();
     if (!snapshot || snapshot.status !== "ready") return "Overall local token usage: Indexing";
-    return `Overall local token usage: ${snapshot.total.totalTokens.toLocaleString()} tokens`;
+    return `Overall local token usage: ${countedTokenTotal(snapshot.total).toLocaleString()} tokens`;
   }
 }
 

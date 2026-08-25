@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.3 - 2026-08-25
+
+- Fixed local token usage that treated inherited cumulative `total_token_usage` snapshots as newly consumed tokens.
+- Counts request-level `last_token_usage`, removes duplicate snapshots, and reports non-cached input plus output as the headline total.
+- Rebuilds the local usage index from Codex rollout files when upgrading the cached index format, without deleting rollout history.
+
 ## 0.8.2 - 2026-08-19
 
 - Waits up to 30 seconds for Codex to finish writing the transient `auth.json` after account login, preventing false failures when device authentication completes before the file appears.

@@ -13189,7 +13189,7 @@ test("missing account marker keeps duplicate local and cloud identities unattrib
 
         const dashboard = await mocked.readyDashboard();
         const dashboardState = dashboard.latestState();
-        assert.equal(dashboardState?.usage.unattributedTokens, 40);
+        assert.equal(dashboardState?.usage.unattributedTokens, 33);
         assert.equal(dashboardState?.route.kind, "unknown");
         const accountTreeView = getAccountTreeView(mocked);
         const duplicateItems = getAccountTreeItems(accountTreeView.treeDataProvider)
@@ -13389,8 +13389,8 @@ test("activation registers one unified route tree and focuses one dashboard pane
       assert.equal(mocked.webviewPanels.length, 1);
       assert.equal(dashboard.viewType, "codexRouteSync.dashboard");
       assert.equal(dashboard.showOptions, mocked.vscode.ViewColumn.Active);
-      assert.equal(dashboard.latestState()?.usage.total.totalTokens, 125);
-      assert.equal(dashboard.latestState()?.usage.compactTotal, "125");
+      assert.equal(dashboard.latestState()?.usage.total.totalTokens, 75);
+      assert.equal(dashboard.latestState()?.usage.compactTotal, "75");
       assert.deepEqual(dashboard.latestMessage()?.locale, {
         preference: "auto",
         effective: "zh-cn",
@@ -13611,7 +13611,7 @@ test("refreshUsage reindexes rollout files and posts a newer dashboard state", a
       await Promise.resolve();
       await Promise.resolve();
 
-      assert.equal(dashboard.latestState()?.usage.total.totalTokens, 275);
+      assert.equal(dashboard.latestState()?.usage.total.totalTokens, 150);
       assert.ok(
         dashboard.posted.at(-1)?.revision > initialRevision,
         "refreshUsage should post a newer dashboard state",
@@ -13628,7 +13628,7 @@ test("refreshUsage reindexes rollout files and posts a newer dashboard state", a
       await refreshDashboard();
       await Promise.resolve();
       await Promise.resolve();
-      assert.equal(dashboard.latestState()?.usage.total.totalTokens, 350);
+      assert.equal(dashboard.latestState()?.usage.total.totalTokens, 188);
       assert.ok(dashboard.posted.at(-1)?.revision > afterUsageRevision);
 
       for (const subscription of context.subscriptions.reverse()) {
@@ -13710,9 +13710,9 @@ test("quota failure keeps attributed and overall token usage in the status bar",
           (item) => item.command === "codex-routesync.refreshQuota",
         );
         assert.ok(quotaItem);
-        assert.match(quotaItem.text, /40 tokens/);
-        assert.match(String(quotaItem.tooltip), /Tracked local token usage: 40 tokens/);
-        assert.match(String(quotaItem.tooltip), /Overall local token usage: 40 tokens/);
+        assert.match(quotaItem.text, /33 tokens/);
+        assert.match(String(quotaItem.tooltip), /Tracked local token usage: 33 tokens/);
+        assert.match(String(quotaItem.tooltip), /Overall local token usage: 33 tokens/);
         assert.match(String(quotaItem.tooltip), /Quota: .*unavailable/i);
 
         for (const subscription of context.subscriptions.reverse()) {
@@ -13926,7 +13926,7 @@ test("regression: switching records the new usage selection before quota resolve
           (segment) => segment.kind === "account" && segment.label === "beta (Local)",
         );
         assert.ok(betaUsage, "the switched account should receive the new rollout usage");
-        assert.equal(betaUsage.totalTokens, 40);
+        assert.equal(betaUsage.totalTokens, 33);
       } finally {
         controlled?.release();
         controlled?.restore();

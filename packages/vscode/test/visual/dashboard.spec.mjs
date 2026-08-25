@@ -655,14 +655,14 @@ test("a seven-day-only account shows remaining percent, exact reset time, reset 
     type: "dashboard.action",
     action: "useRateLimitReset",
   });
-  await expect(page.getByText("Local recorded consumption: 48,290 tokens", { exact: true })).toBeVisible();
+  await expect(page.getByText("Local counted usage: 48,290 tokens", { exact: true })).toBeVisible();
   await expect(page.getByText("Locally recorded token consumption", { exact: true })).toBeVisible();
 
   await sendState(page, weekly, 2, localeZh);
   await expect(page.getByText("7 天剩余", { exact: true })).toBeVisible();
   await expect(page.getByText("当前适用的用量限额重置次数：2 · 总可用次数：4", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "使用一次重置", exact: true })).toBeEnabled();
-  await expect(page.getByText("本地记录消耗：48,290 个 token", { exact: true })).toBeVisible();
+  await expect(page.getByText("本地计入用量：48,290 个 token", { exact: true })).toBeVisible();
   await assertLayout(page);
 });
 

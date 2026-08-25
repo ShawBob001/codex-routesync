@@ -670,13 +670,26 @@ test("keeps all token totals and tiny segments with finite zero percentages", ()
     cachedInputTokens: 300,
     outputTokens: 300,
     reasoningOutputTokens: 50,
-    totalTokens: 1_200,
+    totalTokens: 900,
   });
-  assert.equal(model.usage.attributedTokens, 1_000);
+  assert.equal(model.usage.attributedTokens, 700);
   assert.equal(model.usage.segments.length, 2);
   assert.ok(model.usage.segments.find((segment) => segment.label === "tiny"));
   assert.equal(model.reload.recommended, true);
   assert.equal(model.reload.message, "Switch complete");
+
+  const cached = build({
+    usageSnapshot: usage([], {
+      total: tokens(1_100, {
+        inputTokens: 1_000,
+        cachedInputTokens: 900,
+        outputTokens: 100,
+        reasoningOutputTokens: 40,
+      }),
+    }),
+  });
+  assert.equal(cached.usage.total.totalTokens, 200);
+  assert.equal(cached.usage.compactTotal, "200");
 
   const zero = build({ usageSnapshot: usage([], { total: tokens(0) }) });
   assert.deepEqual(zero.usage.segments, []);

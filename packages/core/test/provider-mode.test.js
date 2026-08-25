@@ -1333,6 +1333,8 @@ test("queryQuota removes a stale lock left by a dead process", async () => {
     pid: 999999,
     startedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
   });
+  const staleAt = new Date(Date.now() - 10 * 60 * 1000);
+  fs.utimesSync(staleLockPath, staleAt, staleAt);
 
   await withMockedHttpsRequest(
     createQueuedHttpsMock([

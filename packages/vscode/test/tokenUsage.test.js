@@ -67,20 +67,30 @@ function sessionMeta(id, startedAt, provider = "openai") {
 function tokenCount(totalTokens, observedAt, overrides = {}) {
   const inputTokens = overrides.inputTokens ?? Math.max(0, totalTokens - 20);
   const outputTokens = overrides.outputTokens ?? Math.min(20, totalTokens);
+  const info = {
+    total_token_usage: {
+      input_tokens: inputTokens,
+      cached_input_tokens: overrides.cachedInputTokens ?? Math.floor(inputTokens / 2),
+      output_tokens: outputTokens,
+      reasoning_output_tokens: overrides.reasoningOutputTokens ?? Math.floor(outputTokens / 2),
+      total_tokens: totalTokens,
+    },
+  };
+  if (overrides.lastTokens) {
+    info.last_token_usage = {
+      input_tokens: overrides.lastTokens.inputTokens,
+      cached_input_tokens: overrides.lastTokens.cachedInputTokens,
+      output_tokens: overrides.lastTokens.outputTokens,
+      reasoning_output_tokens: overrides.lastTokens.reasoningOutputTokens,
+      total_tokens: overrides.lastTokens.totalTokens,
+    };
+  }
   return {
     timestamp: observedAt,
     type: "event_msg",
     payload: {
       type: "token_count",
-      info: {
-        total_token_usage: {
-          input_tokens: inputTokens,
-          cached_input_tokens: overrides.cachedInputTokens ?? Math.floor(inputTokens / 2),
-          output_tokens: outputTokens,
-          reasoning_output_tokens: overrides.reasoningOutputTokens ?? Math.floor(outputTokens / 2),
-          total_tokens: totalTokens,
-        },
-      },
+      info,
     },
   };
 }
@@ -171,6 +181,134 @@ test("reverse bootstrap reads the last valid cumulative total and reuses fingerp
   assert.equal(second.total.totalTokens, 120);
   assert.equal(second.scan.rescannedFiles, 0);
   assert.equal(second.scan.reusedFiles, 1);
+  service.dispose();
+});
+
+test("request usage does not count an inherited cumulative baseline twice", async () => {
+  const codexHome = tempCodexHome();
+  const threadId = "019e7bbd-eb68-7221-8bd9-7d9c51365cbe";
+  const file = writeSession(codexHome, "sessions", `rollout-2026-08-11T00-00-00-${threadId}`, [
+    sessionMeta(threadId, 1_000),
+    JSON.stringify({ type: "response_item", payload: "x".repeat(128 * 1024) }),
+    tokenCount(50_000_000, 1_100, {
+      inputTokens: 900,
+      cachedInputTokens: 600,
+      outputTokens: 100,
+      reasoningOutputTokens: 50,
+      lastTokens: {
+        inputTokens: 900,
+        cachedInputTokens: 600,
+        outputTokens: 100,
+        reasoningOutputTokens: 50,
+        totalTokens: 1_000,
+      },
+    }),
+    tokenCount(50_000_000, 1_101, {
+      inputTokens: 900,
+      cachedInputTokens: 600,
+      outputTokens: 100,
+      reasoningOutputTokens: 50,
+      lastTokens: {
+        inputTokens: 900,
+        cachedInputTokens: 600,
+        outputTokens: 100,
+        reasoningOutputTokens: 50,
+        totalTokens: 1_000,
+      },
+    }),
+    tokenCount(50_001_800, 1_200, {
+      inputTokens: 2_500,
+      cachedInputTokens: 1_800,
+      outputTokens: 300,
+      reasoningOutputTokens: 150,
+      lastTokens: {
+        inputTokens: 1_600,
+        cachedInputTokens: 1_200,
+        outputTokens: 200,
+        reasoningOutputTokens: 100,
+        totalTokens: 1_800,
+      },
+    }),
+  ]);
+  const service = new UsageService({
+    codexHome,
+    memento: new MemoryMemento(),
+    now: () => 5_000,
+    heartbeatIntervalMs: 0,
+  });
+
+  const initial = await service.initialize();
+  assert.deepEqual(initial.total, {
+    inputTokens: 2_500,
+    cachedInputTokens: 1_800,
+    outputTokens: 300,
+    reasoningOutputTokens: 150,
+    totalTokens: 2_800,
+  });
+
+  fs.appendFileSync(file, `${JSON.stringify(tokenCount(50_004_300, 1_300, {
+    inputTokens: 4_800,
+    cachedInputTokens: 3_600,
+    outputTokens: 550,
+    reasoningOutputTokens: 250,
+    lastTokens: {
+      inputTokens: 2_300,
+      cachedInputTokens: 1_800,
+      outputTokens: 250,
+      reasoningOutputTokens: 100,
+      totalTokens: 2_500,
+    },
+  }))}\n`, "utf8");
+  const appended = await service.refresh();
+  assert.equal(appended.total.totalTokens, 5_300);
+  assert.equal(appended.total.inputTokens, 4_800);
+  assert.equal(appended.total.cachedInputTokens, 3_600);
+  service.dispose();
+});
+
+test("request usage keeps real work after a cumulative counter reset", async () => {
+  const codexHome = tempCodexHome();
+  const threadId = "019e7bbd-eb68-7221-8bd9-7d9c51365cbf";
+  writeSession(codexHome, "sessions", `rollout-2026-08-11T00-00-00-${threadId}`, [
+    sessionMeta(threadId, 1_100),
+    tokenCount(80_000_000, 1_200, {
+      inputTokens: 80_000_000,
+      cachedInputTokens: 79_000_000,
+      outputTokens: 100_000,
+      reasoningOutputTokens: 50_000,
+      lastTokens: {
+        inputTokens: 1_000,
+        cachedInputTokens: 700,
+        outputTokens: 100,
+        reasoningOutputTokens: 50,
+        totalTokens: 1_100,
+      },
+    }),
+    tokenCount(1_500, 1_300, {
+      inputTokens: 1_400,
+      cachedInputTokens: 900,
+      outputTokens: 100,
+      reasoningOutputTokens: 50,
+      lastTokens: {
+        inputTokens: 400,
+        cachedInputTokens: 200,
+        outputTokens: 50,
+        reasoningOutputTokens: 20,
+        totalTokens: 450,
+      },
+    }),
+  ]);
+  const service = new UsageService({
+    codexHome,
+    memento: new MemoryMemento(),
+    now: () => 5_000,
+    heartbeatIntervalMs: 0,
+  });
+
+  const snapshot = await service.initialize();
+  assert.equal(snapshot.total.totalTokens, 1_550);
+  assert.equal(snapshot.total.inputTokens, 1_400);
+  assert.equal(snapshot.total.cachedInputTokens, 900);
   service.dispose();
 });
 
@@ -283,7 +421,7 @@ test("usage history estimates historical and undated increments on the last obse
   ]) {
     assert.equal(sumHistoryTokens(snapshot.history, field), snapshot.total[field]);
   }
-  assert.equal(memento.value.version, 2);
+  assert.equal(memento.value.version, 3);
   assert.equal(Object.hasOwn(memento.value, "history"), false, "derived history must not be persisted");
 
   snapshot.history.days[0].total.totalTokens = 999_999;

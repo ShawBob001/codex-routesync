@@ -825,6 +825,7 @@ function safeAdd(left: number, right: number): number {
 function renderTokenMetrics(model: DashboardModel): HTMLElement {
   const metrics = element("dl", "token-metrics");
   const entries: Array<[DashboardTranslationKey, number]> = [
+    ["usage.metric.countedTotal", model.usage.total.totalTokens],
     ["usage.metric.input", model.usage.total.inputTokens], ["usage.metric.output", model.usage.total.outputTokens],
     ["usage.metric.cachedInput", model.usage.total.cachedInputTokens], ["usage.metric.reasoning", model.usage.total.reasoningOutputTokens],
     ["usage.metric.attributed", model.usage.attributedTokens], ["usage.metric.unattributed", model.usage.unattributedTokens],

@@ -17,6 +17,7 @@ import type {
   StorageSource,
 } from "./savedEntries";
 import {
+  countedTokenTotal,
   formatCompactTokens,
   stableSubjectId,
   TokenTotals,
@@ -607,11 +608,11 @@ function quotaSortRank(status: DashboardQuotaStatus): number {
 
 function buildUsage(snapshot: UsageSnapshot): DashboardUsage {
   const total = projectTokens(snapshot.total);
-  const unattributedTokens = safeToken(snapshot.unattributed.totalTokens);
+  const unattributedTokens = countedTokenTotal(snapshot.unattributed);
   const attributedTokens = Math.max(0, total.totalTokens - unattributedTokens);
   const denominator = total.totalTokens;
   const segments = snapshot.subjects.map((subject) => {
-    const subjectTotal = safeToken(subject.tokens.totalTokens);
+    const subjectTotal = countedTokenTotal(subject.tokens);
     return {
       id: subject.id,
       kind: subject.kind,
@@ -677,7 +678,7 @@ function projectTokens(tokens: TokenTotals): TokenTotals {
     cachedInputTokens: safeToken(tokens.cachedInputTokens),
     outputTokens: safeToken(tokens.outputTokens),
     reasoningOutputTokens: safeToken(tokens.reasoningOutputTokens),
-    totalTokens: safeToken(tokens.totalTokens),
+    totalTokens: countedTokenTotal(tokens),
   };
 }
 
@@ -689,7 +690,8 @@ function subjectTokens(
 ): number | null {
   if (usage.status !== "ready") return null;
   const id = stableSubjectId(kind, `${source}:${name}`);
-  return safeToken(usage.subjects.find((subject) => subject.id === id)?.tokens.totalTokens ?? 0);
+  const tokens = usage.subjects.find((subject) => subject.id === id)?.tokens;
+  return tokens ? countedTokenTotal(tokens) : 0;
 }
 
 function safeWireApi(provider: SavedProviderInfo): "responses" | "chat" | null {
